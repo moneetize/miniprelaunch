@@ -10,6 +10,7 @@ import { safeGetItem, safeSetItem } from '../utils/storage';
 import { getSelectedAvatarImage } from '../utils/avatarUtils';
 import { isUserAdmin } from '../services/authService';
 import { getStoredUsdtBalance, loadScratchProfile, type ScratchDrawResult } from '../services/scratchService';
+import { isStoredProfileComplete, PROFILE_SETTINGS_UPDATED_EVENT } from '../utils/profileSettings';
 
 interface TeamMember {
   id: string;
@@ -131,12 +132,19 @@ export function ProfileScreen() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [showRewardHistory, setShowRewardHistory] = useState(false);
   const [scratchHistory, setScratchHistory] = useState<ScratchDrawResult[]>(() => getStoredScratchHistory());
+  const [isProfileComplete, setIsProfileComplete] = useState(() => isStoredProfileComplete());
 
   useEffect(() => {
     let cancelled = false;
 
     // Check if user is admin
     setIsAdmin(isUserAdmin());
+    setIsProfileComplete(isStoredProfileComplete());
+    const handleProfileSettingsUpdated = () => {
+      setIsProfileComplete(isStoredProfileComplete());
+    };
+
+    window.addEventListener(PROFILE_SETTINGS_UPDATED_EVENT, handleProfileSettingsUpdated);
     
     // Load user data
     const points = getUserPoints();
@@ -189,7 +197,7 @@ export function ProfileScreen() {
     // Get investment profile
     const userProfileData = safeGetItem('userProfile');
     const parsedProfile = userProfileData ? JSON.parse(userProfileData) : {};
-    setInvestmentProfile(parsedProfile.investmentProfile || 'Not set');
+    setInvestmentProfile(parsedProfile.investmentProfile || safeGetItem('investmentProfile') || 'Not set');
 
     // Set member since date
     const createdAt = parsedProfile.completedAt || new Date().toISOString();
@@ -235,6 +243,7 @@ export function ProfileScreen() {
 
     return () => {
       cancelled = true;
+      window.removeEventListener(PROFILE_SETTINGS_UPDATED_EVENT, handleProfileSettingsUpdated);
     };
   }, []);
 
@@ -381,6 +390,39 @@ export function ProfileScreen() {
       </div>
 
       <div className="pt-16 pb-6 px-4 max-w-md mx-auto">
+        {!isProfileComplete && (
+          <motion.div
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4 overflow-hidden rounded-[1rem] border border-white/10 bg-white/[0.075] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_18px_44px_rgba(0,0,0,0.32)] backdrop-blur-md"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[12px] font-bold leading-snug text-white">
+                  Complete your onboarding process and receive bonus points!
+                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <div className="h-1.5 w-28 overflow-hidden rounded-full bg-white/12">
+                    <div className="h-full w-3/4 rounded-full bg-[#f5a83d]" />
+                  </div>
+                  <span className="text-[10px] font-black text-white/70">75%</span>
+                </div>
+                <div className="mt-2 flex items-center gap-1.5">
+                  <img src={gemIcon} alt="Gem" className="h-4 w-4" />
+                  <span className="text-[11px] font-black text-emerald-300">+397</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate('/settings')}
+                className="shrink-0 rounded-full bg-white px-4 py-2 text-[11px] font-black text-black transition-colors hover:bg-gray-100"
+              >
+                Register
+              </button>
+            </div>
+          </motion.div>
+        )}
+
         {/* Profile Card */}
         <motion.div
           layout
@@ -456,10 +498,10 @@ export function ProfileScreen() {
 
           <div className="mb-6 flex justify-center">
             <button
-              onClick={() => setActiveTab('settings')}
+              onClick={() => navigate('/settings')}
               className="rounded-full bg-white px-6 py-2.5 text-sm font-bold text-black shadow-[0_8px_24px_rgba(0,0,0,0.24)] transition-colors hover:bg-gray-100"
             >
-              Complete KYC
+              Complete Profile
             </button>
           </div>
 

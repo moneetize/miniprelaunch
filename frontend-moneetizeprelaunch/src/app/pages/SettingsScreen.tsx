@@ -35,7 +35,7 @@ import {
   Check
 } from 'lucide-react';
 import { safeGetItem, safeSetItem } from '../utils/storage';
-import { getStoredProfileSettings, notifyProfileSettingsUpdated, resolveProfilePhoto } from '../utils/profileSettings';
+import { getStoredProfileSettings, markProfileCompleted, notifyProfileSettingsUpdated, resolveProfilePhoto } from '../utils/profileSettings';
 
 // Import AI agent avatars - only the two main ones (purple and green)
 import aiBubble from 'figma:asset/36fff8878cf3ea6d1ef44d3f08bbc2346c733ebc.png';
@@ -225,6 +225,28 @@ export function SettingsScreen() {
     setTempHandle(userHandle);
     setEditingName(false);
     setEditingHandle(false);
+  };
+
+  const handleSaveProfile = () => {
+    if (userName.trim()) {
+      safeSetItem('userName', userName.trim());
+    }
+
+    if (userHandle.trim()) {
+      safeSetItem('userHandle', userHandle.startsWith('@') ? userHandle : `@${userHandle}`);
+    }
+
+    if (userEmail.trim()) {
+      safeSetItem('user_email', userEmail.trim());
+    }
+
+    safeSetItem('selectedInterests', JSON.stringify(selectedInterests));
+    safeSetItem('investmentProfile', selectedInvestment);
+    safeSetItem('profileTags', JSON.stringify(tags));
+    safeSetItem('agentName', agentName);
+    markProfileCompleted();
+    notifyProfileSettingsUpdated();
+    navigate('/profile-screen');
   };
 
   // Main Settings View
@@ -709,6 +731,15 @@ export function SettingsScreen() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="mb-3 flex justify-center">
+            <button
+              onClick={handleSaveProfile}
+              className="rounded-full bg-white px-10 py-3 text-[12px] font-black text-black shadow-[0_14px_34px_rgba(255,255,255,0.12)] transition-colors hover:bg-gray-100"
+            >
+              Save Profile
+            </button>
           </div>
 
           <div className="flex justify-center">

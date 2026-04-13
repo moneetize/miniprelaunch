@@ -5,6 +5,7 @@ import { Check, Copy, Info, Link as LinkIcon, Plus } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import wildcardIcon from 'figma:asset/f632203f248e2d298246c5ffb0789bc0cac99ea5.png';
 import tshirtRewardIcon from '../../assets/moneetize-tshirt-reward.png';
+import SembolVariants from '../../imports/SembolVariants';
 import { getUserPoints, setUserPoints } from '../utils/pointsManager';
 import { drawScratchTicket, type ScratchBalances, type ScratchReward, type ScratchRewardItem, type ScratchTicket } from '../services/scratchService';
 import { getDefaultRecommendedFriends, loadRecommendedFriends, type RecommendedFriendProfile } from '../services/networkService';
@@ -37,6 +38,7 @@ type PreGameStep =
   | 'idle'
   | 'activateRewards'
   | 'readyRegister'
+  | 'rewardReveal'
   | 'processing'
   | 'abiMoment'
   | 'success'
@@ -88,6 +90,43 @@ const formatGoldenRemaining = (remaining?: { hours?: number; minutes?: number; s
 const getGradientStops = (gradient: string | undefined, fallback: string) => {
   const stops = gradient?.match(/#[0-9a-fA-F]{3,6}/g) || [];
   return [stops[0] || fallback, stops[1] || fallback] as const;
+};
+
+type MiniTicketKind = 'blue' | 'wildcard' | 'golden';
+
+const getMiniTicketKind = (ticket: ScratchTicket): MiniTicketKind => {
+  if (ticket.isGolden) return 'golden';
+  return ticket.theme === 'blue' ? 'blue' : 'wildcard';
+};
+
+const miniTicketFrame: Record<MiniTicketKind, {
+  title: string;
+  optionLabel: string;
+  border: string;
+  glow: string;
+  ticketGradient: string;
+}> = {
+  blue: {
+    title: 'Scratch & Win',
+    optionLabel: 'Blue Ticket',
+    border: 'rgba(125, 183, 206, 0.7)',
+    glow: 'rgba(125, 183, 206, 0.18)',
+    ticketGradient: 'linear-gradient(135deg, #7c84ff 0%, #c9f4e2 100%)',
+  },
+  wildcard: {
+    title: 'Wild Scratch',
+    optionLabel: 'Wild Card',
+    border: 'rgba(101, 214, 205, 0.68)',
+    glow: 'rgba(101, 214, 205, 0.2)',
+    ticketGradient: 'linear-gradient(135deg, #61d8ff 0%, #76f7d0 100%)',
+  },
+  golden: {
+    title: 'Golden Scratch',
+    optionLabel: 'Golden Ticket',
+    border: 'rgba(221, 177, 57, 0.76)',
+    glow: 'rgba(221, 177, 57, 0.24)',
+    ticketGradient: 'linear-gradient(135deg, #c8941d 0%, #fde68a 100%)',
+  },
 };
 
 const levelCardStyle = {
@@ -415,6 +454,7 @@ export function ScratchAndWin() {
   const [expirationCountdown, setExpirationCountdown] = useState({ days: 12, hours: 10, minutes: 8, seconds: 32 });
   const showActivateRewards = preGameStep === 'activateRewards';
   const showReadyRegister = preGameStep === 'readyRegister';
+  const showRewardReveal = preGameStep === 'rewardReveal';
   const showProcessing = preGameStep === 'processing';
   const showAbiMoment = preGameStep === 'abiMoment';
   const showSuccess = preGameStep === 'success';
@@ -657,15 +697,15 @@ export function ScratchAndWin() {
     }
     setParticles(newParticles);
 
-    // Show level progress first, then continue into the activate rewards flow.
+    // Move into the mini reveal screen after the confetti burst.
     setTimeout(() => {
       setShowParticles(false);
-      setShowLevelProgress(true);
-    }, 2500); // Extended to 2.5s for longer confetti effect
+      setPreGameStep('rewardReveal');
+    }, 1800);
   };
 
   const handleActivateRewards = () => {
-    setPreGameStep('readyRegister');
+    setPreGameStep('teamNetwork');
   };
 
   const handleRegisterNow = () => {
@@ -993,6 +1033,13 @@ export function ScratchAndWin() {
   const teamNetworkMembers = Math.min(SCRATCH_TEAM_MEMBERS + 1, SCRATCH_TEAM_TARGET);
   const teamNetworkProgress = Math.round((teamNetworkMembers / SCRATCH_TEAM_TARGET) * 100);
   const preGameTriptoTotal = Math.max(SCRATCH_PREGAME_TRIPTO_TOTAL, lockedTriptoPoints);
+  const miniTicketKind = getMiniTicketKind(ticket);
+  const miniTicket = miniTicketFrame[miniTicketKind];
+  const miniTicketOptions: Array<{ id: MiniTicketKind; label: string; sublabel: string }> = [
+    { id: 'wildcard', label: 'Wild Card', sublabel: 'Prize boost' },
+    { id: 'blue', label: 'Blue Ticket', sublabel: 'Common' },
+    { id: 'golden', label: 'Golden Ticket', sublabel: 'Very rare' },
+  ];
 
   const getRewardCardWidth = (item: ScratchRewardItem) => {
     if (item.type === 'wildcard') return 'min-w-[172px] w-[172px]';
@@ -1110,210 +1157,163 @@ export function ScratchAndWin() {
       </AnimatePresence>
 
       {/* Main Content */}
-      <div className="flex min-h-screen flex-col items-center justify-start gap-4 px-4 pt-14 pb-28">
+      <div className="flex min-h-screen flex-col items-center justify-start gap-7 px-4 pb-28 pt-[88px]">
         <motion.section
-          initial={{ y: -10, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
+          initial={{ scale: 0.96, opacity: 0, y: 14 }}
+          animate={{ scale: 1, opacity: 1, y: 0 }}
           transition={{ duration: 0.45 }}
-          className="w-full max-w-md rounded-[2rem] border border-white/10 bg-gradient-to-b from-[#20232d]/95 to-[#14171e]/95 px-5 py-5 text-center shadow-2xl backdrop-blur-md"
-        >
-          <div className="-space-x-2.5 flex items-center justify-center">
-            {recommendedFriends.slice(0, 5).map((friend, index) => (
-              <button
-                key={friend.id}
-                type="button"
-                onClick={() => handleOpenRecommendedFriend(friend)}
-                aria-label={`View ${friend.name}'s profile`}
-                className="relative h-11 w-11 overflow-hidden rounded-full border-2 border-[#1f222c] bg-gradient-to-br from-slate-500 to-slate-900 text-sm font-bold text-white shadow-lg transition-transform hover:-translate-y-1 hover:scale-105"
-                style={{ zIndex: index + 1 }}
-                title={`${friend.name} ${friend.handle}`}
-              >
-                <span className="absolute inset-0 flex items-center justify-center">
-                  {friend.name.charAt(0)}
-                </span>
-                <img
-                  src={friend.avatar}
-                  alt={friend.name}
-                  className="relative h-full w-full object-cover"
-                  onError={(event) => {
-                    event.currentTarget.style.display = 'none';
-                  }}
-                />
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={handleOpenInviteModal}
-              aria-label="Invite friends"
-              className="relative z-10 flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-[#22252f] text-white shadow-lg shadow-black/25 transition-transform hover:-translate-y-1 hover:bg-white/15"
-            >
-              <Plus className="h-5 w-5" />
-            </button>
-          </div>
-          <h2 className="mt-3 text-2xl font-bold text-white">Get more cash prizes!</h2>
-          <p className="mt-1 text-sm font-semibold text-white/85">Set up your team before the launch</p>
-        </motion.section>
-
-        <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.5 }}
-          className="w-full max-w-md rounded-3xl p-8 border-2 backdrop-blur-md relative"
+          className="relative w-full max-w-[375px] overflow-hidden rounded-[1.55rem] border px-5 pb-9 pt-6 text-center shadow-2xl"
           style={{
-            borderColor: ticket.borderColor,
-            background: ticket.cardGradient,
-            boxShadow: `0 0 60px ${ticket.glowColor}`,
+            borderColor: miniTicket.border,
+            background: 'linear-gradient(180deg, rgba(28,35,40,0.96) 0%, rgba(14,17,20,0.98) 100%)',
+            boxShadow: `0 0 55px ${miniTicket.glow}, inset 0 1px 0 rgba(255,255,255,0.05)`,
           }}
         >
-          {/* Title */}
-          <motion.h1
-            initial={{ y: -20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 0.2 }}
-            className="text-white text-2xl sm:text-3xl font-bold text-center mb-4"
-          >
-            {ticket.title}
-          </motion.h1>
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_8%,rgba(132,230,210,0.13),transparent_34%),radial-gradient(circle_at_18%_62%,rgba(82,129,255,0.08),transparent_30%)]" />
 
-          {/* Subtitle */}
-          <motion.p
-            initial={{ y: -20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 0.3 }}
-            className="text-gray-400 text-sm text-center mb-6"
-          >
-            Your mystery card is waiting!<br />
-            Scratch now to reveal how many<br />
-            bonus points you've won.
-          </motion.p>
+          <div className="relative z-10 mb-6 flex flex-col items-center">
+            <div className="mb-3 flex items-center gap-2">
+              <div className="h-[42px] w-[42px]">
+                <SembolVariants />
+              </div>
+              <div className="text-left">
+                <p className="text-[24px] font-black leading-none text-white">moneetize</p>
+                <p className="text-[12px] font-black leading-none text-[#9bd9cf]">Spend... with benefits</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-[12px] font-bold text-white/58">
+              <img src={recommendedFriends[0]?.avatar} alt="" className="h-6 w-6 rounded-full object-cover" />
+              Johnny invited you to
+            </div>
+          </div>
 
-          {/* Countdown Timer (for golden ticket) */}
+          <h1 className="relative z-10 mb-5 text-[22px] font-black text-white">{miniTicket.title}</h1>
+
+          <div className="relative z-10 mb-5 grid grid-cols-3 gap-2">
+            {miniTicketOptions.map((option) => (
+              <div
+                key={option.id}
+                className={`rounded-[0.65rem] border px-2 py-3 text-center ${
+                  option.id === miniTicketKind
+                    ? 'border-white/35 bg-white/12 text-white'
+                    : 'border-white/12 bg-black/35 text-white/72'
+                }`}
+              >
+                <p className="text-[11px] font-black leading-tight">{option.label}</p>
+                <p className="mt-1 text-[9px] font-bold leading-tight text-white/45">{option.sublabel}</p>
+              </div>
+            ))}
+          </div>
+
           {ticket.isGolden && !isRevealed && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.4 }}
-              className="flex items-center justify-center gap-2 mb-6"
-            >
-              <div className="bg-black/50 px-3 py-2 rounded-lg">
-                <span className="text-white text-xl font-bold">{String(countdown.hours).padStart(2, '0')}</span>
-                <span className="text-gray-500 text-xs ml-1">hours</span>
-              </div>
-              <span className="text-white text-xl">:</span>
-              <div className="bg-black/50 px-3 py-2 rounded-lg">
-                <span className="text-white text-xl font-bold">{String(countdown.minutes).padStart(2, '0')}</span>
-                <span className="text-gray-500 text-xs ml-1">min</span>
-              </div>
-              <span className="text-white text-xl">:</span>
-              <div className="bg-black/50 px-3 py-2 rounded-lg">
-                <span className="text-white text-xl font-bold">{String(countdown.seconds).padStart(2, '0')}</span>
-                <span className="text-gray-500 text-xs ml-1">sec</span>
-              </div>
-            </motion.div>
+            <div className="relative z-10 mb-5 flex items-center justify-center gap-2">
+              {[
+                { value: countdown.hours, label: 'hours' },
+                { value: countdown.minutes, label: 'min' },
+                { value: countdown.seconds, label: 'sec' },
+              ].map((item, index) => (
+                <div key={item.label} className="flex items-center gap-2">
+                  <div className="rounded-[0.65rem] bg-black/46 px-3 py-2">
+                    <span className="text-[18px] font-black text-white">{String(item.value).padStart(2, '0')}</span>
+                    <span className="ml-1 text-[10px] font-bold text-white/40">{item.label}</span>
+                  </div>
+                  {index < 2 && <span className="text-white/35">:</span>}
+                </div>
+              ))}
+            </div>
           )}
 
-          {/* Scratch Card */}
-          <motion.div
-            initial={{ scale: 0.8, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ delay: 0.4 }}
-            className="relative mb-6"
-          >
-            {/* Background revealed content */}
+          <div className="relative z-10 mx-auto mb-5 w-[min(100%,286px)]">
             <div
-              className="w-full h-40 rounded-2xl border border-white/10 flex flex-col items-center justify-center relative overflow-hidden"
-              style={{ background: ticket.cardGradient }}
+              className="relative flex h-[118px] items-center justify-center overflow-hidden border border-white/10 bg-black/25"
+              style={{
+                background: isRevealed ? 'rgba(0,0,0,0.28)' : miniTicket.ticketGradient,
+                clipPath: 'polygon(0 8%, 4% 8%, 4% 0, 8% 0, 8% 8%, 12% 8%, 12% 0, 16% 0, 16% 8%, 20% 8%, 20% 0, 24% 0, 24% 8%, 28% 8%, 28% 0, 32% 0, 32% 8%, 36% 8%, 36% 0, 40% 0, 40% 8%, 44% 8%, 44% 0, 48% 0, 48% 8%, 52% 8%, 52% 0, 56% 0, 56% 8%, 60% 8%, 60% 0, 64% 0, 64% 8%, 68% 8%, 68% 0, 72% 0, 72% 8%, 76% 8%, 76% 0, 80% 0, 80% 8%, 84% 8%, 84% 0, 88% 0, 88% 8%, 92% 8%, 92% 0, 96% 0, 96% 8%, 100% 8%, 100% 92%, 96% 92%, 96% 100%, 92% 100%, 92% 92%, 88% 92%, 88% 100%, 84% 100%, 84% 92%, 80% 92%, 80% 100%, 76% 100%, 76% 92%, 72% 92%, 72% 100%, 68% 100%, 68% 92%, 64% 92%, 64% 100%, 60% 100%, 60% 92%, 56% 92%, 56% 100%, 52% 100%, 52% 92%, 48% 92%, 48% 100%, 44% 100%, 44% 92%, 40% 92%, 40% 100%, 36% 100%, 36% 92%, 32% 92%, 32% 100%, 28% 100%, 28% 92%, 24% 92%, 24% 100%, 20% 100%, 20% 92%, 16% 92%, 16% 100%, 12% 100%, 12% 92%, 8% 92%, 8% 100%, 4% 100%, 4% 92%, 0 92%)',
+              }}
             >
-              {!isRevealed && (
-                <div className="flex flex-col items-center gap-2">
-                  <div className="flex items-center gap-3">
-                    <img src={gemIcon} alt="Gem" className="w-10 h-10 object-contain" />
-                    <span className="text-emerald-400 text-3xl font-bold">+{participationScore}</span>
-                    <img src={gemIcon} alt="Gem" className="w-8 h-8 object-contain opacity-60" />
-                  </div>
-                  <span className="rounded-full bg-white/10 px-3 py-1 text-sm font-semibold text-white">
-                    +{formatUsdt(reward.usdt)}
-                  </span>
+              {isRevealed ? (
+                <motion.div
+                  initial={{ scale: 0.72, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="flex flex-col items-center"
+                >
+                  <p className="text-[28px] font-black text-white">${reward.usdt.toFixed(2)}</p>
+                  <p className="mt-1 rounded-full bg-white px-4 py-1 text-[11px] font-black text-black">USDT</p>
+                </motion.div>
+              ) : (
+                <div className="flex items-center gap-10 text-white drop-shadow-[0_0_18px_rgba(255,255,255,0.58)]">
+                  <div className="h-9 w-5 rounded-l-full bg-white" />
+                  <div className="h-0 w-0 border-y-[22px] border-l-[26px] border-y-transparent border-l-white" />
+                  <div className="h-0 w-0 border-y-[22px] border-r-[26px] border-y-transparent border-r-white" />
+                  <div className="h-9 w-5 rounded-r-full bg-white" />
                 </div>
               )}
-              
-              {isRevealed && (
-                <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ type: 'spring', duration: 0.8 }}
-                  className="flex flex-col items-center gap-2"
-                >
-                  <div className="flex items-center gap-3">
-                    <img src={gemIcon} alt="Gem" className="w-12 h-12 object-contain" />
-                    <span className="text-emerald-400 text-4xl font-bold">+{participationScore}</span>
-                    <img src={gemIcon} alt="Gem" className="w-10 h-10 object-contain opacity-80" />
-                  </div>
-                  <span className="rounded-full bg-white/10 px-4 py-1.5 text-sm font-semibold text-white">
-                    +{formatUsdt(reward.usdt)}
-                  </span>
-                </motion.div>
+
+              {!isRevealed && (
+                <canvas
+                  ref={canvasRef}
+                  onMouseMove={(e) => e.buttons === 1 && handleScratch(e)}
+                  onMouseDown={handleScratch}
+                  onMouseUp={handleMouseUp}
+                  onTouchMove={handleScratch}
+                  onTouchStart={handleScratch}
+                  onTouchEnd={handleTouchEnd}
+                  className="absolute inset-0 h-full w-full cursor-pointer touch-none"
+                  style={{ background: miniTicket.ticketGradient }}
+                />
               )}
             </div>
+          </div>
 
-            {/* Scratch overlay canvas */}
-            {!isRevealed && (
-              <canvas
-                ref={canvasRef}
-                onMouseMove={(e) => e.buttons === 1 && handleScratch(e)}
-                onMouseDown={handleScratch}
-                onMouseUp={handleMouseUp}
-                onTouchMove={handleScratch}
-                onTouchStart={handleScratch}
-                onTouchEnd={handleTouchEnd}
-                className="absolute inset-0 w-full h-full rounded-2xl cursor-pointer touch-none"
-                style={{ background: ticket.scratchGradient }}
-              />
-            )}
-          </motion.div>
-
-          {/* Instruction Text */}
-          {!isRevealed && (
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.5 }}
-              className="text-gray-400 text-sm text-center mb-6"
-            >
-              Tap to uncover<br />
-              your reward!
-            </motion.p>
-          )}
-
-          {/* How Rewards Work Button */}
-          <motion.button
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.6 }}
-            className="flex items-center gap-2 mx-auto px-5 py-2.5 bg-white/10 hover:bg-white/20 rounded-full text-white text-sm transition-colors"
+          <button
+            type="button"
+            onClick={() => setPreGameStep('wildCard')}
+            className="relative z-10 mx-auto mb-7 flex items-center gap-2 rounded-full bg-white/10 px-5 py-2.5 text-[12px] font-black text-white transition-colors hover:bg-white/16"
           >
-            <Info className="w-4 h-4" />
+            <Info className="h-4 w-4" />
             How rewards work
-          </motion.button>
-        </motion.div>
-      </div>
+          </button>
 
-      {/* View Profile Button */}
-      {!isPreRegistrationTeaser && (
-        <motion.div
+          <div className="relative z-10 mx-auto h-px w-16 bg-white/15" />
+
+          <div className="relative z-10 mt-6">
+            <h2 className="text-[20px] font-black leading-tight text-white">Get more cash prizes!</h2>
+            <p className="mt-1 text-[13px] font-bold text-white/54">Set up your team before the launch:</p>
+            <div className="mt-5 flex items-center justify-center -space-x-3">
+              {recommendedFriends.slice(0, 4).map((friend, index) => (
+                <button
+                  key={friend.id}
+                  type="button"
+                  onClick={() => handleOpenRecommendedFriend(friend)}
+                  aria-label={`View ${friend.name}'s profile`}
+                  className="relative h-12 w-12 overflow-hidden rounded-full border-2 border-[#1f222c] bg-[#232831]"
+                  style={{ zIndex: index + 1 }}
+                >
+                  <img src={friend.avatar} alt={friend.name} className="h-full w-full object-cover" />
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={handleOpenInviteModal}
+                aria-label="Invite friends"
+                className="relative z-10 flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/8 text-white"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </motion.section>
+
+        <motion.button
           initial={{ y: 20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: 0.7 }}
-          className="absolute bottom-8 left-0 right-0 flex justify-center px-4"
+          transition={{ delay: 0.35 }}
+          onClick={handleViewProfile}
+          className="rounded-full bg-white px-12 py-3.5 text-base font-black text-black shadow-xl transition-colors hover:bg-gray-100"
         >
-          <button
-            onClick={handleViewProfile}
-            className="bg-white text-black px-12 py-3.5 rounded-full font-semibold text-base hover:bg-gray-100 transition-colors shadow-xl"
-          >
-            View Profile
-          </button>
-        </motion.div>
-      )}
+          View Profile
+        </motion.button>
+      </div>
 
       {/* Invite Friends Modal */}
       <AnimatePresence>
@@ -1322,7 +1322,7 @@ export function ScratchAndWin() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 z-50 flex items-center justify-center bg-black/75 px-4 backdrop-blur-sm"
+            className="absolute inset-0 z-[70] flex items-center justify-center bg-black/75 px-4 backdrop-blur-sm"
             onClick={() => setShowInviteModal(false)}
           >
             <motion.div
@@ -1360,6 +1360,84 @@ export function ScratchAndWin() {
                 Close
               </button>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Mini Reward Reveal Screen */}
+      <AnimatePresence>
+        {showRewardReveal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black px-4 pb-12 pt-[64px]"
+          >
+            <div className="pointer-events-none absolute inset-0 overflow-hidden">
+              <div className="absolute -left-12 top-28 h-48 w-20 rotate-[-34deg] bg-sky-300/70 blur-[3px]" />
+              <div className="absolute right-0 top-28 h-40 w-40 rotate-[21deg] bg-red-500/65 blur-[8px]" />
+              <div className="absolute right-12 top-16 h-28 w-4 rotate-[51deg] bg-yellow-300" />
+              <div className="absolute bottom-20 left-10 h-24 w-8 rotate-[17deg] bg-sky-300" />
+              <div className="absolute bottom-12 right-20 h-8 w-12 rotate-[31deg] bg-indigo-500" />
+              <div className="absolute inset-x-0 top-0 h-80 bg-[radial-gradient(circle_at_50%_8%,rgba(132,230,210,0.14),transparent_38%)]" />
+            </div>
+
+            <motion.section
+              initial={{ scale: 0.94, opacity: 0, y: 16 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              transition={{ duration: 0.42 }}
+              className="relative w-full max-w-[375px] text-center"
+            >
+              <div className="mx-auto mb-6 h-[72px] w-[72px] overflow-hidden rounded-full">
+                <SembolVariants />
+              </div>
+
+              <div
+                className="relative overflow-hidden rounded-[1.55rem] border px-6 pb-8 pt-10"
+                style={{
+                  borderColor: miniTicket.border,
+                  background: 'linear-gradient(180deg, rgba(24,31,36,0.9) 0%, rgba(13,16,18,0.96) 100%)',
+                  boxShadow: `0 0 60px ${miniTicket.glow}, inset 0 1px 0 rgba(255,255,255,0.05)`,
+                }}
+              >
+                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_24%,rgba(113,231,183,0.13),transparent_34%)]" />
+                <h2 className="relative z-10 text-[22px] font-black text-white">You've Won!</h2>
+
+                <div className="relative z-10 mx-auto mt-9 max-w-[186px] rounded-[0.8rem] border border-[#7fc7a6]/55 bg-black/25 px-6 py-6">
+                  <p className="text-[44px] font-black leading-none text-white">${reward.usdt.toFixed(2)}</p>
+                  <p className="mx-auto mt-4 w-fit rounded-full bg-white px-6 py-2 text-[13px] font-black text-black">USDT</p>
+                </div>
+
+                <p className="relative z-10 mt-7 text-[16px] font-black text-white">You also get:</p>
+
+                <div className="relative z-10 -mx-2 mt-5 flex snap-x gap-3 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  {activationRewards.slice(0, 3).map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex min-h-[116px] min-w-[132px] snap-center flex-col items-center justify-center gap-2 rounded-[1rem] border border-white/12 bg-white/9 px-3 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                    >
+                      {renderRewardItem(item)}
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleActivateRewards}
+                  className="relative z-10 mt-7 rounded-full bg-gradient-to-r from-[#9af4ae] to-[#78d9f8] px-9 py-3.5 text-[14px] font-black text-[#081012] shadow-[0_18px_44px_rgba(103,232,249,0.18)] transition-transform hover:scale-[1.02]"
+                >
+                  Activate
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleViewProfile}
+                className="mt-10 rounded-full bg-white px-12 py-3.5 text-[15px] font-black text-black shadow-xl transition-colors hover:bg-gray-100"
+              >
+                View Profile
+              </button>
+            </motion.section>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1724,6 +1802,125 @@ export function ScratchAndWin() {
                 Invite Friends
               </button>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Mini Team & Network Screen */}
+      <AnimatePresence>
+        {showTeamNetwork && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black px-4 pb-12 pt-[68px]"
+          >
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_10%,rgba(115,221,208,0.14),transparent_35%),radial-gradient(circle_at_15%_55%,rgba(86,143,255,0.08),transparent_28%)]" />
+            <motion.section
+              initial={{ scale: 0.94, opacity: 0, y: 18 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.94, opacity: 0, y: 18 }}
+              className="relative w-full max-w-[375px] overflow-hidden rounded-[1.55rem] border border-[#7ba4b9]/55 bg-gradient-to-b from-[#192026]/96 to-[#0d0f10]/98 px-5 pb-9 pt-7 text-center shadow-2xl"
+            >
+              <div className="mx-auto mb-5 h-[52px] w-[52px]">
+                <SembolVariants />
+              </div>
+              <h2 className="text-[22px] font-black text-white">Keep Growing!</h2>
+              <p className="mx-auto mt-2 max-w-[270px] text-[13px] font-bold leading-relaxed text-white/50">
+                Only a team of 5 qualifies for the grand prize!
+              </p>
+
+              <div className="mt-7 rounded-[0.9rem] bg-black/42 px-4 py-4 text-left">
+                <div className="mb-5 flex items-center justify-between">
+                  <p className="text-[16px] font-black text-white">Your Money Ties</p>
+                  <p className="text-[22px] font-black text-white">{teamNetworkMembers}/{SCRATCH_TEAM_TARGET}</p>
+                </div>
+
+                <div className="-space-x-3 flex items-center">
+                  {recommendedFriends.slice(0, 4).map((friend, index) => (
+                    <img
+                      key={friend.id}
+                      src={friend.avatar}
+                      alt=""
+                      className="h-12 w-12 rounded-full border-2 border-[#13171b] object-cover"
+                      style={{ zIndex: index + 1 }}
+                    />
+                  ))}
+                  <button
+                    type="button"
+                    onClick={handleOpenInviteModal}
+                    className="relative z-10 flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/8 text-white"
+                    aria-label="Invite teammate"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <p className="mt-4 max-w-[260px] text-[13px] font-bold leading-relaxed text-white/54">
+                  You and your friends earn another scratch when they accept your invitation.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={handleOpenInviteModal}
+                  className="ml-auto mt-3 block rounded-full bg-white px-6 py-2 text-[12px] font-black text-black"
+                >
+                  Share
+                </button>
+              </div>
+
+              <h3 className="mt-5 text-[20px] font-black text-white">Get more Cash Prizes.</h3>
+              <p className="mt-1 text-[13px] font-bold text-white/48">Set up your team before the launch</p>
+
+              <div className="-mx-5 mt-5 flex snap-x gap-4 overflow-x-auto px-3 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {miniTicketOptions.map((option) => {
+                  const frame = miniTicketFrame[option.id];
+
+                  return (
+                    <div
+                      key={option.id}
+                      className="min-w-[128px] snap-center rounded-[1rem] border border-white/12 bg-white/8 px-3 pb-4 pt-3"
+                    >
+                      <p className="text-[13px] font-black text-white">{option.label}</p>
+                      <p className="text-[10px] font-bold text-white/48">
+                        {option.id === 'golden' ? 'Win up $25.00' : option.id === 'wildcard' ? 'Win up $12.00' : 'Win up $5.00'}
+                      </p>
+                      <div
+                        className="mt-3 h-[56px] w-full"
+                        style={{
+                          background: frame.ticketGradient,
+                          clipPath: 'polygon(0 12%, 8% 12%, 8% 0, 16% 0, 16% 12%, 24% 12%, 24% 0, 32% 0, 32% 12%, 40% 12%, 40% 0, 48% 0, 48% 12%, 56% 12%, 56% 0, 64% 0, 64% 12%, 72% 12%, 72% 0, 80% 0, 80% 12%, 88% 12%, 88% 0, 96% 0, 96% 12%, 100% 12%, 100% 88%, 96% 88%, 96% 100%, 88% 100%, 88% 88%, 80% 88%, 80% 100%, 72% 100%, 72% 88%, 64% 88%, 64% 100%, 56% 100%, 56% 88%, 48% 88%, 48% 100%, 40% 100%, 40% 88%, 32% 88%, 32% 100%, 24% 100%, 24% 88%, 16% 88%, 16% 100%, 8% 100%, 8% 88%, 0 88%)',
+                        }}
+                      >
+                        <div className="flex h-full items-center justify-center gap-6 text-white">
+                          <div className="h-5 w-3 rounded-l-full bg-white" />
+                          <div className="h-0 w-0 border-y-[13px] border-l-[15px] border-y-transparent border-l-white" />
+                          <div className="h-0 w-0 border-y-[13px] border-r-[15px] border-y-transparent border-r-white" />
+                          <div className="h-5 w-3 rounded-r-full bg-white" />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="mt-7 flex flex-col items-center gap-6">
+                <button
+                  type="button"
+                  onClick={handleViewProfile}
+                  className="rounded-full bg-white px-10 py-3.5 text-[14px] font-black text-black shadow-xl transition-colors hover:bg-gray-100"
+                >
+                  Skip for Now
+                </button>
+                <button
+                  type="button"
+                  onClick={handleViewProfile}
+                  className="rounded-full bg-white px-12 py-3.5 text-[15px] font-black text-black shadow-xl transition-colors hover:bg-gray-100"
+                >
+                  View Profile
+                </button>
+              </div>
+            </motion.section>
           </motion.div>
         )}
       </AnimatePresence>

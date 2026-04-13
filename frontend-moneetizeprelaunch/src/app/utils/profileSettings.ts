@@ -1,7 +1,8 @@
 import { avatarImageMap, getSelectedAvatarImage } from './avatarUtils';
-import { safeGetItem } from './storage';
+import { safeGetItem, safeSetItem } from './storage';
 
 export const PROFILE_SETTINGS_UPDATED_EVENT = 'moneetize:profile-settings-updated';
+export const PROFILE_COMPLETION_STORAGE_KEY = 'moneetizeProfileComplete';
 export const PROFILE_SETTINGS_STORAGE_KEYS = [
   'selectedInterests',
   'userProfile',
@@ -13,6 +14,7 @@ export const PROFILE_SETTINGS_STORAGE_KEYS = [
   'profileTags',
   'agentName',
   'user_email',
+  PROFILE_COMPLETION_STORAGE_KEY,
 ];
 
 export interface StoredProfileSettings {
@@ -95,6 +97,20 @@ export function getStoredProfileSettings(options: StoredProfileSettingsOptions =
     tags: parseStringArray(safeGetItem('profileTags'), DEFAULT_PROFILE_TAGS),
     agentName: safeGetItem('agentName') || 'My AI Agent',
   };
+}
+
+export function isStoredProfileComplete() {
+  return safeGetItem(PROFILE_COMPLETION_STORAGE_KEY) === 'true';
+}
+
+export function markProfileCompleted() {
+  safeSetItem(PROFILE_COMPLETION_STORAGE_KEY, 'true');
+
+  const profile = safeParseJson<Record<string, unknown>>(safeGetItem('userProfile'), {});
+  safeSetItem('userProfile', JSON.stringify({
+    ...profile,
+    completedAt: typeof profile.completedAt === 'string' ? profile.completedAt : new Date().toISOString(),
+  }));
 }
 
 export function notifyProfileSettingsUpdated() {
