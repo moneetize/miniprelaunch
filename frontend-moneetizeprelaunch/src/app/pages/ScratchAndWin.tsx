@@ -129,6 +129,63 @@ const miniTicketFrame: Record<MiniTicketKind, {
   },
 };
 
+interface InvitationContext {
+  inviterName: string;
+  mailchimpCampaignId?: string;
+  mailchimpEmailId?: string;
+  promptId?: string;
+}
+
+const INVITER_QUERY_KEYS = ['invited_by', 'inviter', 'inviter_name', 'referrer', 'referrer_name', 'from_name', 'user_name'];
+const MAILCHIMP_CAMPAIGN_QUERY_KEYS = ['mc_cid', 'campaign_id', 'campaignId'];
+const PROMPT_QUERY_KEYS = ['prompt_id', 'promptID', 'promptId'];
+
+const cleanInvitationValue = (value: string | null | undefined) => {
+  const cleaned = value?.trim();
+  if (!cleaned || /\*\|.+\|\*/.test(cleaned)) return '';
+  return cleaned.slice(0, 60);
+};
+
+const firstQueryValue = (params: URLSearchParams, keys: string[]) => {
+  for (const key of keys) {
+    const value = cleanInvitationValue(params.get(key));
+    if (value) return value;
+  }
+
+  return '';
+};
+
+const resolveInvitationContext = (): InvitationContext => {
+  const storedInviteName = safeGetItem('moneetizeInviteName') || '';
+  const fallbackName = storedInviteName || 'A friend';
+
+  if (typeof window === 'undefined') {
+    return { inviterName: fallbackName };
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const inviteNameFromUrl = firstQueryValue(params, INVITER_QUERY_KEYS);
+  const mailchimpCampaignFromUrl = firstQueryValue(params, MAILCHIMP_CAMPAIGN_QUERY_KEYS);
+  const mailchimpEmailFromUrl = firstQueryValue(params, ['mc_eid']);
+  const promptIdFromUrl = firstQueryValue(params, PROMPT_QUERY_KEYS);
+  const inviterName = inviteNameFromUrl || fallbackName;
+  const mailchimpCampaignId = mailchimpCampaignFromUrl || safeGetItem('moneetizeMailchimpCampaignId') || '';
+  const mailchimpEmailId = mailchimpEmailFromUrl || safeGetItem('moneetizeMailchimpEmailId') || '';
+  const promptId = promptIdFromUrl || safeGetItem('moneetizePromptId') || '';
+
+  if (inviteNameFromUrl) safeSetItem('moneetizeInviteName', inviteNameFromUrl);
+  if (mailchimpCampaignFromUrl) safeSetItem('moneetizeMailchimpCampaignId', mailchimpCampaignFromUrl);
+  if (mailchimpEmailFromUrl) safeSetItem('moneetizeMailchimpEmailId', mailchimpEmailFromUrl);
+  if (promptIdFromUrl) safeSetItem('moneetizePromptId', promptIdFromUrl);
+
+  return {
+    inviterName,
+    mailchimpCampaignId: mailchimpCampaignId || undefined,
+    mailchimpEmailId: mailchimpEmailId || undefined,
+    promptId: promptId || undefined,
+  };
+};
+
 const levelCardStyle = {
   background:
     'radial-gradient(circle at 12% 46%, rgba(61, 92, 132, 0.18) 0%, transparent 24%), radial-gradient(circle at 78% 38%, rgba(87, 130, 91, 0.18) 0%, transparent 28%), linear-gradient(180deg, rgba(25, 31, 37, 0.96) 0%, rgba(16, 20, 20, 0.98) 100%)',
@@ -445,6 +502,7 @@ export function ScratchAndWin() {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [isRewardsSliderDragging, setIsRewardsSliderDragging] = useState(false);
+  const [invitationContext] = useState(resolveInvitationContext);
   const [inviteLink] = useState(() => {
     const userId = safeGetItem('user_id');
     const suffix = userId ? userId.slice(-4).toUpperCase() : '392D';
@@ -1183,26 +1241,33 @@ export function ScratchAndWin() {
             </div>
             <div className="flex items-center gap-2 text-[12px] font-bold text-white/58">
               <img src={recommendedFriends[0]?.avatar} alt="" className="h-6 w-6 rounded-full object-cover" />
-              Johnny invited you to
+              {invitationContext.inviterName} invited you to
             </div>
           </div>
 
           <h1 className="relative z-10 mb-5 text-[22px] font-black text-white">{miniTicket.title}</h1>
 
           <div className="relative z-10 mb-5 grid grid-cols-3 gap-2">
-            {miniTicketOptions.map((option) => (
-              <div
-                key={option.id}
-                className={`rounded-[0.65rem] border px-2 py-3 text-center ${
-                  option.id === miniTicketKind
-                    ? 'border-white/35 bg-white/12 text-white'
-                    : 'border-white/12 bg-black/35 text-white/72'
-                }`}
-              >
-                <p className="text-[11px] font-black leading-tight">{option.label}</p>
-                <p className="mt-1 text-[9px] font-bold leading-tight text-white/45">{option.sublabel}</p>
-              </div>
-            ))}
+            {miniTicketOptions.map((option) => {
+              const isSelected = option.id === miniTicketKind;
+
+              return (
+                <div
+                  key={option.id}
+                  aria-current={isSelected ? 'true' : undefined}
+                  className={`relative rounded-[0.65rem] border px-2 py-3 text-center transition-colors ${
+                    isSelected
+                      ? 'bg-white/14 text-white shadow-[0_0_18px_rgba(132,230,210,0.2)]'
+                      : 'border-white/12 bg-black/35 text-white/72'
+                  }`}
+                  style={isSelected ? { borderColor: miniTicket.border } : undefined}
+                >
+                  {isSelected && <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-[#8cf0c9]" />}
+                  <p className="text-[11px] font-black leading-tight">{option.label}</p>
+                  <p className="mt-1 text-[9px] font-bold leading-tight text-white/45">{option.sublabel}</p>
+                </div>
+              );
+            })}
           </div>
 
           {ticket.isGolden && !isRevealed && (
@@ -1875,12 +1940,20 @@ export function ScratchAndWin() {
               <div className="-mx-5 mt-5 flex snap-x gap-4 overflow-x-auto px-3 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {miniTicketOptions.map((option) => {
                   const frame = miniTicketFrame[option.id];
+                  const isSelected = option.id === miniTicketKind;
 
                   return (
                     <div
                       key={option.id}
-                      className="min-w-[128px] snap-center rounded-[1rem] border border-white/12 bg-white/8 px-3 pb-4 pt-3"
+                      aria-current={isSelected ? 'true' : undefined}
+                      className={`relative min-w-[128px] snap-center rounded-[1rem] border px-3 pb-4 pt-3 ${
+                        isSelected
+                          ? 'bg-white/14 shadow-[0_0_18px_rgba(132,230,210,0.2)]'
+                          : 'border-white/12 bg-white/8'
+                      }`}
+                      style={isSelected ? { borderColor: frame.border } : undefined}
                     >
+                      {isSelected && <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-[#8cf0c9]" />}
                       <p className="text-[13px] font-black text-white">{option.label}</p>
                       <p className="text-[10px] font-bold text-white/48">
                         {option.id === 'golden' ? 'Win up $25.00' : option.id === 'wildcard' ? 'Win up $12.00' : 'Win up $5.00'}
