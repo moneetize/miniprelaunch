@@ -1,0 +1,15 @@
+{
+  "name": "moneetize-mini-prelaunch",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -k -n frontend,backend \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "cd frontend-moneetizeprelaunch && npm run dev -- --host 127.0.0.1 --port 3002",
+    "dev:backend": "backend\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --reload --app-dir backend --host 127.0.0.1 --port 8000",
+    "dev:redis": "docker compose up -d redis",
+    "build": "cd frontend-moneetizeprelaunch && npm run build",
+    "backend:health": "backend\\.venv\\Scripts\\python.exe -c \"import fastapi, redis, uvicorn; print('backend dependencies ok')\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

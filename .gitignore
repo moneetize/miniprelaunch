@@ -2,5 +2,14 @@
 Thumbs.db
 node_modules/
 dist/
+.venv/
+backend/.venv/
+frontend-moneetizeprelaunch/node_modules/
+frontend-moneetizeprelaunch/dist/
+.vite/
+.codex-logs/
+__pycache__/
+*.pyc
+frontend-moneetizeprelaunch/supabase/.temp/
 .env
 .env.local

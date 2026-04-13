@@ -1,0 +1,12 @@
+services:
+  redis:
+    image: redis:7.4-alpine
+    container_name: moneetize-miniprelaunch-redis
+    ports:
+      - "6381:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - miniprelaunch-redis-data:/data
+
+volumes:
+  miniprelaunch-redis-data:
