@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronLeft, Mail, X, UserPlus, CheckCircle, AlertCircle, Copy, Check } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
+import { buildInviteLink } from '../utils/invitationLinks';
 
 export function InviteTeamMembers() {
   const navigate = useNavigate();
@@ -18,9 +19,8 @@ export function InviteTeamMembers() {
     const savedTeamName = localStorage.getItem('teamName') || 'My Team';
     setTeamName(savedTeamName);
 
-    // Generate invite link
-    const uniqueCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-    setInviteLink(`https://moneetize.com/team/${uniqueCode}`);
+    // Generate an invite link tied to the current inviter profile.
+    setInviteLink(buildInviteLink());
   }, []);
 
   const handleEmailChange = (index: number, value: string) => {

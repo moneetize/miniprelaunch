@@ -11,6 +11,7 @@ import { drawScratchTicket, type ScratchBalances, type ScratchReward, type Scrat
 import { getDefaultRecommendedFriends, loadRecommendedFriends, type RecommendedFriendProfile } from '../services/networkService';
 import { safeGetItem, safeSetItem } from '../utils/storage';
 import { getScratchTeaserAuthRoute, isScratchTeaserPending, markScratchTeaserPending } from '../utils/flowManager';
+import { buildInviteLink, resolveInvitationContext } from '../utils/invitationLinks';
 
 interface Particle {
   id: number;
@@ -127,63 +128,6 @@ const miniTicketFrame: Record<MiniTicketKind, {
     glow: 'rgba(221, 177, 57, 0.24)',
     ticketGradient: 'linear-gradient(135deg, #c8941d 0%, #fde68a 100%)',
   },
-};
-
-interface InvitationContext {
-  inviterName: string;
-  mailchimpCampaignId?: string;
-  mailchimpEmailId?: string;
-  promptId?: string;
-}
-
-const INVITER_QUERY_KEYS = ['invited_by', 'inviter', 'inviter_name', 'referrer', 'referrer_name', 'from_name', 'user_name'];
-const MAILCHIMP_CAMPAIGN_QUERY_KEYS = ['mc_cid', 'campaign_id', 'campaignId'];
-const PROMPT_QUERY_KEYS = ['prompt_id', 'promptID', 'promptId'];
-
-const cleanInvitationValue = (value: string | null | undefined) => {
-  const cleaned = value?.trim();
-  if (!cleaned || /\*\|.+\|\*/.test(cleaned)) return '';
-  return cleaned.slice(0, 60);
-};
-
-const firstQueryValue = (params: URLSearchParams, keys: string[]) => {
-  for (const key of keys) {
-    const value = cleanInvitationValue(params.get(key));
-    if (value) return value;
-  }
-
-  return '';
-};
-
-const resolveInvitationContext = (): InvitationContext => {
-  const storedInviteName = safeGetItem('moneetizeInviteName') || '';
-  const fallbackName = storedInviteName || 'A friend';
-
-  if (typeof window === 'undefined') {
-    return { inviterName: fallbackName };
-  }
-
-  const params = new URLSearchParams(window.location.search);
-  const inviteNameFromUrl = firstQueryValue(params, INVITER_QUERY_KEYS);
-  const mailchimpCampaignFromUrl = firstQueryValue(params, MAILCHIMP_CAMPAIGN_QUERY_KEYS);
-  const mailchimpEmailFromUrl = firstQueryValue(params, ['mc_eid']);
-  const promptIdFromUrl = firstQueryValue(params, PROMPT_QUERY_KEYS);
-  const inviterName = inviteNameFromUrl || fallbackName;
-  const mailchimpCampaignId = mailchimpCampaignFromUrl || safeGetItem('moneetizeMailchimpCampaignId') || '';
-  const mailchimpEmailId = mailchimpEmailFromUrl || safeGetItem('moneetizeMailchimpEmailId') || '';
-  const promptId = promptIdFromUrl || safeGetItem('moneetizePromptId') || '';
-
-  if (inviteNameFromUrl) safeSetItem('moneetizeInviteName', inviteNameFromUrl);
-  if (mailchimpCampaignFromUrl) safeSetItem('moneetizeMailchimpCampaignId', mailchimpCampaignFromUrl);
-  if (mailchimpEmailFromUrl) safeSetItem('moneetizeMailchimpEmailId', mailchimpEmailFromUrl);
-  if (promptIdFromUrl) safeSetItem('moneetizePromptId', promptIdFromUrl);
-
-  return {
-    inviterName,
-    mailchimpCampaignId: mailchimpCampaignId || undefined,
-    mailchimpEmailId: mailchimpEmailId || undefined,
-    promptId: promptId || undefined,
-  };
 };
 
 const levelCardStyle = {
@@ -503,11 +447,8 @@ export function ScratchAndWin() {
   const [linkCopied, setLinkCopied] = useState(false);
   const [isRewardsSliderDragging, setIsRewardsSliderDragging] = useState(false);
   const [invitationContext] = useState(resolveInvitationContext);
-  const [inviteLink] = useState(() => {
-    const userId = safeGetItem('user_id');
-    const suffix = userId ? userId.slice(-4).toUpperCase() : '392D';
-    return `https://moneetize.com/r/...${suffix}`;
-  });
+  const [inviteAvatarFailed, setInviteAvatarFailed] = useState(false);
+  const [inviteLink] = useState(() => buildInviteLink());
   const [countdown, setCountdown] = useState({ hours: 10, minutes: 8, seconds: 32 });
   const [expirationCountdown, setExpirationCountdown] = useState({ days: 12, hours: 10, minutes: 8, seconds: 32 });
   const showActivateRewards = preGameStep === 'activateRewards';
@@ -1239,9 +1180,21 @@ export function ScratchAndWin() {
                 <p className="text-[12px] font-black leading-none text-[#9bd9cf]">Spend... with benefits</p>
               </div>
             </div>
-            <div className="flex items-center gap-2 text-[12px] font-bold text-white/58">
-              <img src={recommendedFriends[0]?.avatar} alt="" className="h-6 w-6 rounded-full object-cover" />
-              {invitationContext.inviterName} invited you to
+            <div className="flex max-w-full items-center gap-2 text-[12px] font-bold text-white/62">
+              <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-white/10 text-[10px] font-black text-white">
+                {invitationContext.inviterAvatar && !inviteAvatarFailed ? (
+                  <img
+                    src={invitationContext.inviterAvatar}
+                    alt={`${invitationContext.inviterName} avatar`}
+                    className="h-full w-full object-cover"
+                    onError={() => setInviteAvatarFailed(true)}
+                  />
+                ) : (
+                  <span>{invitationContext.inviterInitials}</span>
+                )}
+              </div>
+              <span className="text-white/44">Invited by</span>
+              <span className="min-w-0 max-w-[150px] truncate text-white/80">{invitationContext.inviterName}</span>
             </div>
           </div>
 
