@@ -335,7 +335,7 @@ function normalizeProduct(product: MarketplaceProduct): MarketplaceProduct {
     inventory: Number.isFinite(Number(product.inventory)) ? Math.max(0, Math.round(Number(product.inventory))) : 0,
     colorVariants: product.colorVariants?.length ? product.colorVariants : ['Black'],
     logoVariants: product.logoVariants?.length ? product.logoVariants : ['Horizontal'],
-    status: product.status || 'active',
+    status: 'active',
   };
 }
 

@@ -220,6 +220,7 @@ export function MerchMarketplace() {
   const activeProduct = filteredProducts.find((product) => product.id === selectedProductId) || filteredProducts[0];
   const cartCount = cartItems.reduce((total, item) => total + item.quantity, 0);
   const cartTotal = cartItems.reduce((total, item) => total + item.pointsPrice * item.quantity, 0);
+  const pointsShortfall = Math.max(0, cartTotal - userPoints);
   const getSelectedVariant = (product: MarketplaceProduct) => selectedVariants[product.id] || getDefaultVariant(product);
   const activeVariant = activeProduct ? getSelectedVariant(activeProduct) : null;
   const activeImage = activeProduct && activeVariant ? getProductImage(activeProduct, activeVariant) : '';
@@ -314,6 +315,14 @@ export function MerchMarketplace() {
       return;
     }
 
+    const currentPoints = getUserPoints();
+    setUserPoints(currentPoints);
+
+    if (currentPoints < cartTotal) {
+      setMessage(`You need ${formatPoints(cartTotal - currentPoints)} more points to checkout.`);
+      return;
+    }
+
     setMessage('');
     setLatestOrder(null);
     setIsCheckoutOpen(true);
@@ -328,6 +337,14 @@ export function MerchMarketplace() {
 
   const placeOrder = async () => {
     if (isSubmittingOrder) return;
+
+    const currentPoints = getUserPoints();
+    setUserPoints(currentPoints);
+
+    if (currentPoints < cartTotal) {
+      setMessage(`You need ${formatPoints(cartTotal - currentPoints)} more points to checkout.`);
+      return;
+    }
 
     const unavailableItem = cartItems.find((item) => {
       const product = products.find((entry) => entry.id === item.productId);
@@ -662,6 +679,11 @@ export function MerchMarketplace() {
             <div>
               <h2 className="text-lg font-black text-white">Your Cart ({cartCount})</h2>
               <p className="text-sm font-bold text-white/42">{formatPoints(cartTotal)} points selected</p>
+              {cartItems.length > 0 && pointsShortfall > 0 && (
+                <p className="mt-1 text-xs font-black text-red-300">
+                  Need {formatPoints(pointsShortfall)} more points to checkout.
+                </p>
+              )}
             </div>
             <span className="rounded-lg bg-white px-3 py-2 text-xs font-black text-black">Points Only</span>
           </div>
