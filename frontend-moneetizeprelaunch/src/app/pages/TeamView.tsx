@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { motion } from 'motion/react';
 import { ChevronLeft, MessageCircle } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import aiBubble from 'figma:asset/36fff8878cf3ea6d1ef44d3f08bbc2346c733ebc.png';
 import greenMorphicBall from 'figma:asset/8fd559d05db8d67dee13e79dc6418365220fd613.png';
 import { getUserPoints } from '../utils/pointsManager';
 import { getStoredProfileSettings, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT } from '../utils/profileSettings';
+import { getPendingTeamInviteMembers, INVITES_UPDATED_EVENT } from '../utils/inviteSync';
 
 interface TeamMember {
   id: number;
@@ -29,6 +31,7 @@ export function TeamView() {
   const [userPhoto, setUserPhoto] = useState('');
   const [selectedAvatar, setSelectedAvatar] = useState('blueAvatar');
   const [removedMemberIds, setRemovedMemberIds] = useState<number[]>([]);
+  const [pendingInviteMembers, setPendingInviteMembers] = useState<TeamMember[]>([]);
 
   useEffect(() => {
     const points = getUserPoints();
@@ -44,34 +47,92 @@ export function TeamView() {
       setSelectedAvatar(profileSettings.selectedAvatar);
       setUserPhoto(profileSettings.photo);
     };
+    const refreshPendingInviteMembers = () => {
+      setPendingInviteMembers(
+        getPendingTeamInviteMembers(1).map((invite, index) => ({
+          id: 500 + index,
+          name: invite.name,
+          email: invite.email || invite.phone || invite.contact,
+          handle: '',
+          points: 0,
+          avatar: '',
+          status: 'pending' as const,
+        }))
+      );
+    };
 
     setTeamName(localStorage.getItem('teamName') || "John's Team");
     setUserPointsState(points);
     applyProfileSettings();
+    refreshPendingInviteMembers();
 
     const handleProfileSettingsUpdated = () => applyProfileSettings();
     const handleStorageChange = (event: StorageEvent) => {
       if (!event.key || PROFILE_SETTINGS_STORAGE_KEYS.includes(event.key)) {
         applyProfileSettings();
       }
+      if (!event.key || ['sentInvites', 'pendingTeamInvites'].includes(event.key)) {
+        refreshPendingInviteMembers();
+      }
     };
 
     window.addEventListener(PROFILE_SETTINGS_UPDATED_EVENT, handleProfileSettingsUpdated);
+    window.addEventListener(INVITES_UPDATED_EVENT, refreshPendingInviteMembers);
     window.addEventListener('storage', handleStorageChange);
 
     return () => {
       window.removeEventListener(PROFILE_SETTINGS_UPDATED_EVENT, handleProfileSettingsUpdated);
+      window.removeEventListener(INVITES_UPDATED_EVENT, refreshPendingInviteMembers);
       window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
 
   const aiAgentImage = selectedAvatar === 'greenAvatar' ? greenMorphicBall : aiBubble;
+  const renderAnimatedAiAvatar = () => {
+    const isGreenAgent = selectedAvatar === 'greenAvatar';
+
+    return (
+      <span className="relative block h-12 w-12">
+        <motion.span
+          className={`absolute inset-0 rounded-full bg-gradient-to-br ${
+            isGreenAgent
+              ? 'from-green-400 via-emerald-500 to-lime-400'
+              : 'from-purple-400 via-blue-500 to-cyan-400'
+          } blur-lg opacity-40`}
+          animate={{ opacity: [0.3, 0.5, 0.3] }}
+          transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.span
+          animate={{
+            rotate: 360,
+            scale: [1, 1.05, 1],
+          }}
+          transition={{
+            rotate: { duration: 20, repeat: Infinity, ease: 'linear' },
+            scale: { duration: 3, repeat: Infinity, ease: 'easeInOut' },
+          }}
+          className={`relative block h-12 w-12 overflow-hidden rounded-full border-2 ${
+            isGreenAgent ? 'border-emerald-400 hover:border-emerald-300' : 'border-purple-500 hover:border-purple-400'
+          } transition-colors`}
+          style={{
+            maskImage: 'radial-gradient(circle at center, black 40%, transparent 90%)',
+            WebkitMaskImage: 'radial-gradient(circle at center, black 40%, transparent 90%)',
+          }}
+        >
+          <img src={aiAgentImage} alt="AI Agent" className="h-full w-full object-cover opacity-90" />
+        </motion.span>
+      </span>
+    );
+  };
+  const fallbackPendingTeamMembers: TeamMember[] = [
+    { id: 5, name: 'test@mail.com', email: 'test@mail.com', handle: '', points: 0, avatar: '', status: 'pending' },
+  ];
   const teamMembers: TeamMember[] = [
     { id: 1, name: 'Russell Westbrook', handle: '@russell', points: 42, debt: 'Debt: $ 8 000', avatar: 'https://images.unsplash.com/photo-1629507208649-70919ca33793?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMG1hbiUyMHBvcnRyYWl0fGVufDF8fHx8MTc3NDA4MzYxOXww&ixlib=rb-4.1.0&q=80&w=1080', status: 'active' },
     { id: 2, name: 'Alex McKein', handle: '@alex', points: 40, debt: 'Debt: $ 8 000', avatar: 'https://images.unsplash.com/photo-1768853972795-2739a9685567?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjB3b21hbiUyMGF0aGxldGUlMjBwb3J0cmFpdHxlbnwxfHx8fDE3NzQxNDA1NDh8MA&ixlib=rb-4.1.0&q=80&w=1080', status: 'active' },
     { id: 3, name: 'Bill Winston', handle: '@bill', points: 35, debt: 'Debt: $ 8 000', avatar: 'https://images.unsplash.com/photo-1758876204244-930299843f07?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjB5b3VuZyUyMG1hbiUyMHNtaWxpbmd8ZW58MXx8fHwxNzc0MTQwNTQ5fDA&ixlib=rb-4.1.0&q=80&w=1080', status: 'active' },
     { id: 4, name: 'Jim Kerry', handle: '@jim', points: 27, avatar: 'https://images.unsplash.com/photo-1769636929132-e4e7b50cfac0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMGZlbWFsZSUyMGJ1c2luZXNzfGVufDF8fHx8MTc3NDEyNTQ5OXww&ixlib=rb-4.1.0&q=80&w=1080', status: 'active', canRemove: true },
-    { id: 5, name: 'test@mail.com', email: 'test@mail.com', handle: '', points: 0, avatar: '', status: 'pending' },
+    ...(pendingInviteMembers.length > 0 ? pendingInviteMembers : fallbackPendingTeamMembers),
   ];
   const visibleTeamMembers = teamMembers.filter((member) => !removedMemberIds.includes(member.id));
   const sortedTeam = [...visibleTeamMembers].sort((a, b) => b.points - a.points);
@@ -133,10 +194,10 @@ export function TeamView() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => navigate('/chat/agent')}
-            className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/8 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-transparent"
             aria-label="AI chat"
           >
-            <img src={aiAgentImage} alt="AI" className="h-9 w-9 rounded-full object-cover" />
+            {renderAnimatedAiAvatar()}
           </button>
           <button
             onClick={() => navigate('/chat-list')}
@@ -151,8 +212,8 @@ export function TeamView() {
       <div className="px-4 pb-5">
         <div className="grid grid-cols-4 rounded-full border border-white/10 bg-[#101215]/95 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_10px_32px_rgba(0,0,0,0.22)]">
           {[
-            { label: 'Your Team', path: '/team-view' },
-            { label: 'Invited Team', path: '/team-view' },
+            { label: 'Network', path: '/profile-screen' },
+            { label: 'Team', path: '/team-view' },
             { label: 'Winnings', path: '/winnings' },
             { label: 'Gameplay', path: '/gameplay' },
           ].map((tab) => (

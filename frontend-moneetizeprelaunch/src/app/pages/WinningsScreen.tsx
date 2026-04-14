@@ -221,8 +221,8 @@ function WinningsScreen() {
       <div className="px-4 pb-5">
         <div className="grid grid-cols-4 rounded-full border border-white/10 bg-[#101215]/95 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_10px_32px_rgba(0,0,0,0.22)]">
           {[
-            { label: 'Your Team', path: '/team-view' },
-            { label: 'Invited Team', path: '/team-view' },
+            { label: 'Network', path: '/profile-screen' },
+            { label: 'Team', path: '/team-view' },
             { label: 'Winnings', path: '/winnings' },
             { label: 'Gameplay', path: '/gameplay' },
           ].map((tab) => (
