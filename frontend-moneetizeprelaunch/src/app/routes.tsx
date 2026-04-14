@@ -35,6 +35,7 @@ import { InviteTeamMembers } from "./pages/InviteTeamMembers";
 import { TeamView } from "./pages/TeamView";
 import { GameplayScreen } from "./pages/GameplayScreen";
 import WinningsScreen from "./pages/WinningsScreen";
+import { MerchMarketplace } from "./pages/MerchMarketplace";
 import { DebugAuth } from "./pages/DebugAuth";
 import { ShareInvites } from "./pages/ShareInvites";
 import { GroupsPage } from "./pages/GroupsPage";
@@ -90,6 +91,7 @@ export const router = createBrowserRouter([
       { path: "team-view", Component: TeamView },
       { path: "gameplay", Component: GameplayScreen },
       { path: "winnings", Component: WinningsScreen },
+      { path: "marketplace", Component: MerchMarketplace },
       { path: "share-invites", Component: ShareInvites },
       { path: "groups", Component: GroupsPage },
       { path: "debug-auth", Component: DebugAuth },

@@ -28,6 +28,11 @@ import { ImageWithFallback } from '../components/figma/ImageWithFallback';
 import { isAuthenticated, isUserAdmin, logoutUser } from '../services/authService';
 import { loadProductCatalog, saveProductCatalog } from '../services/productService';
 import { grantEarlyAccessRequest, loadEarlyAccessRequests, type EarlyAccessRequest } from '../services/earlyAccessService';
+import {
+  loadMarketplaceProducts,
+  saveMarketplaceProducts,
+  type MarketplaceProduct,
+} from '../services/marketplaceService';
 
 interface Product {
   id: string;
@@ -67,9 +72,34 @@ const categories = [
   'Fashion', 'Books', 'Pets', 'Art', 'Gaming', 'Grocery'
 ];
 
+type AdminTab = 'products' | 'earlyAccess' | 'marketplace';
+
+const marketplaceCategories = ['T-Shirts', 'Hoodies', 'Hats', 'Accessories', 'Bundles'];
+
+function createMarketplaceDraft(): MarketplaceProduct {
+  return {
+    id: '',
+    name: '',
+    description: '',
+    pointsPrice: 120,
+    image: '',
+    category: 'T-Shirts',
+    colorVariants: ['Black', 'White'],
+    logoVariants: ['Classic Logo'],
+    inventory: 50,
+    featured: true,
+    status: 'active',
+  };
+}
+
+function textToList(value: string) {
+  return value.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
 export function AdminPanel() {
   const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
+  const [activeAdminTab, setActiveAdminTab] = useState<AdminTab>('products');
   const [isAddingProduct, setIsAddingProduct] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -97,6 +127,9 @@ export function AdminPanel() {
   const [earlyAccessRequests, setEarlyAccessRequests] = useState<EarlyAccessRequest[]>([]);
   const [isLoadingEarlyAccess, setIsLoadingEarlyAccess] = useState(false);
   const [grantingEarlyAccessId, setGrantingEarlyAccessId] = useState<string | null>(null);
+  const [marketplaceProducts, setMarketplaceProducts] = useState<MarketplaceProduct[]>([]);
+  const [marketplaceDraft, setMarketplaceDraft] = useState<MarketplaceProduct>(() => createMarketplaceDraft());
+  const [editingMarketplaceId, setEditingMarketplaceId] = useState<string | null>(null);
   
   // Search and filter states
   const [searchQuery, setSearchQuery] = useState('');
@@ -114,6 +147,7 @@ export function AdminPanel() {
     if (hasAdminAccess) {
       loadProducts();
       loadEarlyAccessQueue();
+      loadMarketplaceCatalog();
     }
   }, []);
 
@@ -149,6 +183,10 @@ export function AdminPanel() {
     }
   };
 
+  const loadMarketplaceCatalog = () => {
+    setMarketplaceProducts(loadMarketplaceProducts());
+  };
+
   const handleGrantEarlyAccess = async (requestId: string) => {
     try {
       setGrantingEarlyAccessId(requestId);
@@ -161,6 +199,51 @@ export function AdminPanel() {
       alert(error instanceof Error ? error.message : 'Failed to grant early access');
     } finally {
       setGrantingEarlyAccessId(null);
+    }
+  };
+
+  const resetMarketplaceForm = () => {
+    setMarketplaceDraft(createMarketplaceDraft());
+    setEditingMarketplaceId(null);
+  };
+
+  const handleMarketplaceEdit = (product: MarketplaceProduct) => {
+    setMarketplaceDraft({ ...product });
+    setEditingMarketplaceId(product.id);
+    setActiveAdminTab('marketplace');
+  };
+
+  const handleMarketplaceSave = () => {
+    if (!marketplaceDraft.name.trim() || !marketplaceDraft.description.trim()) {
+      alert('Please add a marketplace product name and description.');
+      return;
+    }
+
+    const productId = editingMarketplaceId || `marketplace-${Date.now()}`;
+    const nextProduct: MarketplaceProduct = {
+      ...marketplaceDraft,
+      id: productId,
+      name: marketplaceDraft.name.trim(),
+      description: marketplaceDraft.description.trim(),
+      pointsPrice: Math.max(0, Math.round(Number(marketplaceDraft.pointsPrice) || 0)),
+      inventory: Math.max(0, Math.round(Number(marketplaceDraft.inventory) || 0)),
+      colorVariants: marketplaceDraft.colorVariants.length ? marketplaceDraft.colorVariants : ['Black'],
+      logoVariants: marketplaceDraft.logoVariants.length ? marketplaceDraft.logoVariants : ['Classic Logo'],
+    };
+
+    const updatedProducts = editingMarketplaceId
+      ? marketplaceProducts.map((product) => (product.id === editingMarketplaceId ? nextProduct : product))
+      : [nextProduct, ...marketplaceProducts];
+
+    setMarketplaceProducts(saveMarketplaceProducts(updatedProducts));
+    resetMarketplaceForm();
+  };
+
+  const handleMarketplaceDelete = (productId: string) => {
+    if (!confirm('Delete this marketplace product?')) return;
+    setMarketplaceProducts(saveMarketplaceProducts(marketplaceProducts.filter((product) => product.id !== productId)));
+    if (editingMarketplaceId === productId) {
+      resetMarketplaceForm();
     }
   };
 
@@ -477,6 +560,185 @@ export function AdminPanel() {
 
   const filteredProducts = getFilteredAndSortedProducts();
   const groupedProducts = groupProductsByCategory(filteredProducts);
+  const activeMarketplaceProducts = marketplaceProducts.filter((product) => product.status === 'active').length;
+
+  const renderMarketplaceAdmin = () => (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] gap-4">
+        <div className="bg-[#1a1d2e] rounded-2xl p-4 sm:p-5 border border-white/5">
+          <div className="mb-4">
+            <h2 className="text-white text-base sm:text-lg font-bold">
+              {editingMarketplaceId ? 'Edit Marketplace Product' : 'Add Marketplace Product'}
+            </h2>
+            <p className="text-gray-400 text-xs">Set point pricing, color variants, and logo variants for merch redemption.</p>
+          </div>
+
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={marketplaceDraft.name}
+              onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, name: event.target.value })}
+              placeholder="Product name"
+              className="w-full bg-[#2a2d3e] text-white rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-purple-500"
+            />
+            <textarea
+              value={marketplaceDraft.description}
+              onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, description: event.target.value })}
+              placeholder="Product description"
+              rows={3}
+              className="w-full bg-[#2a2d3e] text-white rounded-xl px-4 py-3 outline-none resize-none focus:ring-2 focus:ring-purple-500"
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold text-gray-400">Pre-game price</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={marketplaceDraft.pointsPrice}
+                  onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, pointsPrice: Number(event.target.value) })}
+                  className="w-full bg-[#2a2d3e] text-white rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold text-gray-400">Inventory</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={marketplaceDraft.inventory}
+                  onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, inventory: Number(event.target.value) })}
+                  className="w-full bg-[#2a2d3e] text-white rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </label>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <select
+                value={marketplaceDraft.category}
+                onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, category: event.target.value })}
+                className="bg-[#2a2d3e] text-white rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-purple-500"
+              >
+                {marketplaceCategories.map((category) => (
+                  <option key={category} value={category}>{category}</option>
+                ))}
+              </select>
+              <select
+                value={marketplaceDraft.status}
+                onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, status: event.target.value as MarketplaceProduct['status'] })}
+                className="bg-[#2a2d3e] text-white rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-purple-500"
+              >
+                <option value="active">Active</option>
+                <option value="draft">Draft</option>
+              </select>
+            </div>
+            <input
+              type="text"
+              value={marketplaceDraft.colorVariants.join(', ')}
+              onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, colorVariants: textToList(event.target.value) })}
+              placeholder="Colors: Black, White, Mint"
+              className="w-full bg-[#2a2d3e] text-white rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-purple-500"
+            />
+            <input
+              type="text"
+              value={marketplaceDraft.logoVariants.join(', ')}
+              onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, logoVariants: textToList(event.target.value) })}
+              placeholder="Logos: Classic Logo, Wildcard Logo"
+              className="w-full bg-[#2a2d3e] text-white rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-purple-500"
+            />
+            <input
+              type="text"
+              value={marketplaceDraft.image || ''}
+              onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, image: event.target.value })}
+              placeholder="Image URL or base64 data image"
+              className="w-full bg-[#2a2d3e] text-white rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-purple-500"
+            />
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={handleMarketplaceSave}
+                className="flex-1 rounded-xl bg-[#8ff0a8] px-4 py-3 text-sm font-bold text-[#06120a] hover:bg-[#7be594] transition-colors"
+              >
+                {editingMarketplaceId ? 'Save Product' : 'Add Product'}
+              </button>
+              <button
+                type="button"
+                onClick={resetMarketplaceForm}
+                className="rounded-xl bg-white/8 px-4 py-3 text-sm font-bold text-white hover:bg-white/12 transition-colors"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-[#1a1d2e] rounded-2xl p-4 sm:p-5 border border-white/5">
+          <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-white text-base sm:text-lg font-bold">Marketplace Products</h2>
+              <p className="text-gray-400 text-xs">{marketplaceProducts.length} products | {activeMarketplaceProducts} active</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('/marketplace')}
+              className="rounded-lg bg-[#2a2d3e] px-3 py-2 text-xs font-semibold text-white hover:bg-[#35384a] transition-colors"
+            >
+              View Marketplace
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {marketplaceProducts.map((product) => (
+              <div key={product.id} className="rounded-xl bg-[#24283a] p-4">
+                <div className="mb-3 flex items-start gap-3">
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-white/8">
+                    {product.image ? (
+                      <img src={product.image} alt={product.name} className="h-14 w-14 object-contain" />
+                    ) : (
+                      <Package className="h-7 w-7 text-white/45" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-bold text-white">{product.name}</p>
+                    <p className="mt-1 text-xs font-bold text-[#8ff0a8]">{product.pointsPrice.toLocaleString()} pts</p>
+                    <p className="mt-1 text-[11px] font-semibold text-white/42">{product.category} | {product.inventory} in stock</p>
+                  </div>
+                </div>
+                <p className="line-clamp-2 text-xs leading-snug text-white/55">{product.description}</p>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${
+                    product.status === 'active' ? 'bg-emerald-400/15 text-emerald-300' : 'bg-white/8 text-white/45'
+                  }`}>
+                    {product.status}
+                  </span>
+                  {product.colorVariants.slice(0, 2).map((color) => (
+                    <span key={color} className="rounded-full bg-white/8 px-2 py-1 text-[10px] font-bold text-white/45">{color}</span>
+                  ))}
+                  {product.logoVariants.slice(0, 2).map((logo) => (
+                    <span key={logo} className="rounded-full bg-white/8 px-2 py-1 text-[10px] font-bold text-white/45">{logo}</span>
+                  ))}
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleMarketplaceEdit(product)}
+                    className="flex-1 rounded-lg bg-blue-500/20 px-3 py-2 text-xs font-bold text-blue-300 hover:bg-blue-500/30 transition-colors"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleMarketplaceDelete(product.id)}
+                    className="flex-1 rounded-lg bg-red-500/20 px-3 py-2 text-xs font-bold text-red-300 hover:bg-red-500/30 transition-colors"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
   if (isCheckingAdmin) {
     return (
@@ -615,7 +877,31 @@ export function AdminPanel() {
           </div>
         </div>
 
+        <div className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-white/5 bg-[#1a1d2e] p-2">
+          {[
+            { id: 'products', label: 'Products' },
+            { id: 'earlyAccess', label: 'Early Access' },
+            { id: 'marketplace', label: 'Marketplace' },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveAdminTab(tab.id as AdminTab)}
+              className={`rounded-xl px-4 py-2 text-sm font-bold transition-colors ${
+                activeAdminTab === tab.id
+                  ? 'bg-white text-black'
+                  : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {activeAdminTab === 'marketplace' && renderMarketplaceAdmin()}
+
         {/* Early Access Requests */}
+        {activeAdminTab === 'earlyAccess' && (
         <div className="bg-[#1a1d2e] rounded-2xl p-4 sm:p-5 mb-6 sm:mb-8 border border-white/5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
             <div>
@@ -682,8 +968,11 @@ export function AdminPanel() {
             </div>
           )}
         </div>
+        )}
 
         {/* Add Product Button */}
+        {activeAdminTab === 'products' && (
+        <>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
           <h2 className="text-white text-base sm:text-lg font-bold">Products</h2>
           <div className="flex gap-2">
@@ -939,6 +1228,8 @@ export function AdminPanel() {
               </div>
             ))}
           </div>
+        )}
+        </>
         )}
       </div>
 

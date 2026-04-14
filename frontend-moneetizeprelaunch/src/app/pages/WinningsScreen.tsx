@@ -500,6 +500,17 @@ function WinningsScreen() {
     slider.scrollLeft += delta;
   };
 
+  const handleRedeemableClick = (item: RewardItem) => {
+    if (item.icon === 'shirt' || item.id === 'moneetize-shirt') {
+      navigate('/marketplace');
+      return;
+    }
+
+    if (item.isEarlyAccess) {
+      setShowTokenModal(true);
+    }
+  };
+
   const renderStatusBar = () => (
     <div className="h-11 flex items-center justify-between px-4 text-white text-sm">
       <div className="flex items-center gap-2">
@@ -662,7 +673,7 @@ function WinningsScreen() {
                 initial={{ opacity: 0, y: 14 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.04 }}
-                onClick={() => item.isEarlyAccess && setShowTokenModal(true)}
+                onClick={() => handleRedeemableClick(item)}
                 className="flex h-[96px] min-w-[116px] snap-center flex-col items-center justify-center rounded-[1rem] border border-white/8 bg-gradient-to-b from-[#1f2226]/96 to-[#151719]/98 px-3 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_16px_42px_rgba(0,0,0,0.3)] transition-transform hover:scale-[1.02]"
               >
                 {renderRedeemableIcon(item)}
