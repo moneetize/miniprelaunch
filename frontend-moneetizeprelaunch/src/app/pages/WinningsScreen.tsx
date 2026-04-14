@@ -21,10 +21,13 @@ import { safeGetItem } from '../utils/storage';
 import { submitEarlyAccessRequest } from '../services/earlyAccessService';
 import { getStoredUsdtBalance, loadScratchProfile, type ScratchDrawResult } from '../services/scratchService';
 
+type RewardItemIcon = 'usdt' | 'tripto' | 'wildcard' | 'shirt' | 'earlyAccess' | 'boost';
+
 interface RewardItem {
   id: string;
   label: string;
-  image: string;
+  icon: RewardItemIcon;
+  image?: string;
   isEarlyAccess?: boolean;
   isPlaceholder?: boolean;
 }
@@ -144,12 +147,18 @@ function getHistoryRewards(draw: ScratchDrawResult): HistoryRewardIcon[] {
   return rewards;
 }
 
+const coreRedeemableItems: RewardItem[] = [
+  { id: 'usdt-balance', label: 'USDT Balance', icon: 'usdt' },
+  { id: 'tripto-allocation', label: 'Tripto Allocation', icon: 'tripto' },
+  { id: 'moneetize-shirt', label: 'Moneetize T-Shirt', icon: 'shirt', image: tshirtRewardIcon },
+  { id: 'token-early-access', label: 'Token Early Access', icon: 'earlyAccess', image: tokenCardImage, isEarlyAccess: true },
+];
+
 const fallbackRedeemableItems: RewardItem[] = [
-  { id: 'tripto-multiplier', label: 'Tripto Multiplier', image: tokenCardImage, isPlaceholder: true },
-  { id: 'shopping-spree-extender', label: 'Shopping Spree', image: tokenCardImage, isPlaceholder: true },
-  { id: 'team-sync-booster', label: 'Team Booster', image: tokenCardImage, isPlaceholder: true },
-  { id: 'founders-grace', label: "Founder's Grace", image: tokenCardImage, isPlaceholder: true },
-  { id: 'token-early-access', label: 'Token Early Access', image: tokenCardImage, isEarlyAccess: true, isPlaceholder: true },
+  ...coreRedeemableItems,
+  { id: 'wild-card', label: 'Wild Card', icon: 'wildcard', image: wildcardIcon, isPlaceholder: true },
+  { id: 'team-sync-booster', label: 'Team Booster', icon: 'boost', image: tokenCardImage, isPlaceholder: true },
+  { id: 'founders-grace', label: "Founder's Grace", icon: 'boost', image: tokenCardImage, isPlaceholder: true },
 ];
 
 function getRedeemableProducts(history: ScratchDrawResult[]) {
@@ -161,6 +170,7 @@ function getRedeemableProducts(history: ScratchDrawResult[]) {
         products.set('moneetize-shirt', {
           id: 'moneetize-shirt',
           label: item.label || 'Moneetize T-Shirt',
+          icon: 'shirt',
           image: tshirtRewardIcon,
         });
       }
@@ -169,6 +179,7 @@ function getRedeemableProducts(history: ScratchDrawResult[]) {
         products.set('wild-card', {
           id: 'wild-card',
           label: item.label || draw.reward.wildCard.name || 'Wild Card',
+          icon: 'wildcard',
           image: wildcardIcon,
         });
       }
@@ -177,7 +188,7 @@ function getRedeemableProducts(history: ScratchDrawResult[]) {
         products.set('tripto-allocation', {
           id: 'tripto-allocation',
           label: item.label || 'Tripto Allocation',
-          image: tokenCardImage,
+          icon: 'tripto',
         });
       }
 
@@ -185,7 +196,7 @@ function getRedeemableProducts(history: ScratchDrawResult[]) {
         products.set('usdt-balance', {
           id: 'usdt-balance',
           label: item.label || 'USDT Balance',
-          image: tokenCardImage,
+          icon: 'usdt',
         });
       }
     });
@@ -194,8 +205,9 @@ function getRedeemableProducts(history: ScratchDrawResult[]) {
   const earnedProducts = [...products.values()];
   if (!earnedProducts.length) return fallbackRedeemableItems;
 
-  const fallbackFill = fallbackRedeemableItems.filter((item) => !products.has(item.id));
-  return [...earnedProducts, ...fallbackFill].slice(0, 8);
+  const coreFill = coreRedeemableItems.filter((item) => !products.has(item.id));
+  const fallbackFill = fallbackRedeemableItems.filter((item) => !products.has(item.id) && !coreFill.some(coreItem => coreItem.id === item.id));
+  return [...earnedProducts, ...coreFill, ...fallbackFill].slice(0, 8);
 }
 
 function WinningsScreen() {
@@ -365,6 +377,43 @@ function WinningsScreen() {
       <span className="flex items-center gap-1 text-xs font-black text-emerald-200">
         +{formatTokenAmount(reward.amount || 0)}
         <img src={gemIcon} alt="Gem" className="h-6 w-6 drop-shadow-[0_0_14px_rgba(134,255,166,0.58)]" />
+      </span>
+    );
+  };
+
+  const renderRedeemableIcon = (item: RewardItem) => {
+    if (item.icon === 'usdt') {
+      return (
+        <span className="relative mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-[radial-gradient(circle_at_35%_28%,#b8ffe5_0%,#4ee0bd_32%,#1aa88f_68%,#0a6a5d_100%)] text-white shadow-[inset_0_1px_3px_rgba(255,255,255,0.68),0_0_20px_rgba(78,224,189,0.32)]">
+          <span className="text-[18px] font-black leading-none">T</span>
+          <span className="absolute top-[17px] h-[2px] w-5 rounded-full bg-white/90" />
+        </span>
+      );
+    }
+
+    if (item.icon === 'tripto') {
+      return (
+        <span className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-[radial-gradient(circle_at_35%_30%,#ffffff_0%,#deded9_34%,#8a8d8d_72%,#3c4043_100%)] text-[13px] font-black text-[#2d3032] shadow-[inset_0_1px_3px_rgba(255,255,255,0.9),0_0_20px_rgba(255,255,255,0.16)]">
+          TR
+        </span>
+      );
+    }
+
+    if (item.image) {
+      return (
+        <img
+          src={item.image}
+          alt={item.label}
+          className={`mb-2 object-contain ${
+            item.icon === 'shirt' ? 'h-11 w-11' : 'h-10 w-10'
+          }`}
+        />
+      );
+    }
+
+    return (
+      <span className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-[12px] font-black text-white/70">
+        +
       </span>
     );
   };
@@ -616,11 +665,9 @@ function WinningsScreen() {
                 onClick={() => item.isEarlyAccess && setShowTokenModal(true)}
                 className="flex h-[96px] min-w-[116px] snap-center flex-col items-center justify-center rounded-[1rem] border border-white/8 bg-gradient-to-b from-[#1f2226]/96 to-[#151719]/98 px-3 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_16px_42px_rgba(0,0,0,0.3)] transition-transform hover:scale-[1.02]"
               >
-                {!item.isPlaceholder && (
-                  <img src={item.image} alt="" className="mb-2 h-8 w-8 object-contain" />
-                )}
-                <span className={`text-[11px] font-black leading-tight ${item.isPlaceholder ? 'text-white/22' : 'text-white'}`}>
-                  {item.isPlaceholder ? 'Redeem' : item.label}
+                {renderRedeemableIcon(item)}
+                <span className={`text-[11px] font-black leading-tight ${item.isPlaceholder ? 'text-white/48' : 'text-white'}`}>
+                  {item.label}
                 </span>
               </motion.button>
             ))}
