@@ -1,6 +1,7 @@
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { safeSetItem, safeGetItem } from '../utils/storage';
 import { initializeUserPoints } from '../utils/pointsManager';
+import { markProfileIncomplete } from '../utils/profileSettings';
 import { getOAuthRedirectTo, supabase, type SocialAuthProvider } from './supabaseClient';
 import type { Session, User } from '@supabase/supabase-js';
 
@@ -445,6 +446,7 @@ export async function registerUser(
 
     const user = persistAuthSession(result.data?.user, result.data?.session, requestBody.email, requestBody.name);
     const syncedUser = await syncSupabaseUserFromAccessToken(result.data?.session?.access_token);
+    markProfileIncomplete();
 
     console.log('Registration successful, user logged in');
     return toAuthResponse(syncedUser || user, result.data?.session);

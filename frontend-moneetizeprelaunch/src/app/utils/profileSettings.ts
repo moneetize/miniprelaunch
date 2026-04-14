@@ -113,6 +113,14 @@ export function markProfileCompleted() {
   }));
 }
 
+export function markProfileIncomplete() {
+  try {
+    localStorage.removeItem(PROFILE_COMPLETION_STORAGE_KEY);
+  } catch (error) {
+    console.error('Error resetting profile completion:', error);
+  }
+}
+
 export function notifyProfileSettingsUpdated() {
   window.dispatchEvent(
     new CustomEvent<StoredProfileSettings>(PROFILE_SETTINGS_UPDATED_EVENT, {
