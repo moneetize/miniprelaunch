@@ -10,6 +10,7 @@ import { safeGetItem, safeSetItem } from '../utils/storage';
 import { getSelectedAvatarImage } from '../utils/avatarUtils';
 import { isUserAdmin } from '../services/authService';
 import { getStoredUsdtBalance, loadScratchProfile, type ScratchDrawResult } from '../services/scratchService';
+import { loadRecommendedFriends, type RecommendedFriendProfile } from '../services/networkService';
 import { getStoredProfileSettings, isStoredProfileComplete, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT } from '../utils/profileSettings';
 
 interface TeamMember {
@@ -33,6 +34,14 @@ interface InvitedTeam {
     email: string;
     sentAt: string;
   }[];
+}
+
+interface NetworkProfile {
+  id: string;
+  name: string;
+  avatar?: string;
+  initialRank: number;
+  initiallyFollowing: boolean;
 }
 
 type HistoryRewardIcon = {
@@ -103,7 +112,7 @@ function getHistoryRewards(draw: ScratchDrawResult): HistoryRewardIcon[] {
 
 export function ProfileScreen() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'your-team' | 'invited-team' | 'winnings' | 'gameplay' | 'settings'>('your-team');
+  const [activeTab, setActiveTab] = useState<'network' | 'your-team' | 'invited-team' | 'winnings' | 'gameplay' | 'settings'>('network');
   const [userPoints, setUserPoints] = useState(10);
   const [userName, setUserName] = useState('');
   const [userHandle, setUserHandle] = useState('');
@@ -133,6 +142,18 @@ export function ProfileScreen() {
   const [showRewardHistory, setShowRewardHistory] = useState(false);
   const [scratchHistory, setScratchHistory] = useState<ScratchDrawResult[]>(() => getStoredScratchHistory());
   const [isProfileComplete, setIsProfileComplete] = useState(() => isStoredProfileComplete());
+  const [recommendedFriends, setRecommendedFriends] = useState<RecommendedFriendProfile[]>([]);
+  const [networkFollowStates, setNetworkFollowStates] = useState<Record<string, boolean>>({
+    'andrew-smith': true,
+    'john-black': true,
+    'jim-kerry': false,
+    'maria-chen': false,
+    'taylor-owens': false,
+    'nina-patel': false,
+    'omar-brooks': false,
+    'lena-watts': false,
+    'diego-rivera': false,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -179,6 +200,16 @@ export function ProfileScreen() {
       })
       .catch((error) => {
         console.warn('Scratch profile sync skipped:', error);
+      });
+
+    void loadRecommendedFriends()
+      .then((profiles) => {
+        if (!cancelled) {
+          setRecommendedFriends(profiles);
+        }
+      })
+      .catch((error) => {
+        console.warn('Network profile sync skipped:', error);
       });
 
     // Set member since date
@@ -254,17 +285,6 @@ export function ProfileScreen() {
       window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
-
-  const handleDeleteMember = (id: string) => {
-    setTeamMembers(teamMembers.filter(member => member.id !== id));
-  };
-
-  const teamProgress = teamMembers.reduce((total, member) => total + member.points, 0);
-
-  const handleSendInvite = () => {
-    // Navigate to Share Invites screen
-    navigate('/share-invites');
-  };
 
   const handleCopyLink = async () => {
     try {
@@ -372,9 +392,7 @@ export function ProfileScreen() {
   };
 
   const displayBalance = balance > 0 ? Math.round(balance) : 345;
-  const displayTeamProgress = Math.max(teamProgress, 720);
-  const activeTeamCount = teamMembers.filter((member) => member.status === 'active').length;
-  const teamGoalCount = 5;
+  const displayNetworkingPoints = 720;
   const userInitials = userName
     .split(/\s+/)
     .filter(Boolean)
@@ -395,17 +413,137 @@ export function ProfileScreen() {
     { label: 'Winnings', icon: <History className="h-3 w-3" /> },
   ];
 
-  const renderAvatar = (member: Pick<TeamMember, 'name' | 'avatar'>, className: string) => (
-    <div className={`${className} overflow-hidden rounded-full bg-[#33363d]`}>
-      {member.avatar ? (
-        <img src={member.avatar} alt={member.name} className="h-full w-full object-cover" />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center text-xs font-black text-white/50">
-          {member.name.charAt(0).toUpperCase()}
-        </div>
-      )}
-    </div>
+  const fallbackNetworkProfiles: NetworkProfile[] = [
+    {
+      id: 'andrew-smith',
+      name: 'Andrew Smith (You)',
+      initialRank: 1,
+      initiallyFollowing: true,
+      avatar: 'https://images.unsplash.com/photo-1768853972795-2739a9685567?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjB3b21hbiUyMGF0aGxldGUlMjBwb3J0cmFpdHxlbnwxfHx8fDE3NzQxNDA1NDh8MA&ixlib=rb-4.1.0&q=80&w=1080',
+    },
+    {
+      id: 'john-black',
+      name: 'John Black',
+      initialRank: 2,
+      initiallyFollowing: true,
+      avatar: 'https://images.unsplash.com/photo-1651684215020-f7a5b6610f23?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMG1hbGUlMjBidXNpbmVzc3xlbnwxfHx8fDE3NzQxMjU0OTl8MA&ixlib=rb-4.1.0&q=80&w=1080',
+    },
+    {
+      id: 'jim-kerry',
+      name: 'Jim Kerry',
+      initialRank: 3,
+      initiallyFollowing: false,
+      avatar: 'https://images.unsplash.com/photo-1769636929132-e4e7b50cfac0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMGZlbWFsZSUyMGJ1c2luZXNzfGVufDF8fHx8MTc3NDEyNTQ5OXww&ixlib=rb-4.1.0&q=80&w=1080',
+    },
+    {
+      id: 'maria-chen',
+      name: 'Maria Chen',
+      initialRank: 1,
+      initiallyFollowing: false,
+      avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=240&q=80',
+    },
+    {
+      id: 'taylor-owens',
+      name: 'Taylor Owens',
+      initialRank: 2,
+      initiallyFollowing: false,
+      avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=240&q=80',
+    },
+    {
+      id: 'nina-patel',
+      name: 'Nina Patel',
+      initialRank: 3,
+      initiallyFollowing: false,
+      avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=240&q=80',
+    },
+    {
+      id: 'omar-brooks',
+      name: 'Omar Brooks',
+      initialRank: 1,
+      initiallyFollowing: false,
+      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=240&q=80',
+    },
+    {
+      id: 'lena-watts',
+      name: 'Lena Watts',
+      initialRank: 2,
+      initiallyFollowing: false,
+      avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=240&q=80',
+    },
+    {
+      id: 'diego-rivera',
+      name: 'Diego Rivera',
+      initialRank: 3,
+      initiallyFollowing: false,
+      avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=240&q=80',
+    },
+  ];
+
+  const loadedNetworkProfiles: NetworkProfile[] = recommendedFriends.map((profile, index) => ({
+    id: profile.id,
+    name: profile.name,
+    avatar: profile.avatar,
+    initialRank: (index % 3) + 1,
+    initiallyFollowing: false,
+  }));
+  const networkProfiles = [
+    ...fallbackNetworkProfiles.slice(0, 3),
+    ...(loadedNetworkProfiles.length > 0 ? loadedNetworkProfiles : fallbackNetworkProfiles.slice(3)),
+  ];
+  const myNetworkProfiles = networkProfiles.slice(0, 3);
+  const peopleYouMayKnowProfiles = networkProfiles.slice(3);
+  const peopleYouMayKnowGroups = Array.from(
+    { length: Math.ceil(peopleYouMayKnowProfiles.length / 3) },
+    (_, index) => peopleYouMayKnowProfiles.slice(index * 3, index * 3 + 3),
   );
+
+  const isNetworkProfileFollowing = (profile: NetworkProfile) =>
+    networkFollowStates[profile.id] ?? profile.initiallyFollowing;
+
+  const handleToggleNetworkFollow = (profile: NetworkProfile) => {
+    const isFollowing = isNetworkProfileFollowing(profile);
+    setNetworkFollowStates((states) => ({
+      ...states,
+      [profile.id]: !isFollowing,
+    }));
+    setFollowing((count) => Math.max(0, count + (isFollowing ? -1 : 1)));
+  };
+
+  const renderNetworkProfileRow = (profile: NetworkProfile, index: number) => {
+    const isFollowing = isNetworkProfileFollowing(profile);
+
+    return (
+      <button
+        key={`${profile.id}-${index}`}
+        type="button"
+        onClick={() => handleToggleNetworkFollow(profile)}
+        className="flex min-h-[58px] w-full items-center gap-3 rounded-[1rem] border border-white/10 bg-white/[0.08] px-4 py-2.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:bg-white/[0.12]"
+      >
+        <span className="w-5 shrink-0 text-center text-sm font-black text-white/72">{profile.initialRank}</span>
+        <span className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-white/10">
+          {profile.avatar ? (
+            <img src={profile.avatar} alt={profile.name} className="h-full w-full object-cover" />
+          ) : (
+            <span className="flex h-full w-full items-center justify-center text-xs font-black text-white/48">
+              {profile.name.charAt(0)}
+            </span>
+          )}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-sm font-black text-white">
+          {profile.name}
+        </span>
+        <span
+          className={`shrink-0 rounded-full px-4 py-2 text-xs font-black transition-colors ${
+            isFollowing
+              ? 'bg-white text-black'
+              : 'border border-white/10 bg-white/[0.06] text-white/82'
+          }`}
+        >
+          {isFollowing ? 'Following' : 'Follow'}
+        </span>
+      </button>
+    );
+  };
 
   return (
     <div className="absolute inset-0 w-full h-full overflow-y-auto bg-[#0a0e1a] text-white [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
@@ -579,24 +717,20 @@ export function ProfileScreen() {
           {/* Tab Navigation */}
           <div className="mb-5 grid grid-cols-4 rounded-full border border-white/10 bg-[#101215]/95 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_10px_32px_rgba(0,0,0,0.22)]">
             <button
-              onClick={() => setActiveTab('your-team')}
+              onClick={() => setActiveTab('network')}
               className={`rounded-full px-2 py-2.5 text-xs font-semibold transition-colors ${
-                activeTab === 'your-team'
+                activeTab === 'network'
                   ? 'bg-white/10 text-white'
                   : 'text-white/70 hover:text-white'
               }`}
             >
-              Your Team
+              Network
             </button>
             <button
-              onClick={() => setActiveTab('invited-team')}
-              className={`rounded-full px-2 py-2.5 text-xs font-semibold transition-colors ${
-                activeTab === 'invited-team'
-                  ? 'bg-white/10 text-white'
-                  : 'text-white/70 hover:text-white'
-              }`}
+              onClick={() => navigate('/team-view')}
+              className="rounded-full px-2 py-2.5 text-xs font-semibold text-white/70 transition-colors hover:text-white"
             >
-              Invited Team
+              Team
             </button>
             <button
               onClick={() => navigate('/winnings')}
@@ -616,114 +750,46 @@ export function ProfileScreen() {
             </button>
           </div>
 
-        {/* Your Team's Leaderboard */}
-        {activeTab === 'your-team' && (
+        {/* Network */}
+        {activeTab === 'network' && (
           <motion.section
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.08 }}
-            className="pb-2"
+            className="space-y-6 pb-2"
           >
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-xl font-black tracking-tight text-white">Your Team's Leaderboard</h3>
-              <span className="text-xs font-black text-white/38">{activeTeamCount} / {teamGoalCount}</span>
-            </div>
-
-            <div className="relative mb-3 overflow-hidden rounded-[1.35rem] border border-white/10 bg-gradient-to-r from-[#22262b]/98 to-[#171b1f]/98 px-5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_16px_44px_rgba(0,0,0,0.34)]">
-              <div className="absolute right-4 top-1/2 h-24 w-24 -translate-y-1/2 rounded-full bg-emerald-300/16 blur-2xl" />
+            <div className="relative overflow-hidden rounded-[1.35rem] border border-white/10 bg-gradient-to-r from-[#24272c]/98 to-[#171b1f]/98 px-6 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_16px_44px_rgba(0,0,0,0.34)]">
+              <div className="absolute right-5 top-1/2 h-24 w-24 -translate-y-1/2 rounded-full bg-emerald-300/16 blur-2xl" />
               <div className="relative flex items-center justify-between">
                 <div>
-                  <p className="mb-1 text-sm font-black text-white/38">Team's Progress:</p>
-                  <p className="text-2xl font-black text-white">{displayTeamProgress} pts</p>
+                  <p className="mb-1 text-sm font-bold text-white/46">Networking Points</p>
+                  <p className="text-2xl font-black text-white">{displayNetworkingPoints} pts</p>
                 </div>
                 <img src={gemIcon} alt="Gem" className="h-[74px] w-[74px] drop-shadow-[0_0_28px_rgba(134,255,166,0.62)]" />
               </div>
             </div>
 
-            <div className="overflow-hidden rounded-[1.35rem] border border-white/8 bg-gradient-to-b from-[#1a1b2a]/98 to-[#141521]/98 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_18px_50px_rgba(0,0,0,0.34)]">
-              {teamMembers.map((member, index) => {
-                const canOpenProfile = !member.isCurrentUser && member.status === 'active';
-                const memberDebt =
-                  member.isCurrentUser ? 'Debt: $ 8 000' : member.name === 'John Black' ? 'Debt: $ 2 500' : 'Debt: $ 10 000';
-
-                return (
-                  <motion.div
-                    key={member.id}
-                    initial={{ opacity: 0, x: -14 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.07 * index }}
-                    role={canOpenProfile ? 'button' : undefined}
-                    tabIndex={canOpenProfile ? 0 : undefined}
-                    onClick={() => {
-                      if (canOpenProfile) {
-                        navigate('/user-profile', { state: { member } });
-                      }
-                    }}
-                    onKeyDown={(event) => {
-                      if (canOpenProfile && (event.key === 'Enter' || event.key === ' ')) {
-                        event.preventDefault();
-                        navigate('/user-profile', { state: { member } });
-                      }
-                    }}
-                    className={`flex min-h-[58px] w-full items-center gap-3 px-4 py-2.5 text-left transition-colors ${
-                      index < teamMembers.length - 1 ? 'border-b border-white/[0.035]' : ''
-                    } ${canOpenProfile ? 'cursor-pointer hover:bg-white/[0.06]' : ''}`}
-                  >
-                    <span className="w-5 shrink-0 text-center text-sm font-black text-white/72">{index + 1}</span>
-                    {member.status === 'pending' ? (
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/8 ring-1 ring-white/10">
-                        <User className="h-4 w-4 text-white/28" />
-                      </span>
-                    ) : (
-                      renderAvatar(member, 'h-10 w-10 shrink-0')
-                    )}
-
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-black text-white">
-                        {member.status === 'pending' ? member.email : member.name}
-                        {member.isCurrentUser && <span className="font-bold text-white/52"> (You)</span>}
-                      </span>
-                      {member.status === 'active' && (
-                        <span className="mt-0.5 block text-[11px] font-bold text-white/40">{memberDebt}</span>
-                      )}
-                    </span>
-
-                    {member.status === 'pending' ? (
-                      <span className="shrink-0 text-xs font-bold text-white/46">Pending...</span>
-                    ) : (
-                      <span className="flex shrink-0 items-center gap-1">
-                        <span className="text-xs font-black text-[#8ff0a8]">{member.points}</span>
-                        <img src={gemIcon} alt="Gem" className="h-5 w-5 drop-shadow-[0_0_12px_rgba(134,255,166,0.5)]" />
-                      </span>
-                    )}
-
-                    {!member.isCurrentUser && member.status === 'active' && (
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setMemberToDelete(member);
-                          setShowDeleteModal(true);
-                        }}
-                        className="ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-red-400/62 transition-colors hover:bg-red-400/10 hover:text-red-300"
-                        aria-label={`Remove ${member.name}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </motion.div>
-                );
-              })}
-
-              <button
-                type="button"
-                onClick={handleSendInvite}
-                className="flex min-h-[60px] w-full items-center justify-between border-t border-dashed border-white/8 px-5 py-3 text-sm font-bold text-white/58 transition-colors hover:bg-white/[0.05] hover:text-white"
-              >
-                <span>Send invite</span>
-                <Plus className="h-4 w-4" />
-              </button>
+            <div>
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-xl font-black tracking-tight text-white">My Network</h3>
+                <span className="text-xs font-black text-white/42">{myNetworkProfiles.length} / 5</span>
+              </div>
+              <div className="space-y-2 rounded-[1.35rem] bg-[#151624]/80 p-0 shadow-[0_18px_50px_rgba(0,0,0,0.26)]">
+                {myNetworkProfiles.map(renderNetworkProfileRow)}
+              </div>
             </div>
+
+            {peopleYouMayKnowGroups.map((profiles, groupIndex) => (
+              <div key={`people-you-may-know-${groupIndex}`}>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-xl font-black tracking-tight text-white">People You May Know</h3>
+                  <span className="text-xs font-black text-white/42">{profiles.length} / 5</span>
+                </div>
+                <div className="space-y-2">
+                  {profiles.map(renderNetworkProfileRow)}
+                </div>
+              </div>
+            ))}
           </motion.section>
         )}
 
