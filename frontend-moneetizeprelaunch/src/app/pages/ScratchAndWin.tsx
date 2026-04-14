@@ -1428,8 +1428,20 @@ export function ScratchAndWin() {
 
                 <p className="relative z-10 mt-7 text-[16px] font-black text-white">You also get:</p>
 
-                <div className="relative z-10 -mx-2 mt-5 flex snap-x gap-3 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  {activationRewards.slice(0, 3).map((item) => (
+                <div
+                  ref={rewardsSliderRef}
+                  onPointerDown={handleRewardsSliderPointerDown}
+                  onPointerMove={handleRewardsSliderPointerMove}
+                  onPointerUp={handleRewardsSliderPointerEnd}
+                  onPointerCancel={handleRewardsSliderPointerEnd}
+                  onPointerLeave={handleRewardsSliderPointerEnd}
+                  onWheel={handleRewardsSliderWheel}
+                  className={`relative z-10 -mx-4 mt-5 flex gap-3 overflow-x-auto px-4 pb-2 select-none touch-pan-y ${
+                    isRewardsSliderDragging ? 'cursor-grabbing snap-none' : 'cursor-grab snap-x'
+                  }`}
+                  aria-label="Rewards received"
+                >
+                  {activationRewards.map((item) => (
                     <div
                       key={item.id}
                       className="flex min-h-[116px] min-w-[132px] snap-center flex-col items-center justify-center gap-2 rounded-[1rem] border border-white/12 bg-white/9 px-3 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
