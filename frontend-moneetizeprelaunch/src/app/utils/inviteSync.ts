@@ -28,12 +28,16 @@ export interface InviteRecord {
 }
 
 export interface PendingTeamInviteMember {
+  id: string;
+  type: InviteDeliveryType;
   contact: string;
   email?: string;
   phone?: string;
   name: string;
   sentAt: string;
   inviteUrl?: string;
+  status: InviteRecord['status'];
+  initials: string;
 }
 
 const parseJsonArray = <T,>(key: string): T[] => {
@@ -94,6 +98,26 @@ const getContactKey = (record: Partial<InviteRecord> & Record<string, unknown>) 
   if (typeof record.id === 'number') return `id:${record.id}`;
 
   return '';
+};
+
+const inviteMatches = (
+  record: Partial<InviteRecord> & Record<string, unknown>,
+  invite: Partial<InviteRecord> & { contact?: string } & Record<string, unknown>,
+) => {
+  const recordId = record.id === undefined || record.id === null ? '' : String(record.id);
+  const inviteId = invite.id === undefined || invite.id === null ? '' : String(invite.id);
+
+  if (recordId && inviteId && recordId === inviteId) return true;
+
+  const recordKey = getContactKey(record);
+  let inviteKey = getContactKey(invite);
+
+  if (!inviteKey && typeof invite.contact === 'string' && invite.contact.trim()) {
+    const contact = invite.contact.trim();
+    inviteKey = contact.includes('@') ? `email:${contact.toLowerCase()}` : `sms:${contact.replace(/\D/g, '')}`;
+  }
+
+  return Boolean(recordKey && inviteKey && recordKey === inviteKey);
 };
 
 const mergeByContact = <T extends object>(existing: T[], incoming: T[]) => {
@@ -222,7 +246,62 @@ export function recordSentInvites(recipients: string[], type: InviteDeliveryType
   return records;
 }
 
-export function getPendingTeamInviteMembers(limit = 1): PendingTeamInviteMember[] {
+export function deletePendingInvite(invite: Partial<InviteRecord> & { contact?: string }) {
+  const removeFromStorage = (key: string) => {
+    const nextRecords = parseJsonArray<Record<string, unknown>>(key).filter((record) => !inviteMatches(record, invite));
+    safeSetItem(key, JSON.stringify(nextRecords));
+  };
+
+  removeFromStorage(SENT_INVITES_STORAGE_KEY);
+  removeFromStorage(PENDING_INVITATIONS_STORAGE_KEY);
+  removeFromStorage(PENDING_TEAM_INVITES_STORAGE_KEY);
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(INVITES_UPDATED_EVENT, { detail: { deletedInvite: invite } }));
+  }
+}
+
+export function updatePendingInviteSentAt(
+  invite: Partial<InviteRecord> & { contact?: string; inviteUrl?: string },
+  sentAt = new Date().toISOString(),
+) {
+  let updatedInvite: InviteRecord | null = null;
+
+  const updateStorage = (key: string) => {
+    const nextRecords = parseJsonArray<any>(key).map((record) => {
+      if (!inviteMatches(record, invite)) return record;
+
+      const fallbackType: InviteDeliveryType = record?.type === 'sms' || invite.type === 'sms' ? 'sms' : 'email';
+      const normalized = normalizeLegacyRecord(record, fallbackType);
+      if (!normalized) return record;
+
+      const nextRecord: InviteRecord = {
+        ...normalized,
+        inviteUrl: invite.inviteUrl || normalized.inviteUrl,
+        sentAt,
+        invitedAt: normalized.invitedAt || sentAt,
+        status: 'pending',
+      };
+
+      updatedInvite = nextRecord;
+      return nextRecord;
+    });
+
+    safeSetItem(key, JSON.stringify(nextRecords));
+  };
+
+  updateStorage(SENT_INVITES_STORAGE_KEY);
+  updateStorage(PENDING_INVITATIONS_STORAGE_KEY);
+  updateStorage(PENDING_TEAM_INVITES_STORAGE_KEY);
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(INVITES_UPDATED_EVENT, { detail: { resentInvite: invite, sentAt } }));
+  }
+
+  return updatedInvite;
+}
+
+export function getPendingTeamInviteMembers(limit?: number): PendingTeamInviteMember[] {
   const pendingTeamInvites = parseJsonArray<any>(PENDING_TEAM_INVITES_STORAGE_KEY)
     .map((record) => normalizeLegacyRecord(record, record?.type === 'sms' ? 'sms' : 'email'))
     .filter(Boolean) as InviteRecord[];
@@ -231,13 +310,18 @@ export function getPendingTeamInviteMembers(limit = 1): PendingTeamInviteMember[
     .filter(Boolean) as InviteRecord[];
 
   const merged = mergeByContact(pendingTeamInvites, sentInvites).filter((record) => record.status === 'pending');
+  const visibleRecords = typeof limit === 'number' ? merged.slice(0, limit) : merged;
 
-  return merged.slice(0, limit).map((record) => ({
+  return visibleRecords.map((record) => ({
+    id: record.id,
+    type: record.type,
     contact: record.email || record.phone || record.name,
     email: record.email,
     phone: record.phone,
     name: record.name,
     sentAt: record.sentAt,
     inviteUrl: record.inviteUrl,
+    status: record.status,
+    initials: record.initials,
   }));
 }

@@ -1,16 +1,23 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
-import { ChevronLeft, MessageCircle } from 'lucide-react';
+import { ChevronLeft, MessageCircle, RefreshCw, Trash2 } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import aiBubble from 'figma:asset/36fff8878cf3ea6d1ef44d3f08bbc2346c733ebc.png';
 import greenMorphicBall from 'figma:asset/8fd559d05db8d67dee13e79dc6418365220fd613.png';
 import { getUserPoints } from '../utils/pointsManager';
 import { getStoredProfileSettings, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT } from '../utils/profileSettings';
-import { getPendingTeamInviteMembers, INVITES_UPDATED_EVENT } from '../utils/inviteSync';
+import { buildInviteLink } from '../utils/invitationLinks';
+import {
+  deletePendingInvite,
+  getPendingTeamInviteMembers,
+  INVITES_UPDATED_EVENT,
+  updatePendingInviteSentAt,
+  type InviteDeliveryType,
+} from '../utils/inviteSync';
 
 interface TeamMember {
-  id: number;
+  id: number | string;
   name: string;
   handle: string;
   points: number;
@@ -19,6 +26,11 @@ interface TeamMember {
   debt?: string;
   status?: 'active' | 'pending';
   email?: string;
+  phone?: string;
+  contact?: string;
+  inviteType?: InviteDeliveryType;
+  inviteUrl?: string;
+  sentAt?: string;
   canRemove?: boolean;
 }
 
@@ -30,8 +42,9 @@ export function TeamView() {
   const [userHandle, setUserHandle] = useState('@jesswu');
   const [userPhoto, setUserPhoto] = useState('');
   const [selectedAvatar, setSelectedAvatar] = useState('blueAvatar');
-  const [removedMemberIds, setRemovedMemberIds] = useState<number[]>([]);
+  const [removedMemberIds, setRemovedMemberIds] = useState<Array<number | string>>([]);
   const [pendingInviteMembers, setPendingInviteMembers] = useState<TeamMember[]>([]);
+  const [inviteActionMessage, setInviteActionMessage] = useState('');
 
   useEffect(() => {
     const points = getUserPoints();
@@ -49,13 +62,18 @@ export function TeamView() {
     };
     const refreshPendingInviteMembers = () => {
       setPendingInviteMembers(
-        getPendingTeamInviteMembers(1).map((invite, index) => ({
-          id: 500 + index,
+        getPendingTeamInviteMembers().map((invite) => ({
+          id: invite.id,
           name: invite.name,
-          email: invite.email || invite.phone || invite.contact,
+          email: invite.email,
+          phone: invite.phone,
+          contact: invite.contact,
           handle: '',
           points: 0,
           avatar: '',
+          inviteType: invite.type,
+          inviteUrl: invite.inviteUrl,
+          sentAt: invite.sentAt,
           status: 'pending' as const,
         }))
       );
@@ -71,7 +89,7 @@ export function TeamView() {
       if (!event.key || PROFILE_SETTINGS_STORAGE_KEYS.includes(event.key)) {
         applyProfileSettings();
       }
-      if (!event.key || ['sentInvites', 'pendingTeamInvites'].includes(event.key)) {
+      if (!event.key || ['sentInvites', 'pendingInvitations', 'pendingTeamInvites'].includes(event.key)) {
         refreshPendingInviteMembers();
       }
     };
@@ -88,6 +106,59 @@ export function TeamView() {
   }, []);
 
   const aiAgentImage = selectedAvatar === 'greenAvatar' ? greenMorphicBall : aiBubble;
+  const getPendingInviteLabel = (member: TeamMember) => member.email || member.phone || member.contact || member.name;
+  const getInviteMessage = (inviteUrl: string) =>
+    `Hey! I invited you to Moneetize. Start here and scratch to win rewards: ${inviteUrl}`;
+  const getSmsUrl = (recipient: string, message: string) => {
+    const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+    const separator = /iPad|iPhone|iPod/i.test(userAgent) ? '&' : '?';
+    const cleanedRecipient = recipient.replace(/[^\d+]/g, '');
+
+    return `sms:${cleanedRecipient}${separator}body=${encodeURIComponent(message)}`;
+  };
+  const handleResendPendingInvite = (member: TeamMember) => {
+    if (member.status !== 'pending') return;
+
+    const inviteUrl = member.inviteUrl || buildInviteLink();
+    const recipient = getPendingInviteLabel(member);
+    const message = getInviteMessage(inviteUrl);
+    const deliveryType: InviteDeliveryType = member.inviteType || (member.phone ? 'sms' : 'email');
+    const invitePayload = {
+      id: String(member.id),
+      type: deliveryType,
+      email: member.email,
+      phone: member.phone,
+      contact: member.contact,
+      inviteUrl,
+    };
+
+    updatePendingInviteSentAt(invitePayload);
+    setInviteActionMessage(`Invite resent to ${recipient}.`);
+
+    if (deliveryType === 'sms' && (member.phone || member.contact)) {
+      window.location.href = getSmsUrl(member.phone || member.contact || '', message);
+      return;
+    }
+
+    const email = member.email || member.contact;
+    if (email) {
+      window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent('Your Moneetize invite')}&body=${encodeURIComponent(message)}`;
+    }
+  };
+  const handleDeletePendingInvite = (member: TeamMember) => {
+    if (member.status !== 'pending') return;
+
+    deletePendingInvite({
+      id: String(member.id),
+      type: member.inviteType || (member.phone ? 'sms' : 'email'),
+      email: member.email,
+      phone: member.phone,
+      contact: member.contact,
+    });
+    setPendingInviteMembers((members) => members.filter((pendingMember) => pendingMember.id !== member.id));
+    setInviteActionMessage(`Removed pending invite for ${getPendingInviteLabel(member)}.`);
+  };
+
   const renderAnimatedAiAvatar = () => {
     const isGreenAgent = selectedAvatar === 'greenAvatar';
 
@@ -124,18 +195,16 @@ export function TeamView() {
       </span>
     );
   };
-  const fallbackPendingTeamMembers: TeamMember[] = [
-    { id: 5, name: 'test@mail.com', email: 'test@mail.com', handle: '', points: 0, avatar: '', status: 'pending' },
-  ];
   const teamMembers: TeamMember[] = [
     { id: 1, name: 'Russell Westbrook', handle: '@russell', points: 42, debt: 'Debt: $ 8 000', avatar: 'https://images.unsplash.com/photo-1629507208649-70919ca33793?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMG1hbiUyMHBvcnRyYWl0fGVufDF8fHx8MTc3NDA4MzYxOXww&ixlib=rb-4.1.0&q=80&w=1080', status: 'active' },
     { id: 2, name: 'Alex McKein', handle: '@alex', points: 40, debt: 'Debt: $ 8 000', avatar: 'https://images.unsplash.com/photo-1768853972795-2739a9685567?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjB3b21hbiUyMGF0aGxldGUlMjBwb3J0cmFpdHxlbnwxfHx8fDE3NzQxNDA1NDh8MA&ixlib=rb-4.1.0&q=80&w=1080', status: 'active' },
     { id: 3, name: 'Bill Winston', handle: '@bill', points: 35, debt: 'Debt: $ 8 000', avatar: 'https://images.unsplash.com/photo-1758876204244-930299843f07?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjB5b3VuZyUyMG1hbiUyMHNtaWxpbmd8ZW58MXx8fHwxNzc0MTQwNTQ5fDA&ixlib=rb-4.1.0&q=80&w=1080', status: 'active' },
     { id: 4, name: 'Jim Kerry', handle: '@jim', points: 27, avatar: 'https://images.unsplash.com/photo-1769636929132-e4e7b50cfac0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMGZlbWFsZSUyMGJ1c2luZXNzfGVufDF8fHx8MTc3NDEyNTQ5OXww&ixlib=rb-4.1.0&q=80&w=1080', status: 'active', canRemove: true },
-    ...(pendingInviteMembers.length > 0 ? pendingInviteMembers : fallbackPendingTeamMembers),
+    ...pendingInviteMembers,
   ];
   const visibleTeamMembers = teamMembers.filter((member) => !removedMemberIds.includes(member.id));
   const sortedTeam = [...visibleTeamMembers].sort((a, b) => b.points - a.points);
+  const displayedTeamCount = Math.min(visibleTeamMembers.length, 5);
   const displayedTeamProgress = 720;
 
   const renderStatusBar = () => (
@@ -248,7 +317,7 @@ export function TeamView() {
           <div className="space-y-4 pb-4">
             <div className="flex items-center justify-between px-1">
               <h2 className="text-2xl font-black text-white">{teamName}</h2>
-              <span className="text-sm font-bold text-white">{sortedTeam.length}/5</span>
+              <span className="text-sm font-bold text-white">{displayedTeamCount}/5</span>
             </div>
 
             <div className="relative overflow-hidden rounded-[1.35rem] border border-white/12 bg-gradient-to-r from-[#282b30]/96 to-[#171b1f]/98 px-7 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_16px_44px_rgba(0,0,0,0.34)]">
@@ -312,11 +381,29 @@ export function TeamView() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-base font-black text-white">
-                      {member.status === 'pending' ? member.email : member.name}
+                      {member.status === 'pending' ? getPendingInviteLabel(member) : member.name}
                     </p>
                   </div>
                   {member.status === 'pending' ? (
-                    <span className="shrink-0 text-sm font-bold text-white/48">Pending...</span>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <span className="text-sm font-bold text-white/48">Pending...</span>
+                      <button
+                        type="button"
+                        onClick={() => handleResendPendingInvite(member)}
+                        className="flex h-8 w-8 items-center justify-center rounded-full text-[#8ff0a8] transition-colors hover:bg-[#8ff0a8]/10 hover:text-[#b9ffc8]"
+                        aria-label={`Resend invite to ${getPendingInviteLabel(member)}`}
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePendingInvite(member)}
+                        className="flex h-8 w-8 items-center justify-center rounded-full text-red-400/75 transition-colors hover:bg-red-400/10 hover:text-red-300"
+                        aria-label={`Delete pending invite for ${getPendingInviteLabel(member)}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   ) : (
                     <div className="flex shrink-0 items-center gap-2">
                       <span className="text-sm font-black text-[#8ff0a8]">{member.points}</span>
@@ -337,6 +424,12 @@ export function TeamView() {
                   )}
                 </div>
               ))}
+
+              {inviteActionMessage && (
+                <p className="mt-2 rounded-full border border-white/8 bg-white/[0.06] px-4 py-2 text-center text-xs font-bold text-white/62">
+                  {inviteActionMessage}
+                </p>
+              )}
 
               <button
                 type="button"
