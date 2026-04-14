@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronUp, History, MessageCircle, MoreHorizontal, Share2,
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import wildcardIcon from 'figma:asset/f632203f248e2d298246c5ffb0789bc0cac99ea5.png';
 import tshirtRewardIcon from '../../assets/moneetize-tshirt-reward.png';
-import { getUserPoints } from '../utils/pointsManager';
+import { getUserPoints, POINTS_UPDATED_EVENT } from '../utils/pointsManager';
 import { safeGetItem, safeSetItem } from '../utils/storage';
 import { getSelectedAvatarImage } from '../utils/avatarUtils';
 import { isUserAdmin } from '../services/authService';
@@ -213,11 +213,12 @@ export function ProfileScreen() {
     void loadScratchProfile()
       .then((profile) => {
         if (!cancelled && profile?.balances) {
-          setUserPoints(profile.balances.points);
+          const latestPoints = getUserPoints();
+          setUserPoints(latestPoints);
           setBalance(profile.balances.usdt);
           setTeamMembers((members) =>
             members.map((member) =>
-              member.isCurrentUser ? { ...member, points: profile.balances.points } : member
+              member.isCurrentUser ? { ...member, points: latestPoints } : member
             )
           );
         }
@@ -283,6 +284,15 @@ export function ProfileScreen() {
     ];
     
     setTeamMembers(mockTeam);
+    const syncPointBalance = () => {
+      const latestPoints = getUserPoints();
+      setUserPoints(latestPoints);
+      setTeamMembers((members) =>
+        members.map((member) =>
+          member.isCurrentUser ? { ...member, points: latestPoints } : member
+        )
+      );
+    };
     const handleProfileSettingsUpdated = () => {
       const nextProfileSettings = applyProfileSettings();
       setTeamMembers((members) =>
@@ -302,30 +312,26 @@ export function ProfileScreen() {
       if (!event.key || PROFILE_SETTINGS_STORAGE_KEYS.includes(event.key)) {
         handleProfileSettingsUpdated();
       }
-      if (!event.key || ['userPoints', 'userUsdtBalance', 'scratchHistory', NETWORK_FOLLOW_STATES_KEY].includes(event.key)) {
-        const latestPoints = getUserPoints();
+      if (!event.key || ['userPoints', 'pointsHistory', 'userUsdtBalance', 'scratchHistory', NETWORK_FOLLOW_STATES_KEY].includes(event.key)) {
         const latestHistory = getStoredScratchHistory();
-        setUserPoints(latestPoints);
+        syncPointBalance();
         setScratchHistory(latestHistory);
         setBalance(Math.max(getStoredUsdtBalance(), getScratchHistoryUsdtTotal(latestHistory)));
         setNetworkFollowStates({
           ...defaultNetworkFollowStates,
           ...getStoredNetworkFollowStates(),
         });
-        setTeamMembers((members) =>
-          members.map((member) =>
-            member.isCurrentUser ? { ...member, points: latestPoints } : member
-          )
-        );
       }
     };
 
     window.addEventListener(PROFILE_SETTINGS_UPDATED_EVENT, handleProfileSettingsUpdated);
+    window.addEventListener(POINTS_UPDATED_EVENT, syncPointBalance);
     window.addEventListener('storage', handleStorageChange);
 
     return () => {
       cancelled = true;
       window.removeEventListener(PROFILE_SETTINGS_UPDATED_EVENT, handleProfileSettingsUpdated);
+      window.removeEventListener(POINTS_UPDATED_EVENT, syncPointBalance);
       window.removeEventListener('storage', handleStorageChange);
     };
   }, []);

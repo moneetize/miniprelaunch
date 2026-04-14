@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import { ArrowLeft, Settings, Bell, ChevronRight, Trophy, Users, Gift, Star, TrendingUp, User, Mail, Calendar, Heart, Target, Award, Share2, LogOut } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
-import { getUserPoints } from '../utils/pointsManager';
+import { getUserPoints, POINTS_UPDATED_EVENT } from '../utils/pointsManager';
 import { safeGetItem } from '../utils/storage';
 import { getUserProfile, logoutUser } from '../services/authService';
 
@@ -94,7 +94,16 @@ export function ProfileDashboard() {
       }
     };
 
+    const syncPointBalance = () => setUserPoints(getUserPoints());
+
     fetchProfile();
+    window.addEventListener(POINTS_UPDATED_EVENT, syncPointBalance);
+    window.addEventListener('storage', syncPointBalance);
+
+    return () => {
+      window.removeEventListener(POINTS_UPDATED_EVENT, syncPointBalance);
+      window.removeEventListener('storage', syncPointBalance);
+    };
   }, [navigate]);
 
   const handleLogout = () => {

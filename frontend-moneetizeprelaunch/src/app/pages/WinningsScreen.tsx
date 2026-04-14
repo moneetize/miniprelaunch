@@ -14,11 +14,12 @@ import wildcardIcon from 'figma:asset/f632203f248e2d298246c5ffb0789bc0cac99ea5.p
 import aiBubble from 'figma:asset/36fff8878cf3ea6d1ef44d3f08bbc2346c733ebc.png';
 import greenMorphicBall from 'figma:asset/8fd559d05db8d67dee13e79dc6418365220fd613.png';
 import tshirtRewardIcon from '../../assets/moneetize-tshirt-reward.png';
-import { getUserPoints, setUserPoints } from '../utils/pointsManager';
+import { getPointsHistory, getUserPoints, POINTS_UPDATED_EVENT, setUserPoints, type PointsTransaction } from '../utils/pointsManager';
 import { getStoredProfileSettings, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT } from '../utils/profileSettings';
 import { safeGetItem } from '../utils/storage';
 import { submitEarlyAccessRequest } from '../services/earlyAccessService';
 import { getStoredUsdtBalance, loadScratchProfile, type ScratchDrawResult } from '../services/scratchService';
+import { loadMarketplaceOrders, MARKETPLACE_ORDERS_UPDATED_EVENT, type MarketplaceOrder } from '../services/marketplaceService';
 
 type RewardItemIcon = 'usdt' | 'tripto' | 'wildcard' | 'shirt';
 
@@ -36,6 +37,10 @@ interface HistoryRewardIcon {
   type: 'points' | 'tripto' | 'wildcard' | 'merch' | 'usdt';
   amount?: number;
 }
+
+type WinningsHistoryEntry =
+  | { kind: 'scratch'; id: string; createdAt: string; draw: ScratchDrawResult }
+  | { kind: 'redemption'; id: string; createdAt: string; title: string; description: string; points: number };
 
 function getStoredScratchHistory(): ScratchDrawResult[] {
   try {
@@ -205,6 +210,60 @@ function getRedeemableProducts(history: ScratchDrawResult[]) {
   return [...earnedProducts, ...coreFill, ...fallbackFill].slice(0, 8);
 }
 
+function getMarketplaceRedemptionEntries(
+  marketplaceOrders: MarketplaceOrder[],
+  pointTransactions: PointsTransaction[],
+): WinningsHistoryEntry[] {
+  const orderEntries = marketplaceOrders
+    .filter((order) => (Number(order.pointsTotal) || 0) > 0)
+    .map((order) => {
+      const itemCount = order.items.reduce((total, item) => total + item.quantity, 0);
+      return {
+        kind: 'redemption' as const,
+        id: order.id,
+        createdAt: order.createdAt,
+        title: 'Moneetize merch redeemed',
+        description: `${itemCount} item${itemCount === 1 ? '' : 's'} | ${order.orderNumber || 'Marketplace order'}`,
+        points: Number(order.pointsTotal) || 0,
+      };
+    });
+
+  if (orderEntries.length) return orderEntries;
+
+  return pointTransactions
+    .filter((transaction) => transaction.type === 'subtract' && transaction.source === 'marketplace-redemption')
+    .map((transaction) => ({
+      kind: 'redemption' as const,
+      id: `points-${transaction.timestamp}`,
+      createdAt: new Date(transaction.timestamp).toISOString(),
+      title: 'Marketplace redemption',
+      description: 'Points used for merch',
+      points: Number(transaction.amount) || 0,
+    }));
+}
+
+function getWinningsHistoryEntries(
+  scratchHistory: ScratchDrawResult[],
+  marketplaceOrders: MarketplaceOrder[],
+  pointTransactions: PointsTransaction[],
+): WinningsHistoryEntry[] {
+  const scratchEntries: WinningsHistoryEntry[] = scratchHistory.map((draw) => ({
+    kind: 'scratch',
+    id: draw.id,
+    createdAt: draw.createdAt,
+    draw,
+  }));
+
+  return [
+    ...scratchEntries,
+    ...getMarketplaceRedemptionEntries(marketplaceOrders, pointTransactions),
+  ].sort((first, second) => {
+    const firstTime = new Date(first.createdAt).getTime() || 0;
+    const secondTime = new Date(second.createdAt).getTime() || 0;
+    return secondTime - firstTime;
+  });
+}
+
 function isInteractiveTarget(target: EventTarget | null) {
   return target instanceof Element && Boolean(target.closest('button, a, input, select, textarea, label'));
 }
@@ -221,6 +280,8 @@ function WinningsScreen() {
   const [userPhoto, setUserPhoto] = useState('');
   const [selectedAvatar, setSelectedAvatar] = useState('blueAvatar');
   const [scratchHistory, setScratchHistory] = useState<ScratchDrawResult[]>(() => getStoredScratchHistory());
+  const [marketplaceOrders, setMarketplaceOrders] = useState<MarketplaceOrder[]>(() => loadMarketplaceOrders());
+  const [pointTransactions, setPointTransactions] = useState<PointsTransaction[]>(() => getPointsHistory());
   const [usdtBalance, setUsdtBalance] = useState(() => Math.max(getStoredUsdtBalance(), getScratchHistoryUsdtTotal(getStoredScratchHistory())));
   const [showTokenModal, setShowTokenModal] = useState(false);
   const [showRequestForm, setShowRequestForm] = useState(false);
@@ -246,6 +307,8 @@ function WinningsScreen() {
       const history = getStoredScratchHistory();
       setScratchHistory(history);
       setUserPointsState(getUserPoints());
+      setPointTransactions(getPointsHistory());
+      setMarketplaceOrders(loadMarketplaceOrders());
       setUsdtBalance(Math.max(getStoredUsdtBalance(), getScratchHistoryUsdtTotal(history)));
       return history;
     };
@@ -263,7 +326,7 @@ function WinningsScreen() {
         }
 
         if (profile?.balances) {
-          setUserPointsState(profile.balances.points);
+          setUserPointsState(getUserPoints());
           setUsdtBalance((currentBalance) => Math.max(
             currentBalance,
             profile.balances.usdt,
@@ -280,31 +343,44 @@ function WinningsScreen() {
         console.warn('Winnings scratch profile sync skipped:', error);
       });
 
+    const syncPointBalance = () => {
+      setUserPointsState(getUserPoints());
+      setPointTransactions(getPointsHistory());
+    };
+    const syncMarketplaceOrders = () => setMarketplaceOrders(loadMarketplaceOrders());
     const handleProfileSettingsUpdated = () => applyProfileSettings();
     const handleStorageChange = (event: StorageEvent) => {
       if (!event.key || PROFILE_SETTINGS_STORAGE_KEYS.includes(event.key)) {
         applyProfileSettings();
       }
 
-      if (!event.key || ['userPoints', 'userUsdtBalance', 'scratchHistory'].includes(event.key)) {
+      if (!event.key || ['userPoints', 'pointsHistory', 'userUsdtBalance', 'scratchHistory'].includes(event.key)) {
         syncScratchState();
+      }
+
+      if (!event.key || event.key === 'moneetizeMarketplaceOrders') {
+        syncMarketplaceOrders();
       }
     };
 
     window.addEventListener(PROFILE_SETTINGS_UPDATED_EVENT, handleProfileSettingsUpdated);
+    window.addEventListener(POINTS_UPDATED_EVENT, syncPointBalance);
+    window.addEventListener(MARKETPLACE_ORDERS_UPDATED_EVENT, syncMarketplaceOrders);
     window.addEventListener('storage', handleStorageChange);
 
     return () => {
       window.removeEventListener(PROFILE_SETTINGS_UPDATED_EVENT, handleProfileSettingsUpdated);
+      window.removeEventListener(POINTS_UPDATED_EVENT, syncPointBalance);
+      window.removeEventListener(MARKETPLACE_ORDERS_UPDATED_EVENT, syncMarketplaceOrders);
       window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
 
   const triptoBalance = getScratchHistoryTriptoTotal(scratchHistory);
   const redeemableItems = getRedeemableProducts(scratchHistory);
-  const visibleScratchHistory = scratchHistory.slice(0, 12);
+  const visibleWinningsHistory = getWinningsHistoryEntries(scratchHistory, marketplaceOrders, pointTransactions).slice(0, 12);
   const displayBalance = formatMoney(usdtBalance);
-  const approximateBalance = formatMoney(usdtBalance * 1.09025);
+  const approximateBalance = formatMoney(usdtBalance);
   const aiAgentImage = selectedAvatar === 'greenAvatar' ? greenMorphicBall : aiBubble;
 
   const renderAnimatedAiAvatar = () => {
@@ -638,7 +714,7 @@ function WinningsScreen() {
                 <p className="text-[33px] font-black leading-none text-white">${displayBalance}</p>
                 <span className="pb-1 text-[10px] font-black text-white/44">(Locked)</span>
               </div>
-              <p className="mt-3 text-[12px] font-bold text-white/38">= ${formatMoney(Math.max(usdtBalance * 16.05, usdtBalance))}</p>
+              <p className="mt-3 text-[12px] font-bold text-white/38">= ${formatMoney(usdtBalance)}</p>
             </div>
 
             <div className="relative min-h-[142px] overflow-hidden rounded-[1rem] border border-white/8 bg-gradient-to-b from-[#25272b]/96 to-[#17191c]/98 px-5 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_18px_50px_rgba(0,0,0,0.34)]">
@@ -691,28 +767,40 @@ function WinningsScreen() {
           <section className="mt-16">
             <h2 className="mb-4 text-[22px] font-black text-white">Pre-game Winnings</h2>
             <div className="space-y-2">
-              {visibleScratchHistory.length > 0 ? (
-                visibleScratchHistory.map((draw) => (
+              {visibleWinningsHistory.length > 0 ? (
+                visibleWinningsHistory.map((entry) => (
                   <div
-                    key={draw.id}
+                    key={entry.id}
                     className="flex min-h-[74px] items-center justify-between gap-3 rounded-[1rem] border border-white/10 bg-gradient-to-r from-[#202326]/98 to-[#171a1d]/98 px-5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_12px_34px_rgba(0,0,0,0.24)]"
                   >
                     <div className="min-w-0">
-                      <p className="truncate text-[13px] font-black text-white">{getHistoryTitle(draw)}</p>
-                      <p className="mt-1 text-[11px] font-bold text-white/42">
-                        {formatHistoryDate(draw.createdAt)} | {formatHistoryTime(draw.createdAt)}
+                      <p className="truncate text-[13px] font-black text-white">
+                        {entry.kind === 'scratch' ? getHistoryTitle(entry.draw) : entry.title}
                       </p>
+                      <p className="mt-1 text-[11px] font-bold text-white/42">
+                        {formatHistoryDate(entry.createdAt)} | {formatHistoryTime(entry.createdAt)}
+                      </p>
+                      {entry.kind === 'redemption' && (
+                        <p className="mt-1 truncate text-[11px] font-bold text-white/34">{entry.description}</p>
+                      )}
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      {getHistoryRewards(draw).map((reward) => (
-                        <span key={reward.id}>{renderHistoryReward(reward)}</span>
-                      ))}
+                      {entry.kind === 'scratch' ? (
+                        getHistoryRewards(entry.draw).map((reward) => (
+                          <span key={reward.id}>{renderHistoryReward(reward)}</span>
+                        ))
+                      ) : (
+                        <span className="flex items-center gap-1 rounded-full bg-red-400/10 px-2 py-1 text-xs font-black text-red-100">
+                          -{formatTokenAmount(entry.points)}
+                          <img src={gemIcon} alt="Gem" className="h-5 w-5 opacity-90" />
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))
               ) : (
                 <div className="rounded-[1rem] border border-white/10 bg-white/[0.05] px-5 py-6 text-center text-sm font-bold text-white/48">
-                  Scratch rewards will appear here after your first win.
+                  Scratch rewards and redemptions will appear here after your first activity.
                 </div>
               )}
             </div>

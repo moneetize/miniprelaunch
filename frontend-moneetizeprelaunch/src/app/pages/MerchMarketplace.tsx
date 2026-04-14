@@ -13,7 +13,7 @@ import {
   type MarketplaceOrderItem,
   type MarketplaceProduct,
 } from '../services/marketplaceService';
-import { getUserPoints, subtractUserPoints } from '../utils/pointsManager';
+import { getUserPoints, POINTS_UPDATED_EVENT, subtractUserPoints } from '../utils/pointsManager';
 import { getStoredProfileSettings, PROFILE_SETTINGS_UPDATED_EVENT, type StoredProfileSettings } from '../utils/profileSettings';
 
 type CartItem = MarketplaceOrderItem;
@@ -175,6 +175,17 @@ export function MerchMarketplace() {
     return () => {
       window.removeEventListener(MARKETPLACE_PRODUCTS_UPDATED_EVENT, syncProducts);
       window.removeEventListener('storage', syncProducts);
+    };
+  }, []);
+
+  useEffect(() => {
+    const syncPointBalance = () => setUserPoints(getUserPoints());
+    window.addEventListener(POINTS_UPDATED_EVENT, syncPointBalance);
+    window.addEventListener('storage', syncPointBalance);
+
+    return () => {
+      window.removeEventListener(POINTS_UPDATED_EVENT, syncPointBalance);
+      window.removeEventListener('storage', syncPointBalance);
     };
   }, []);
 

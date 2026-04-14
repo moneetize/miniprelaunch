@@ -5,7 +5,7 @@ import { ChevronLeft, MessageCircle, RefreshCw, Trash2 } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import aiBubble from 'figma:asset/36fff8878cf3ea6d1ef44d3f08bbc2346c733ebc.png';
 import greenMorphicBall from 'figma:asset/8fd559d05db8d67dee13e79dc6418365220fd613.png';
-import { getUserPoints } from '../utils/pointsManager';
+import { getUserPoints, POINTS_UPDATED_EVENT } from '../utils/pointsManager';
 import { getStoredProfileSettings, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT } from '../utils/profileSettings';
 import { buildInviteLink } from '../utils/invitationLinks';
 import {
@@ -94,6 +94,7 @@ export function TeamView() {
     applyProfileSettings();
     refreshPendingInviteMembers();
 
+    const syncPointBalance = () => setUserPointsState(getUserPoints());
     const handleProfileSettingsUpdated = () => applyProfileSettings();
     const handleStorageChange = (event: StorageEvent) => {
       if (!event.key || PROFILE_SETTINGS_STORAGE_KEYS.includes(event.key)) {
@@ -105,14 +106,19 @@ export function TeamView() {
       if (!event.key || event.key === 'teamName') {
         applyProfileSettings();
       }
+      if (!event.key || ['userPoints', 'pointsHistory', 'scratchHistory'].includes(event.key)) {
+        syncPointBalance();
+      }
     };
 
     window.addEventListener(PROFILE_SETTINGS_UPDATED_EVENT, handleProfileSettingsUpdated);
+    window.addEventListener(POINTS_UPDATED_EVENT, syncPointBalance);
     window.addEventListener(INVITES_UPDATED_EVENT, refreshPendingInviteMembers);
     window.addEventListener('storage', handleStorageChange);
 
     return () => {
       window.removeEventListener(PROFILE_SETTINGS_UPDATED_EVENT, handleProfileSettingsUpdated);
+      window.removeEventListener(POINTS_UPDATED_EVENT, syncPointBalance);
       window.removeEventListener(INVITES_UPDATED_EVENT, refreshPendingInviteMembers);
       window.removeEventListener('storage', handleStorageChange);
     };

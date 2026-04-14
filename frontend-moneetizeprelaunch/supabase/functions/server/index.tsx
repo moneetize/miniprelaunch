@@ -885,6 +885,9 @@ app.post("/make-server-7a79873f/marketplace/order", async (c) => {
       return c.json({ success: false, error: 'Complete shipping address is required' }, 400);
     }
 
+    const userPointsKey = `user_points:${currentUser.user.id}`;
+    const currentPointBalance = parseStoredNumber(await kv.get(userPointsKey), DEFAULT_USER_POINTS);
+    const nextPointBalance = Math.max(0, currentPointBalance - pointsTotal);
     const now = new Date().toISOString();
     const orderNumber = `${body?.orderNumber || `MNTZ-${Date.now().toString().slice(-6)}`}`.trim();
     const order = {
@@ -899,6 +902,7 @@ app.post("/make-server-7a79873f/marketplace/order", async (c) => {
       shippingAddress,
       status: 'pending',
       adminEmail: ADMIN_NOTIFICATION_EMAIL,
+      pointsBalanceAfter: nextPointBalance,
       createdAt: `${body?.createdAt || now}`,
       updatedAt: now,
     };
@@ -965,10 +969,13 @@ app.post("/make-server-7a79873f/marketplace/order", async (c) => {
     };
 
     const orders = parseStoredJsonArray(await kv.get(MARKETPLACE_ORDERS_KEY));
-    await kv.set(
-      MARKETPLACE_ORDERS_KEY,
-      JSON.stringify([savedOrder, ...orders.filter((existingOrder: any) => existingOrder?.id !== savedOrder.id)].slice(0, 100)),
-    );
+    await Promise.all([
+      kv.set(userPointsKey, nextPointBalance.toString()),
+      kv.set(
+        MARKETPLACE_ORDERS_KEY,
+        JSON.stringify([savedOrder, ...orders.filter((existingOrder: any) => existingOrder?.id !== savedOrder.id)].slice(0, 100)),
+      ),
+    ]);
 
     return c.json({ success: true, data: { order: savedOrder } }, 200);
   } catch (error) {

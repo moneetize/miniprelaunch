@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router';
 import { motion } from 'motion/react';
 import { ChevronLeft, UserPlus, CheckCircle, MessageCircle, Share2 } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
+import { addUserPoints } from '../utils/pointsManager';
 
 export function ConnectionRequest() {
   const navigate = useNavigate();
@@ -76,10 +77,8 @@ export function ConnectionRequest() {
       connections.push(newConnection);
       localStorage.setItem('connections', JSON.stringify(connections));
       
-      // Award points for connecting
-      const currentPoints = parseInt(localStorage.getItem('userPoints') || '10', 10);
-      const newPoints = currentPoints + 10;
-      localStorage.setItem('userPoints', newPoints.toString());
+      // Award points for connecting.
+      await addUserPoints(10, 'referral');
       
       setRequestSent(true);
     } catch (error) {

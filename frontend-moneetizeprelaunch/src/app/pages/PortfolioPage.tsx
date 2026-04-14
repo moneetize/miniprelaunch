@@ -7,7 +7,7 @@ import aiBubble from 'figma:asset/36fff8878cf3ea6d1ef44d3f08bbc2346c733ebc.png';
 import greenMorphicBall from 'figma:asset/8fd559d05db8d67dee13e79dc6418365220fd613.png';
 import { PROFILE_FEED_FALLBACK_PRODUCTS, formatProductCategory, getProductPerformance } from '../data/portfolioProducts';
 import { loadProductCatalog, type Product } from '../services/productService';
-import { getUserPoints } from '../utils/pointsManager';
+import { getUserPoints, POINTS_UPDATED_EVENT } from '../utils/pointsManager';
 import { getStoredProfileSettings, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT } from '../utils/profileSettings';
 import { safeGetItem, safeSetItem } from '../utils/storage';
 
@@ -95,10 +95,12 @@ export function PortfolioPage() {
 
     window.addEventListener('storage', handleStorageChange);
     window.addEventListener(PROFILE_SETTINGS_UPDATED_EVENT, applyProfileSettings);
+    window.addEventListener(POINTS_UPDATED_EVENT, applyProfileSettings);
 
     return () => {
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener(PROFILE_SETTINGS_UPDATED_EVENT, applyProfileSettings);
+      window.removeEventListener(POINTS_UPDATED_EVENT, applyProfileSettings);
     };
   }, []);
 

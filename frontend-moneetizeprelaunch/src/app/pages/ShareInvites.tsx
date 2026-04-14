@@ -5,6 +5,7 @@ import { AlertCircle, Check, CheckCircle, ChevronLeft, Copy, Mail, MessageSquare
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import { buildInviteLink } from '../utils/invitationLinks';
 import { recordSentInvites, type InviteDeliveryType } from '../utils/inviteSync';
+import { addUserPoints } from '../utils/pointsManager';
 
 const MAX_INVITES_PER_METHOD = 5;
 
@@ -38,14 +39,13 @@ export function ShareInvites() {
     return `sms:${cleanedRecipients}${separator}body=${encodeURIComponent(message)}`;
   };
 
-  const awardInvitePoints = (inviteCount: number) => {
+  const awardInvitePoints = async (inviteCount: number) => {
     const pointsEarned = inviteCount * 5;
-    const currentPoints = parseInt(localStorage.getItem('userPoints') || '10', 10);
-    localStorage.setItem('userPoints', (currentPoints + pointsEarned).toString());
+    await addUserPoints(pointsEarned, 'referral');
     return pointsEarned;
   };
 
-  const syncInviteRecords = (recipients: string[], type: InviteDeliveryType) => {
+  const syncInviteRecords = async (recipients: string[], type: InviteDeliveryType) => {
     recordSentInvites(recipients, type, inviteLink);
     return awardInvitePoints(recipients.length);
   };
@@ -87,7 +87,7 @@ export function ShareInvites() {
     }
   };
 
-  const handleSendSMS = () => {
+  const handleSendSMS = async () => {
     setError(null);
     setSuccessMessage(null);
 
@@ -103,7 +103,7 @@ export function ShareInvites() {
       return;
     }
 
-    const pointsEarned = syncInviteRecords(validPhoneNumbers, 'sms');
+    const pointsEarned = await syncInviteRecords(validPhoneNumbers, 'sms');
     const smsUrl = getSmsUrl(validPhoneNumbers, getInviteMessage());
 
     setSentPhones(validPhoneNumbers);
@@ -133,7 +133,7 @@ export function ShareInvites() {
 
     try {
       const inviteMessage = getInviteMessage();
-      const pointsEarned = syncInviteRecords(validEmails, 'email');
+      const pointsEarned = await syncInviteRecords(validEmails, 'email');
       const mailtoUrl = `mailto:${validEmails.map(encodeURIComponent).join(',')}?subject=${encodeURIComponent('Your Moneetize invite')}&body=${encodeURIComponent(inviteMessage)}`;
 
       setSentEmails(validEmails);
