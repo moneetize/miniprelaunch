@@ -21,7 +21,7 @@ import { safeGetItem } from '../utils/storage';
 import { submitEarlyAccessRequest } from '../services/earlyAccessService';
 import { getStoredUsdtBalance, loadScratchProfile, type ScratchDrawResult } from '../services/scratchService';
 
-type RewardItemIcon = 'usdt' | 'tripto' | 'wildcard' | 'shirt' | 'earlyAccess' | 'boost';
+type RewardItemIcon = 'usdt' | 'tripto' | 'wildcard' | 'shirt';
 
 interface RewardItem {
   id: string;
@@ -151,14 +151,14 @@ const coreRedeemableItems: RewardItem[] = [
   { id: 'usdt-balance', label: 'USDT Balance', icon: 'usdt' },
   { id: 'tripto-allocation', label: 'Tripto Allocation', icon: 'tripto' },
   { id: 'moneetize-shirt', label: 'Moneetize T-Shirt', icon: 'shirt', image: tshirtRewardIcon },
-  { id: 'token-early-access', label: 'Token Early Access', icon: 'earlyAccess', image: tokenCardImage, isEarlyAccess: true },
+  { id: 'token-early-access', label: 'Token Early Access', icon: 'wildcard', image: wildcardIcon, isEarlyAccess: true },
 ];
 
 const fallbackRedeemableItems: RewardItem[] = [
   ...coreRedeemableItems,
   { id: 'wild-card', label: 'Wild Card', icon: 'wildcard', image: wildcardIcon, isPlaceholder: true },
-  { id: 'team-sync-booster', label: 'Team Booster', icon: 'boost', image: tokenCardImage, isPlaceholder: true },
-  { id: 'founders-grace', label: "Founder's Grace", icon: 'boost', image: tokenCardImage, isPlaceholder: true },
+  { id: 'team-sync-booster', label: 'Team Booster', icon: 'wildcard', image: wildcardIcon, isPlaceholder: true },
+  { id: 'founders-grace', label: "Founder's Grace", icon: 'wildcard', image: wildcardIcon, isPlaceholder: true },
 ];
 
 function getRedeemableProducts(history: ScratchDrawResult[]) {
