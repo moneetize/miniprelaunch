@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, 
-  Briefcase,
   Home, 
   Plus, 
   User,
@@ -417,9 +416,18 @@ export function ProfileFeedsScreen() {
 
       {/* Compact Profile Controls */}
       <div className="flex items-center justify-between px-4 pb-4 pt-2">
-        <div className="flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/8 px-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-          <span className="text-sm font-black text-[#8ff0a8]">{balance}</span>
-          <img src={gemIcon} alt="Gem" className="h-5 w-5" />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate(-1)}
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/8 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors hover:bg-white/14"
+            aria-label="Go back"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          <div className="flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/8 px-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+            <span className="text-sm font-black text-[#8ff0a8]">{balance}</span>
+            <img src={gemIcon} alt="Gem" className="h-5 w-5" />
+          </div>
         </div>
 
         <button
@@ -1917,16 +1925,30 @@ export function ProfileFeedsScreen() {
     const levelProgress = stats.total ? Math.max(5, Math.round((stats.completed / stats.total) * 100)) : 64;
     const findQuest = (type: string) => quests.find((quest) => quest.type === type && !quest.completed) || quests.find((quest) => quest.type === type);
 
+    const firstAvailableQuest = quests.find((quest) => !quest.completed) || quests[0];
     const earnPointActions = [
-      { label: 'Referring\na friend', points: 10, className: 'left-1 top-3 h-[118px] w-[118px] -rotate-[15deg]', quest: findQuest('share') },
+      { label: 'Referring\na friend', points: 20, className: 'left-1 top-3 h-[118px] w-[118px] -rotate-[15deg]', path: '/share-invites' },
       { label: 'Sharing\nwith a friend', points: 10, className: 'right-1 top-3 h-[118px] w-[118px] rotate-[16deg]', quest: findQuest('share') },
       { label: 'Signing\nup', points: 10, className: 'left-[-26px] top-[128px] h-[132px] w-[132px] rotate-[4deg]', quest: undefined },
-      { label: 'Performing\na first-time action', points: 5, className: 'left-1/2 top-[78px] h-[190px] w-[190px] -translate-x-1/2 rotate-[7deg] z-20', quest: quests[0] },
+      { label: 'Performing\na first-time action', points: 5, className: 'left-1/2 top-[78px] h-[190px] w-[190px] -translate-x-1/2 rotate-[7deg] z-20', quest: firstAvailableQuest },
       { label: 'Daily\ncheck-in', points: 2, className: 'right-[-28px] top-[128px] h-[132px] w-[132px] -rotate-[8deg]', quest: findQuest('checkin') },
-      { label: 'Taking a personality\nquiz', points: '5-30', className: 'left-0 top-[258px] h-[180px] w-[180px] -rotate-[2deg]', quest: findQuest('quiz') },
-      { label: 'Discovering hidden\nproducts', points: 10, className: 'right-0 top-[258px] h-[180px] w-[180px] -rotate-[13deg]', quest: findQuest('portfolio') },
-      { label: 'Product portfolio\nperformance', points: 10, className: 'left-1/2 top-[425px] h-[172px] w-[172px] -translate-x-1/2 -rotate-[8deg]', quest: findQuest('portfolio') },
+      { label: 'Taking a personality\nquiz', points: 5, className: 'left-0 top-[258px] h-[180px] w-[180px] -rotate-[2deg]', quest: findQuest('quiz') },
+      { label: 'Discovering hidden\nproducts', points: 10, className: 'right-0 top-[258px] h-[180px] w-[180px] -rotate-[13deg]', path: '/discovery' },
+      { label: 'Reviewing\na product', points: 5, className: 'left-[-4px] top-[470px] h-[132px] w-[132px] rotate-[11deg]', quest: findQuest('review') },
+      { label: 'Product portfolio\nperformance', points: 10, className: 'left-1/2 top-[410px] h-[172px] w-[172px] -translate-x-1/2 -rotate-[8deg]', quest: findQuest('portfolio') },
+      { label: 'Completing\na survey', points: 10, className: 'right-[-4px] top-[470px] h-[132px] w-[132px] -rotate-[10deg]', quest: findQuest('survey') },
     ];
+    const handleEarnPointAction = (action: typeof earnPointActions[number]) => {
+      if ('path' in action && action.path) {
+        navigate(action.path);
+        return;
+      }
+
+      if (action.quest) {
+        handleQuestStart(action.quest.id, action.quest.type);
+      }
+    };
+
     return (
       <div className="overflow-hidden pb-10">
         <section className="-mx-3 min-h-[485px] overflow-hidden text-center">
@@ -1960,14 +1982,14 @@ export function ProfileFeedsScreen() {
           </div>
         </section>
 
-        <section className="-mx-4 mt-2 min-h-[650px] overflow-hidden px-0">
+        <section className="-mx-4 mt-2 min-h-[740px] overflow-hidden px-0">
           <h2 className="mb-6 text-center text-xl font-black text-white">How to Earn Points</h2>
-          <div className="relative h-[610px]">
+          <div className="relative h-[700px]">
             {earnPointActions.map((action, index) => (
               <button
                 key={action.label}
                 type="button"
-                onClick={() => action.quest && handleQuestStart(action.quest.id, action.quest.type)}
+                onClick={() => handleEarnPointAction(action)}
                 className={`group absolute rounded-full focus:outline-none focus:ring-2 focus:ring-white/30 ${action.className}`}
               >
                 <motion.span
@@ -2013,7 +2035,7 @@ export function ProfileFeedsScreen() {
         </div>
 
         {/* Scrollable Products Area */}
-        <div className="flex-1 overflow-y-auto px-3 sm:px-4 pt-4 pb-28">
+        <div className="flex-1 overflow-y-auto px-3 sm:px-4 pt-4 pb-10">
           {activeTab === 'feed' ? (
             posts.length > 0 ? (
               <div className="space-y-4">
@@ -2072,32 +2094,6 @@ export function ProfileFeedsScreen() {
           )}
         </div>
 
-        {/* Floating Bottom Navigation */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40">
-          <div className="mx-auto flex w-full max-w-md items-center justify-between px-7 pb-6 pt-8">
-            <button 
-              onClick={() => navigate(-1)}
-              className="pointer-events-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#17191d]/95 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_12px_34px_rgba(0,0,0,0.45)] transition-colors hover:bg-[#202329]"
-              aria-label="Go back"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </button>
-            <button
-              onClick={() => navigate('/portfolio')}
-              className="pointer-events-auto flex h-12 items-center gap-2 rounded-full bg-[#17191d]/95 px-6 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_14px_36px_rgba(0,0,0,0.46)] transition-colors hover:bg-[#202329]"
-              aria-label="Open portfolio"
-            >
-              <Briefcase className="w-4 h-4" />
-              <span className="text-sm font-bold">Portfolio</span>
-            </button>
-            <button
-              className="pointer-events-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#17191d]/95 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_12px_34px_rgba(0,0,0,0.45)] transition-colors hover:bg-[#202329]"
-              aria-label="Search"
-            >
-              <Search className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
       </div>
 
       {/* Network Success Popup */}

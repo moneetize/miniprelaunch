@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
-import { Briefcase, ChevronLeft, MessageCircle, Search } from 'lucide-react';
+import { ChevronLeft, MessageCircle } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import aiBubble from 'figma:asset/36fff8878cf3ea6d1ef44d3f08bbc2346c733ebc.png';
 import greenMorphicBall from 'figma:asset/8fd559d05db8d67dee13e79dc6418365220fd613.png';
@@ -109,16 +109,30 @@ export function GameplayScreen() {
     setUserPointsState(getUserPoints());
   };
 
+  const firstAvailableQuest = quests.find((quest) => !quest.completed) || quests[0];
   const earnPointActions = [
-    { label: 'Referring\na friend', points: 10, className: 'left-1 top-3 h-[118px] w-[118px] -rotate-[15deg]', quest: findQuest('share') },
+    { label: 'Referring\na friend', points: 20, className: 'left-1 top-3 h-[118px] w-[118px] -rotate-[15deg]', path: '/share-invites' },
     { label: 'Sharing\nwith a friend', points: 10, className: 'right-1 top-3 h-[118px] w-[118px] rotate-[16deg]', quest: findQuest('share') },
     { label: 'Signing\nup', points: 10, className: 'left-[-26px] top-[128px] h-[132px] w-[132px] rotate-[4deg]', quest: undefined },
-    { label: 'Performing\na first-time action', points: 5, className: 'left-1/2 top-[78px] h-[190px] w-[190px] -translate-x-1/2 rotate-[7deg] z-20', quest: quests[0] },
+    { label: 'Performing\na first-time action', points: 5, className: 'left-1/2 top-[78px] h-[190px] w-[190px] -translate-x-1/2 rotate-[7deg] z-20', quest: firstAvailableQuest },
     { label: 'Daily\ncheck-in', points: 2, className: 'right-[-28px] top-[128px] h-[132px] w-[132px] -rotate-[8deg]', quest: findQuest('checkin') },
-    { label: 'Taking a personality\nquiz', points: '5-30', className: 'left-0 top-[258px] h-[180px] w-[180px] -rotate-[2deg]', quest: findQuest('quiz') },
-    { label: 'Discovering hidden\nproducts', points: 10, className: 'right-0 top-[258px] h-[180px] w-[180px] -rotate-[13deg]', quest: findQuest('portfolio') },
-    { label: 'Product portfolio\nperformance', points: 10, className: 'left-1/2 top-[425px] h-[172px] w-[172px] -translate-x-1/2 -rotate-[8deg]', quest: findQuest('portfolio') },
+    { label: 'Taking a personality\nquiz', points: 5, className: 'left-0 top-[258px] h-[180px] w-[180px] -rotate-[2deg]', quest: findQuest('quiz') },
+    { label: 'Discovering hidden\nproducts', points: 10, className: 'right-0 top-[258px] h-[180px] w-[180px] -rotate-[13deg]', path: '/discovery' },
+    { label: 'Reviewing\na product', points: 5, className: 'left-[-4px] top-[470px] h-[132px] w-[132px] rotate-[11deg]', quest: findQuest('review') },
+    { label: 'Product portfolio\nperformance', points: 10, className: 'left-1/2 top-[410px] h-[172px] w-[172px] -translate-x-1/2 -rotate-[8deg]', quest: findQuest('portfolio') },
+    { label: 'Completing\na survey', points: 10, className: 'right-[-4px] top-[470px] h-[132px] w-[132px] -rotate-[10deg]', quest: findQuest('survey') },
   ];
+
+  const handleEarnPointAction = (action: typeof earnPointActions[number]) => {
+    if ('path' in action && action.path) {
+      navigate(action.path);
+      return;
+    }
+
+    if (action.quest) {
+      setActiveQuestModal({ questId: action.quest.id, type: action.quest.type });
+    }
+  };
 
   const renderStatusBar = () => (
     <div className="h-11 flex items-center justify-between px-4 text-white text-sm">
@@ -149,9 +163,18 @@ export function GameplayScreen() {
     <div className="bg-[#0a0e1a]">
       {renderStatusBar()}
       <div className="flex items-center justify-between px-4 pb-4 pt-2">
-        <div className="flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/8 px-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-          <span className="text-sm font-black text-[#8ff0a8]">{userPoints}</span>
-          <img src={gemIcon} alt="Gem" className="h-5 w-5" />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate(-1)}
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/8 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors hover:bg-white/14"
+            aria-label="Go back"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          <div className="flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/8 px-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+            <span className="text-sm font-black text-[#8ff0a8]">{userPoints}</span>
+            <img src={gemIcon} alt="Gem" className="h-5 w-5" />
+          </div>
         </div>
 
         <button
@@ -207,40 +230,12 @@ export function GameplayScreen() {
     </div>
   );
 
-  const renderFloatingFooterNav = () => (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40">
-      <div className="mx-auto flex w-full max-w-md items-center justify-between px-7 pb-6 pt-8">
-        <button
-          onClick={() => navigate(-1)}
-          className="pointer-events-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#17191d]/95 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_12px_34px_rgba(0,0,0,0.45)] transition-colors hover:bg-[#202329]"
-          aria-label="Go back"
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </button>
-        <button
-          onClick={() => navigate('/portfolio')}
-          className="pointer-events-auto flex h-12 items-center gap-2 rounded-full bg-[#17191d]/95 px-6 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_14px_36px_rgba(0,0,0,0.46)] transition-colors hover:bg-[#202329]"
-          aria-label="Open portfolio"
-        >
-          <Briefcase className="h-4 w-4" />
-          <span className="text-sm font-bold">Portfolio</span>
-        </button>
-        <button
-          className="pointer-events-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#17191d]/95 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_12px_34px_rgba(0,0,0,0.45)] transition-colors hover:bg-[#202329]"
-          aria-label="Search"
-        >
-          <Search className="h-5 w-5" />
-        </button>
-      </div>
-    </div>
-  );
-
   return (
     <div className="h-screen w-full overflow-y-auto bg-[#0a0e1a] text-white [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
       <div className="mx-auto min-h-full w-full max-w-2xl">
         {renderCompactHeader()}
 
-        <main className="overflow-hidden px-3 pb-32 pt-4">
+        <main className="overflow-hidden px-3 pb-12 pt-4">
           <section className="-mx-3 min-h-[485px] overflow-hidden text-center">
             <h2 className="mb-6 text-xl font-black text-white">Level Up to Unlock Rewards!</h2>
             <div className="relative mx-auto h-[300px] max-w-[420px]">
@@ -272,14 +267,14 @@ export function GameplayScreen() {
             </div>
           </section>
 
-          <section className="-mx-4 mt-2 min-h-[650px] overflow-hidden px-0">
+          <section className="-mx-4 mt-2 min-h-[740px] overflow-hidden px-0">
             <h2 className="mb-6 text-center text-xl font-black text-white">How to Earn Points</h2>
-            <div className="relative h-[610px]">
+            <div className="relative h-[700px]">
               {earnPointActions.map((action, index) => (
                 <button
                   key={action.label}
                   type="button"
-                  onClick={() => action.quest && setActiveQuestModal({ questId: action.quest.id, type: action.quest.type })}
+                  onClick={() => handleEarnPointAction(action)}
                   className={`group absolute rounded-full focus:outline-none focus:ring-2 focus:ring-white/30 ${action.className}`}
                 >
                   <motion.span
@@ -315,7 +310,6 @@ export function GameplayScreen() {
       </div>
 
       <QuestToast />
-      {renderFloatingFooterNav()}
 
       <AnimatePresence>
         {activeQuestModal?.type === 'quiz' && (

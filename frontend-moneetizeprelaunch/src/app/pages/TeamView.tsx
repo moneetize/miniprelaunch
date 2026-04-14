@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Briefcase, ChevronLeft, MessageCircle, Search } from 'lucide-react';
+import { ChevronLeft, MessageCircle } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import aiBubble from 'figma:asset/36fff8878cf3ea6d1ef44d3f08bbc2346c733ebc.png';
 import greenMorphicBall from 'figma:asset/8fd559d05db8d67dee13e79dc6418365220fd613.png';
@@ -100,9 +100,18 @@ export function TeamView() {
     <div className="bg-[#0a0e1a]">
       {renderStatusBar()}
       <div className="flex items-center justify-between px-4 pb-4 pt-2">
-        <div className="flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/8 px-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-          <span className="text-sm font-black text-[#8ff0a8]">{userPoints}</span>
-          <img src={gemIcon} alt="Gem" className="h-5 w-5" />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate(-1)}
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/8 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors hover:bg-white/14"
+            aria-label="Go back"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          <div className="flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/8 px-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+            <span className="text-sm font-black text-[#8ff0a8]">{userPoints}</span>
+            <img src={gemIcon} alt="Gem" className="h-5 w-5" />
+          </div>
         </div>
 
         <button
@@ -158,34 +167,6 @@ export function TeamView() {
     </div>
   );
 
-  const renderFloatingFooterNav = () => (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40">
-      <div className="mx-auto flex w-full max-w-md items-center justify-between px-7 pb-6 pt-8">
-        <button
-          onClick={() => navigate(-1)}
-          className="pointer-events-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#17191d]/95 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_12px_34px_rgba(0,0,0,0.45)] transition-colors hover:bg-[#202329]"
-          aria-label="Go back"
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </button>
-        <button
-          onClick={() => navigate('/portfolio')}
-          className="pointer-events-auto flex h-12 items-center gap-2 rounded-full bg-[#17191d]/95 px-6 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_14px_36px_rgba(0,0,0,0.46)] transition-colors hover:bg-[#202329]"
-          aria-label="Open portfolio"
-        >
-          <Briefcase className="h-4 w-4" />
-          <span className="text-sm font-bold">Portfolio</span>
-        </button>
-        <button
-          className="pointer-events-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#17191d]/95 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_12px_34px_rgba(0,0,0,0.45)] transition-colors hover:bg-[#202329]"
-          aria-label="Search"
-        >
-          <Search className="h-5 w-5" />
-        </button>
-      </div>
-    </div>
-  );
-
   const splitName = (name?: string) => {
     const parts = (name || '').replace(' (You)', '').split(' ');
     return [parts[0] || '', parts[1] || ''];
@@ -196,7 +177,7 @@ export function TeamView() {
       <div className="mx-auto min-h-full w-full max-w-2xl">
         {renderCompactHeader()}
 
-        <main className="px-4 pb-32 pt-2">
+        <main className="px-4 pb-12 pt-2">
           <div className="space-y-4 pb-4">
             <div className="flex items-center justify-between px-1">
               <h2 className="text-2xl font-black text-white">{teamName}</h2>
@@ -271,7 +252,6 @@ export function TeamView() {
           </div>
         </main>
       </div>
-      {renderFloatingFooterNav()}
     </div>
   );
 }
