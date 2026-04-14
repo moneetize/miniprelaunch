@@ -40,8 +40,11 @@ interface NetworkProfile {
   id: string;
   name: string;
   avatar?: string;
+  handle?: string;
   initialRank: number;
   initiallyFollowing: boolean;
+  followsMe?: boolean;
+  isCurrentUser?: boolean;
 }
 
 type HistoryRewardIcon = {
@@ -49,6 +52,29 @@ type HistoryRewardIcon = {
   type: 'points' | 'tripto' | 'wildcard' | 'merch';
   amount?: number;
 };
+
+const NETWORK_FOLLOW_STATES_KEY = 'networkFollowStates';
+
+const defaultNetworkFollowStates: Record<string, boolean> = {
+  'john-black': true,
+  'jim-kerry': false,
+  'maria-chen': false,
+  'taylor-owens': false,
+  'nina-patel': false,
+  'omar-brooks': false,
+  'lena-watts': false,
+  'diego-rivera': false,
+};
+
+function getStoredNetworkFollowStates() {
+  try {
+    const storedStates = safeGetItem(NETWORK_FOLLOW_STATES_KEY);
+    const parsed = storedStates ? JSON.parse(storedStates) : {};
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, boolean> : {};
+  } catch {
+    return {};
+  }
+}
 
 function getStoredScratchHistory(): ScratchDrawResult[] {
   try {
@@ -58,6 +84,14 @@ function getStoredScratchHistory(): ScratchDrawResult[] {
   } catch {
     return [];
   }
+}
+
+function getScratchHistoryUsdtTotal(history: ScratchDrawResult[]) {
+  return history.reduce((total, draw) => total + (Number(draw.reward?.usdt) || 0), 0);
+}
+
+function formatUsdtBalance(value: number) {
+  return value.toFixed(2);
 }
 
 function formatHistoryDate(timestamp: string) {
@@ -118,8 +152,6 @@ export function ProfileScreen() {
   const [userHandle, setUserHandle] = useState('');
   const [userPhoto, setUserPhoto] = useState<string>('');
   const [balance, setBalance] = useState(0);
-  const [following, setFollowing] = useState(76);
-  const [followers, setFollowers] = useState(46);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [invitedTeams, setInvitedTeams] = useState<InvitedTeam[]>([]);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -143,17 +175,10 @@ export function ProfileScreen() {
   const [scratchHistory, setScratchHistory] = useState<ScratchDrawResult[]>(() => getStoredScratchHistory());
   const [isProfileComplete, setIsProfileComplete] = useState(() => isStoredProfileComplete());
   const [recommendedFriends, setRecommendedFriends] = useState<RecommendedFriendProfile[]>([]);
-  const [networkFollowStates, setNetworkFollowStates] = useState<Record<string, boolean>>({
-    'andrew-smith': true,
-    'john-black': true,
-    'jim-kerry': false,
-    'maria-chen': false,
-    'taylor-owens': false,
-    'nina-patel': false,
-    'omar-brooks': false,
-    'lena-watts': false,
-    'diego-rivera': false,
-  });
+  const [networkFollowStates, setNetworkFollowStates] = useState<Record<string, boolean>>(() => ({
+    ...defaultNetworkFollowStates,
+    ...getStoredNetworkFollowStates(),
+  }));
 
   useEffect(() => {
     let cancelled = false;
@@ -179,8 +204,10 @@ export function ProfileScreen() {
 
     // Load user data
     const points = getUserPoints();
+    const storedScratchHistory = getStoredScratchHistory();
     setUserPoints(points);
-    setBalance(getStoredUsdtBalance());
+    setScratchHistory(storedScratchHistory);
+    setBalance(Math.max(getStoredUsdtBalance(), getScratchHistoryUsdtTotal(storedScratchHistory)));
     const profileSettings = applyProfileSettings();
 
     void loadScratchProfile()
@@ -196,6 +223,7 @@ export function ProfileScreen() {
         }
         if (!cancelled && profile?.history) {
           setScratchHistory(profile.history);
+          setBalance((currentBalance) => Math.max(currentBalance, getScratchHistoryUsdtTotal(profile.history || [])));
         }
       })
       .catch((error) => {
@@ -273,6 +301,22 @@ export function ProfileScreen() {
     const handleStorageChange = (event: StorageEvent) => {
       if (!event.key || PROFILE_SETTINGS_STORAGE_KEYS.includes(event.key)) {
         handleProfileSettingsUpdated();
+      }
+      if (!event.key || ['userPoints', 'userUsdtBalance', 'scratchHistory', NETWORK_FOLLOW_STATES_KEY].includes(event.key)) {
+        const latestPoints = getUserPoints();
+        const latestHistory = getStoredScratchHistory();
+        setUserPoints(latestPoints);
+        setScratchHistory(latestHistory);
+        setBalance(Math.max(getStoredUsdtBalance(), getScratchHistoryUsdtTotal(latestHistory)));
+        setNetworkFollowStates({
+          ...defaultNetworkFollowStates,
+          ...getStoredNetworkFollowStates(),
+        });
+        setTeamMembers((members) =>
+          members.map((member) =>
+            member.isCurrentUser ? { ...member, points: latestPoints } : member
+          )
+        );
       }
     };
 
@@ -360,7 +404,6 @@ export function ProfileScreen() {
     }));
   };
 
-  const triptoValue = balance > 0 ? balance : userPoints / 100;
   const visibleScratchHistory = scratchHistory.slice(0, 7);
 
   const renderHistoryReward = (reward: HistoryRewardIcon) => {
@@ -391,20 +434,15 @@ export function ProfileScreen() {
     );
   };
 
-  const displayBalance = balance > 0 ? Math.round(balance) : 345;
-  const displayNetworkingPoints = 720;
+  const totalUsdtWon = Math.max(balance, getScratchHistoryUsdtTotal(scratchHistory));
+  const displayBalance = formatUsdtBalance(totalUsdtWon);
+  const displayNetworkingPoints = teamMembers.reduce((total, member) => total + (member.points || 0), 0);
   const userInitials = userName
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('') || 'JW';
-
-  const profileStats = [
-    { label: 'Balance', value: `$ ${displayBalance}`, icon: <Copy className="h-3 w-3" /> },
-    { label: 'Following', value: following, icon: <ChevronUp className="h-3 w-3" /> },
-    { label: 'Followers', value: followers, icon: <ChevronUp className="h-3 w-3 rotate-180" /> },
-  ];
 
   const compactProfileActions = [
     { label: 'Profile home', icon: <User className="h-3 w-3" /> },
@@ -415,17 +453,11 @@ export function ProfileScreen() {
 
   const fallbackNetworkProfiles: NetworkProfile[] = [
     {
-      id: 'andrew-smith',
-      name: 'Andrew Smith (You)',
-      initialRank: 1,
-      initiallyFollowing: true,
-      avatar: 'https://images.unsplash.com/photo-1768853972795-2739a9685567?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjB3b21hbiUyMGF0aGxldGUlMjBwb3J0cmFpdHxlbnwxfHx8fDE3NzQxNDA1NDh8MA&ixlib=rb-4.1.0&q=80&w=1080',
-    },
-    {
       id: 'john-black',
       name: 'John Black',
       initialRank: 2,
       initiallyFollowing: true,
+      followsMe: true,
       avatar: 'https://images.unsplash.com/photo-1651684215020-f7a5b6610f23?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMG1hbGUlMjBidXNpbmVzc3xlbnwxfHx8fDE3NzQxMjU0OTl8MA&ixlib=rb-4.1.0&q=80&w=1080',
     },
     {
@@ -433,48 +465,55 @@ export function ProfileScreen() {
       name: 'Jim Kerry',
       initialRank: 3,
       initiallyFollowing: false,
+      followsMe: true,
       avatar: 'https://images.unsplash.com/photo-1769636929132-e4e7b50cfac0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMGZlbWFsZSUyMGJ1c2luZXNzfGVufDF8fHx8MTc3NDEyNTQ5OXww&ixlib=rb-4.1.0&q=80&w=1080',
     },
     {
       id: 'maria-chen',
       name: 'Maria Chen',
-      initialRank: 1,
+      initialRank: 4,
       initiallyFollowing: false,
+      followsMe: false,
       avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=240&q=80',
     },
     {
       id: 'taylor-owens',
       name: 'Taylor Owens',
-      initialRank: 2,
+      initialRank: 5,
       initiallyFollowing: false,
+      followsMe: true,
       avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=240&q=80',
     },
     {
       id: 'nina-patel',
       name: 'Nina Patel',
-      initialRank: 3,
+      initialRank: 6,
       initiallyFollowing: false,
+      followsMe: false,
       avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=240&q=80',
     },
     {
       id: 'omar-brooks',
       name: 'Omar Brooks',
-      initialRank: 1,
+      initialRank: 7,
       initiallyFollowing: false,
+      followsMe: false,
       avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=240&q=80',
     },
     {
       id: 'lena-watts',
       name: 'Lena Watts',
-      initialRank: 2,
+      initialRank: 8,
       initiallyFollowing: false,
+      followsMe: false,
       avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=240&q=80',
     },
     {
       id: 'diego-rivera',
       name: 'Diego Rivera',
-      initialRank: 3,
+      initialRank: 9,
       initiallyFollowing: false,
+      followsMe: true,
       avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=240&q=80',
     },
   ];
@@ -483,41 +522,74 @@ export function ProfileScreen() {
     id: profile.id,
     name: profile.name,
     avatar: profile.avatar,
-    initialRank: (index % 3) + 1,
+    handle: profile.handle,
+    initialRank: fallbackNetworkProfiles.length + index + 2,
     initiallyFollowing: false,
+    followsMe: index % 2 === 0,
   }));
-  const networkProfiles = [
-    ...fallbackNetworkProfiles.slice(0, 3),
-    ...(loadedNetworkProfiles.length > 0 ? loadedNetworkProfiles : fallbackNetworkProfiles.slice(3)),
+  const currentUserNetworkProfile: NetworkProfile = {
+    id: 'current-user',
+    name: `${userName || 'Jess Wu'} (Me)`,
+    avatar: userPhoto || getSelectedAvatarImage(),
+    handle: userHandle,
+    initialRank: 1,
+    initiallyFollowing: false,
+    followsMe: false,
+    isCurrentUser: true,
+  };
+  const candidateNetworkProfiles = [
+    ...fallbackNetworkProfiles,
+    ...(loadedNetworkProfiles.length > 0 ? loadedNetworkProfiles : []),
   ];
-  const myNetworkProfiles = networkProfiles.slice(0, 3);
-  const peopleYouMayKnowProfiles = networkProfiles.slice(3);
+
+  const isNetworkProfileFollowing = (profile: NetworkProfile) =>
+    !profile.isCurrentUser && (networkFollowStates[profile.id] ?? profile.initiallyFollowing);
+
+  const myNetworkProfiles = [
+    currentUserNetworkProfile,
+    ...candidateNetworkProfiles.filter((profile) => isNetworkProfileFollowing(profile)),
+  ].slice(0, 5);
+  const peopleYouMayKnowProfiles = candidateNetworkProfiles.filter((profile) => !isNetworkProfileFollowing(profile));
   const peopleYouMayKnowGroups = Array.from(
     { length: Math.ceil(peopleYouMayKnowProfiles.length / 3) },
     (_, index) => peopleYouMayKnowProfiles.slice(index * 3, index * 3 + 3),
   );
-
-  const isNetworkProfileFollowing = (profile: NetworkProfile) =>
-    networkFollowStates[profile.id] ?? profile.initiallyFollowing;
+  const followingCount = candidateNetworkProfiles.filter((profile) => isNetworkProfileFollowing(profile)).length;
+  const followersCount = candidateNetworkProfiles.filter((profile) => profile.followsMe).length;
 
   const handleToggleNetworkFollow = (profile: NetworkProfile) => {
+    if (profile.isCurrentUser) return;
+
     const isFollowing = isNetworkProfileFollowing(profile);
-    setNetworkFollowStates((states) => ({
-      ...states,
-      [profile.id]: !isFollowing,
-    }));
-    setFollowing((count) => Math.max(0, count + (isFollowing ? -1 : 1)));
+    setNetworkFollowStates((states) => {
+      const nextStates = {
+        ...states,
+        [profile.id]: !isFollowing,
+      };
+      safeSetItem(NETWORK_FOLLOW_STATES_KEY, JSON.stringify(nextStates));
+      return nextStates;
+    });
   };
+
+  const profileStats = [
+    { label: 'Balance', value: `$ ${displayBalance}`, icon: <Copy className="h-3 w-3" /> },
+    { label: 'Following', value: followingCount, icon: <ChevronUp className="h-3 w-3" /> },
+    { label: 'Followers', value: followersCount, icon: <ChevronUp className="h-3 w-3 rotate-180" /> },
+  ];
 
   const renderNetworkProfileRow = (profile: NetworkProfile, index: number) => {
     const isFollowing = isNetworkProfileFollowing(profile);
+    const actionLabel = profile.isCurrentUser ? 'Me' : isFollowing ? 'Following' : 'Follow';
 
     return (
       <button
         key={`${profile.id}-${index}`}
         type="button"
         onClick={() => handleToggleNetworkFollow(profile)}
-        className="flex min-h-[58px] w-full items-center gap-3 rounded-[1rem] border border-white/10 bg-white/[0.08] px-4 py-2.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:bg-white/[0.12]"
+        disabled={profile.isCurrentUser}
+        className={`flex min-h-[58px] w-full items-center gap-3 rounded-[1rem] border border-white/10 bg-white/[0.08] px-4 py-2.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors ${
+          profile.isCurrentUser ? 'cursor-default' : 'hover:bg-white/[0.12]'
+        }`}
       >
         <span className="w-5 shrink-0 text-center text-sm font-black text-white/72">{profile.initialRank}</span>
         <span className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-white/10">
@@ -534,12 +606,14 @@ export function ProfileScreen() {
         </span>
         <span
           className={`shrink-0 rounded-full px-4 py-2 text-xs font-black transition-colors ${
-            isFollowing
+            profile.isCurrentUser
+              ? 'border border-emerald-300/30 bg-emerald-300/12 text-emerald-100'
+              : isFollowing
               ? 'bg-white text-black'
               : 'border border-white/10 bg-white/[0.06] text-white/82'
           }`}
         >
-          {isFollowing ? 'Following' : 'Follow'}
+          {actionLabel}
         </span>
       </button>
     );

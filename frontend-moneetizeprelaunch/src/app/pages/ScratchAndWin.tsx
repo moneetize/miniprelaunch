@@ -393,7 +393,8 @@ const createTeaserDraw = () => {
   const selected = selectTeaserTicket();
   const currentPoints = getUserPoints();
   const nextPoints = currentPoints + selected.reward.moneetizePoints;
-  const nextUsdt = selected.reward.usdt;
+  const currentUsdt = Number(safeGetItem('userUsdtBalance') || '0');
+  const nextUsdt = (Number.isFinite(currentUsdt) ? currentUsdt : 0) + selected.reward.usdt;
   const createdAt = new Date().toISOString();
 
   const draw = {
@@ -1843,7 +1844,7 @@ export function ScratchAndWin() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black px-4 pb-12 pt-[68px]"
+            className="absolute inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black px-4 pb-12 pt-[68px] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
           >
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_10%,rgba(115,221,208,0.14),transparent_35%),radial-gradient(circle_at_15%_55%,rgba(86,143,255,0.08),transparent_28%)]" />
             <motion.section
@@ -1902,7 +1903,19 @@ export function ScratchAndWin() {
               <h3 className="mt-5 text-[20px] font-black text-white">Get more Cash Prizes.</h3>
               <p className="mt-1 text-[13px] font-bold text-white/48">Set up your team before the launch</p>
 
-              <div className="-mx-5 mt-5 flex snap-x gap-4 overflow-x-auto px-3 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div
+                ref={rewardsSliderRef}
+                onPointerDown={handleRewardsSliderPointerDown}
+                onPointerMove={handleRewardsSliderPointerMove}
+                onPointerUp={handleRewardsSliderPointerEnd}
+                onPointerCancel={handleRewardsSliderPointerEnd}
+                onPointerLeave={handleRewardsSliderPointerEnd}
+                onWheel={handleRewardsSliderWheel}
+                className={`-mx-5 mt-5 flex gap-4 overflow-x-auto px-3 pb-2 select-none touch-pan-y [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+                  isRewardsSliderDragging ? 'cursor-grabbing snap-none' : 'cursor-grab snap-x'
+                }`}
+                aria-label="Ticket options"
+              >
                 {miniTicketOptions.map((option) => {
                   const frame = miniTicketFrame[option.id];
                   const isSelected = option.id === miniTicketKind;
