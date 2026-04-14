@@ -6,6 +6,13 @@ import { safeGetItem } from './storage';
 export const avatarImageMap: Record<string, string> = {
   blueAvatar: aiBubble,
   greenAvatar: greenMorphicBall,
+  mazeAvatar: aiBubble,
+  latticeAvatar: aiBubble,
+  vortexAvatar: aiBubble,
+  weaveAvatar: greenMorphicBall,
+  bloomAvatar: greenMorphicBall,
+  sandAvatar: aiBubble,
+  crystalAvatar: greenMorphicBall,
   purpleAvatar: aiBubble,
   orangeAvatar: aiBubble,
   redAvatar: aiBubble,

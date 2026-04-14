@@ -39,13 +39,90 @@ import {
 import { safeGetItem, safeSetItem } from '../utils/storage';
 import { getStoredProfileSettings, markProfileCompleted, notifyProfileSettingsUpdated, resolveProfilePhoto } from '../utils/profileSettings';
 
-// Import AI agent avatars - only the two main ones (purple and green)
+// Import AI agent avatars - the original two plus generated variants in the settings selector.
 import aiBubble from 'figma:asset/36fff8878cf3ea6d1ef44d3f08bbc2346c733ebc.png';
 import greenMorphicBall from 'figma:asset/8fd559d05db8d67dee13e79dc6418365220fd613.png';
 
 const aiAgentAvatars = [
-  { id: 'blueAvatar', image: aiBubble, name: 'Purple Avatar', color: '#9b87f5' },
-  { id: 'greenAvatar', image: greenMorphicBall, name: 'Green Avatar', color: '#10b981' }
+  {
+    id: 'blueAvatar',
+    image: aiBubble,
+    name: 'Prism Orb',
+    accent: '#9b87f5',
+    glow: 'rgba(139, 116, 246, 0.54)',
+    visual: 'image',
+  },
+  {
+    id: 'mazeAvatar',
+    name: 'Signal Maze',
+    accent: '#8b8f98',
+    glow: 'rgba(169, 172, 180, 0.36)',
+    visual: 'generated',
+    background:
+      'radial-gradient(circle at 50% 50%, rgba(255,255,255,0.2), rgba(40,43,48,0.08) 34%, rgba(6,7,8,0.96) 72%), repeating-conic-gradient(from 45deg, rgba(230,230,230,0.55) 0deg 9deg, rgba(12,13,14,0.95) 9deg 18deg)',
+  },
+  {
+    id: 'latticeAvatar',
+    name: 'Lattice Core',
+    accent: '#a6a6a6',
+    glow: 'rgba(190, 190, 190, 0.34)',
+    visual: 'generated',
+    background:
+      'radial-gradient(circle at 52% 48%, rgba(255,255,255,0.25), rgba(95,97,102,0.22) 28%, rgba(10,11,12,0.96) 74%), repeating-radial-gradient(circle at 50% 50%, rgba(255,255,255,0.42) 0 3px, rgba(0,0,0,0.68) 3px 8px)',
+  },
+  {
+    id: 'greenAvatar',
+    image: greenMorphicBall,
+    name: 'Aurora Orb',
+    accent: '#10b981',
+    glow: 'rgba(16, 185, 129, 0.5)',
+    visual: 'image',
+  },
+  {
+    id: 'vortexAvatar',
+    image: aiBubble,
+    name: 'Vortex Agent',
+    accent: '#4664f0',
+    glow: 'rgba(78, 97, 242, 0.45)',
+    visual: 'image',
+    imageClass: 'hue-rotate-[70deg] saturate-150 contrast-125',
+  },
+  {
+    id: 'weaveAvatar',
+    name: 'Weave Mind',
+    accent: '#72c7a2',
+    glow: 'rgba(114, 199, 162, 0.42)',
+    visual: 'generated',
+    background:
+      'radial-gradient(circle at 42% 35%, rgba(119,255,188,0.7), transparent 23%), radial-gradient(circle at 66% 58%, rgba(92,111,255,0.46), transparent 26%), repeating-linear-gradient(150deg, rgba(120,255,183,0.32) 0 3px, rgba(32,43,50,0.8) 3px 7px), #151a1c',
+  },
+  {
+    id: 'bloomAvatar',
+    image: greenMorphicBall,
+    name: 'Bloom Agent',
+    accent: '#4fbf87',
+    glow: 'rgba(79, 191, 135, 0.42)',
+    visual: 'image',
+    imageClass: 'hue-rotate-[35deg] saturate-125 contrast-110',
+  },
+  {
+    id: 'sandAvatar',
+    image: aiBubble,
+    name: 'Wave Agent',
+    accent: '#9c7d68',
+    glow: 'rgba(156, 125, 104, 0.4)',
+    visual: 'image',
+    imageClass: 'hue-rotate-[145deg] saturate-90 contrast-125',
+  },
+  {
+    id: 'crystalAvatar',
+    image: greenMorphicBall,
+    name: 'Crystal Agent',
+    accent: '#7fb8b7',
+    glow: 'rgba(127, 184, 183, 0.4)',
+    visual: 'image',
+    imageClass: 'hue-rotate-[300deg] saturate-125 brightness-110',
+  },
 ];
 
 // Glow colors for avatar animations
@@ -269,15 +346,45 @@ export function SettingsScreen() {
     navigate('/profile-screen');
   };
 
-  const renderAnimatedAgentAvatar = (sizeClass = 'h-12 w-12') => {
-    const isGreenAgent = aiAgentAvatars[selectedAgent].id === 'greenAvatar';
+  const renderAgentVisual = (avatar = aiAgentAvatars[selectedAgent]) => {
+    if (avatar.image) {
+      return (
+        <img
+          src={avatar.image}
+          alt={avatar.name}
+          className={`h-full w-full object-cover opacity-90 ${avatar.imageClass || ''}`}
+        />
+      );
+    }
+
+    return (
+      <>
+        <span className="absolute inset-0" style={{ background: avatar.background }} />
+        <span
+          className="absolute inset-0 opacity-70 mix-blend-screen"
+          style={{
+            background:
+              'radial-gradient(circle at 30% 24%, rgba(255,255,255,0.26), transparent 20%), radial-gradient(circle at 70% 72%, rgba(255,255,255,0.18), transparent 24%)',
+          }}
+        />
+        <span className="absolute inset-0 rounded-full shadow-[inset_0_0_24px_rgba(255,255,255,0.2),inset_0_-20px_28px_rgba(0,0,0,0.55)]" />
+      </>
+    );
+  };
+
+  const renderAnimatedAgentAvatar = (
+    sizeClass = 'h-12 w-12',
+    avatar = aiAgentAvatars[selectedAgent],
+    isSelected = false,
+  ) => {
+    const accent = avatar.accent || '#9b87f5';
+    const glow = avatar.glow || 'rgba(139, 116, 246, 0.54)';
 
     return (
       <span className={`relative block ${sizeClass}`}>
         <motion.span
-          className={`absolute inset-0 rounded-full bg-gradient-to-br ${
-            isGreenAgent ? glowColors.green.primary : glowColors.purple.primary
-          } blur-lg opacity-40`}
+          className="absolute inset-0 rounded-full blur-lg opacity-40"
+          style={{ background: glow }}
           animate={{ opacity: [0.3, 0.5, 0.3] }}
           transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
         />
@@ -290,19 +397,25 @@ export function SettingsScreen() {
             rotate: { duration: 20, repeat: Infinity, ease: 'linear' },
             scale: { duration: 3, repeat: Infinity, ease: 'easeInOut' },
           }}
-          className={`relative block h-full w-full overflow-hidden rounded-full border ${
-            isGreenAgent ? 'border-emerald-400/70' : 'border-purple-400/70'
-          } transition-colors`}
+          className="relative block h-full w-full overflow-hidden rounded-full border transition-colors"
           style={{
+            borderColor: isSelected ? '#ffffff' : accent,
+            boxShadow: isSelected ? `0 0 0 2px rgba(255,255,255,0.82), 0 0 26px ${glow}` : `0 0 22px ${glow}`,
             maskImage: 'radial-gradient(circle at center, black 40%, transparent 90%)',
             WebkitMaskImage: 'radial-gradient(circle at center, black 40%, transparent 90%)',
           }}
         >
-          <img src={aiAgentAvatars[selectedAgent].image} alt="AI Agent" className="h-full w-full object-cover opacity-90" />
+          {renderAgentVisual(avatar)}
         </motion.span>
       </span>
     );
   };
+
+  const renderUserAvatar = (sizeClass = 'h-20 w-20', ringClass = 'border-white/80') => (
+    <div className={`${sizeClass} overflow-hidden rounded-full border-2 ${ringClass} bg-gradient-to-br from-purple-500 to-pink-500 shadow-[0_0_24px_rgba(255,255,255,0.18)]`}>
+      {userPhoto && <img src={userPhoto} alt={userName} className="h-full w-full object-cover" />}
+    </div>
+  );
 
   // Main Settings View
   const renderMainView = () => (
@@ -600,32 +713,7 @@ export function SettingsScreen() {
               className="relative h-11 w-11"
               aria-label="Edit AI agent"
             >
-              <motion.div
-                className={`absolute inset-0 rounded-full bg-gradient-to-br ${
-                  aiAgentAvatars[selectedAgent].id === 'blueAvatar'
-                    ? glowColors.purple.primary
-                    : glowColors.green.primary
-                } blur-lg opacity-40`}
-                animate={{ opacity: [0.3, 0.5, 0.3] }}
-                transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-              />
-              <motion.div
-                animate={{
-                  rotate: 360,
-                  scale: [1, 1.05, 1],
-                }}
-                transition={{
-                  rotate: { duration: 20, repeat: Infinity, ease: 'linear' },
-                  scale: { duration: 3, repeat: Infinity, ease: 'easeInOut' },
-                }}
-                className="relative h-full w-full overflow-hidden rounded-full border border-purple-400/70"
-                style={{
-                  maskImage: 'radial-gradient(circle at center, black 40%, transparent 90%)',
-                  WebkitMaskImage: 'radial-gradient(circle at center, black 40%, transparent 90%)',
-                }}
-              >
-                <img src={aiAgentAvatars[selectedAgent].image} alt="AI Agent" className="h-full w-full object-cover opacity-90" />
-              </motion.div>
+              {renderAnimatedAgentAvatar('h-11 w-11')}
             </button>
           </div>
 
@@ -817,124 +905,76 @@ export function SettingsScreen() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="pb-6"
+      className="pb-4 pt-5"
     >
-      {/* Header */}
-      <div className="flex items-center justify-center gap-4 mb-6">
-        <button
-          onClick={() => setCurrentView('main')}
-          className="w-12 h-12 rounded-full bg-[#2a2d3e] flex items-center justify-center hover:bg-[#35384a] transition-colors"
-        >
-          <ChevronLeft className="w-5 h-5 text-white" />
-        </button>
+      <section className="min-h-[calc(100vh-4.25rem)] overflow-hidden rounded-[1.6rem] border border-white/8 bg-gradient-to-b from-[#1b1d1f] via-[#17191b] to-[#111315] px-5 pb-8 pt-9 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_78px_rgba(0,0,0,0.62)]">
+        <div className="mb-12 flex items-center justify-center gap-5">
+          <button
+            onClick={() => setCurrentView('main')}
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-white/8 text-white/82 transition-colors hover:bg-white/14"
+            aria-label="Back to profile settings"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
 
-        {/* AI Agent Photo (Large) */}
-        <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-purple-500">
-          <img src={aiAgentAvatars[selectedAgent].image} alt="AI Agent" className="w-full h-full object-cover" />
+          {renderAnimatedAgentAvatar('h-[76px] w-[76px]', aiAgentAvatars[selectedAgent], true)}
+
+          {renderUserAvatar('h-12 w-12', 'border-white/82')}
         </div>
 
-        {/* User Photo */}
-        <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white/20">
-          {userPhoto ? (
-            <img src={userPhoto} alt={userName} className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-full h-full bg-gradient-to-br from-purple-500 to-pink-500" />
-          )}
+        <h2 className="mb-5 text-center text-xl font-black text-white">Personal Agent Information</h2>
+
+        <div className="mb-9 flex min-h-[60px] items-center gap-3 rounded-full border border-white/8 bg-white/[0.07] px-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+          <input
+            type="text"
+            value={agentName}
+            onChange={(e) => {
+              setAgentName(e.target.value);
+              safeSetItem('agentName', e.target.value);
+              notifyProfileSettingsUpdated();
+            }}
+            className="min-w-0 flex-1 bg-transparent text-base font-semibold text-white outline-none placeholder:text-white/38"
+            placeholder="My AI Agent"
+            aria-label="AI agent name"
+          />
+          <Edit3 className="h-4 w-4 shrink-0 text-white/54" />
         </div>
-      </div>
 
-      <h2 className="text-white text-2xl font-bold text-center mb-6">Personal Agent Information</h2>
+        <div className="mx-auto grid max-w-[286px] grid-cols-3 gap-x-9 gap-y-9">
+          {aiAgentAvatars.map((avatar, idx) => {
+            const isSelected = selectedAgent === idx;
 
-      {/* Agent Name Input */}
-      <div className="bg-[#2a2d3e] rounded-2xl p-4 flex items-center justify-between mb-6">
-        <input
-          type="text"
-          value={agentName}
-          onChange={(e) => {
-            setAgentName(e.target.value);
-            safeSetItem('agentName', e.target.value);
-            notifyProfileSettingsUpdated();
-          }}
-          className="flex-1 bg-transparent text-white outline-none"
-        />
-        <Edit3 className="w-4 h-4 text-gray-400" />
-      </div>
-
-      {/* Agent Avatar Grid */}
-      <div className="grid grid-cols-2 gap-6 max-w-xs mx-auto">
-        {aiAgentAvatars.map((avatar, idx) => {
-          const isSelected = selectedAgent === idx;
-          const colorKey = avatar.id === 'blueAvatar' ? 'purple' : 'green';
-          const glowGradients = glowColors[colorKey];
-          
-          return (
-            <button
-              key={idx}
-              onClick={() => {
-                setSelectedAgent(idx);
-                safeSetItem('selectedAvatar', avatar.id);
-                if (!sessionStorage.getItem('userPhoto') && !safeGetItem('userPhoto')) {
-                  setUserPhoto(resolveProfilePhoto('', avatar.id));
-                }
-                notifyProfileSettingsUpdated();
-              }}
-              className="relative aspect-square"
-            >
-              {/* Glow Effect */}
-              <motion.div
-                className={`absolute inset-0 rounded-full bg-gradient-to-br ${glowGradients.primary} blur-2xl transition-opacity duration-300`}
-                style={{ opacity: isSelected ? 0.6 : 0.3 }}
-                animate={isSelected ? { opacity: [0.4, 0.6, 0.4] } : {}}
-                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-              />
-              <motion.div
-                className={`absolute inset-0 rounded-full bg-gradient-to-tr ${glowGradients.secondary} blur-xl transition-opacity duration-300`}
-                style={{ opacity: isSelected ? 0.5 : 0.2 }}
-              />
-
-              {/* Avatar Image Container */}
-              <motion.div
-                animate={isSelected ? { 
-                  rotate: 360,
-                  scale: [1, 1.05, 1],
-                } : {}}
-                transition={isSelected ? { 
-                  rotate: { duration: 20, repeat: Infinity, ease: "linear" },
-                  scale: { duration: 3, repeat: Infinity, ease: "easeInOut" }
-                } : {}}
-                className={`relative w-full h-full rounded-full overflow-hidden shadow-2xl transition-all duration-300 ${
-                  isSelected
-                    ? 'ring-4 ring-purple-500 scale-105'
-                    : 'ring-2 ring-white/10 hover:ring-white/30 hover:scale-105'
-                }`}
-                style={{
-                  maskImage: 'radial-gradient(circle at center, black 40%, transparent 90%)',
-                  WebkitMaskImage: 'radial-gradient(circle at center, black 40%, transparent 90%)',
+            return (
+              <button
+                key={avatar.id}
+                type="button"
+                onClick={() => {
+                  setSelectedAgent(idx);
+                  safeSetItem('selectedAvatar', avatar.id);
+                  if (!sessionStorage.getItem('userPhoto') && !safeGetItem('userPhoto')) {
+                    setUserPhoto(resolveProfilePhoto('', avatar.id));
+                  }
+                  notifyProfileSettingsUpdated();
                 }}
+                className="relative h-[70px] w-[70px] rounded-full transition-transform hover:scale-105"
+                aria-pressed={isSelected}
+                aria-label={`Choose ${avatar.name}`}
               >
-                <img 
-                  src={avatar.image} 
-                  alt={avatar.name} 
-                  className="w-full h-full object-cover opacity-90" 
-                />
-                {/* Ethereal overlay blend */}
-                <div className="absolute inset-0 bg-gradient-radial from-transparent via-transparent to-[#0a0e1a] opacity-50" />
-              </motion.div>
-
-              {/* Selection Check Mark */}
-              {isSelected && (
-                <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  className="absolute -top-2 -right-2 w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center z-10 shadow-lg"
-                >
-                  <Check className="w-5 h-5 text-white" />
-                </motion.div>
-              )}
-            </button>
-          );
-        })}
-      </div>
+                {renderAnimatedAgentAvatar('h-[70px] w-[70px]', avatar, isSelected)}
+                {isSelected && (
+                  <motion.span
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-white text-black shadow-[0_8px_18px_rgba(0,0,0,0.35)]"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                  </motion.span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </section>
     </motion.div>
   );
 
@@ -1065,83 +1105,87 @@ export function SettingsScreen() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="pb-6"
+      className="pb-4 pt-5"
     >
-      {/* Header */}
-      <div className="flex items-center justify-center gap-4 mb-8">
+      <section className="min-h-[calc(100vh-4.25rem)] overflow-hidden rounded-[1.6rem] border border-white/8 bg-gradient-to-b from-[#1b1d1f] via-[#17191b] to-[#111315] px-5 pb-8 pt-9 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_78px_rgba(0,0,0,0.62)]">
+      <div className="mb-12 flex items-center justify-center gap-5">
         <button
           onClick={() => setCurrentView('main')}
-          className="w-12 h-12 rounded-full bg-[#2a2d3e] flex items-center justify-center hover:bg-[#35384a] transition-colors"
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-white/8 text-white/82 transition-colors hover:bg-white/14"
+          aria-label="Back to profile settings"
         >
-          <ChevronLeft className="w-5 h-5 text-white" />
+          <ChevronLeft className="h-5 w-5" />
         </button>
 
-        {/* User Photo */}
-        <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-white/20">
-          {userPhoto ? (
-            <img src={userPhoto} alt={userName} className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-full h-full bg-gradient-to-br from-purple-500 to-pink-500" />
-          )}
-        </div>
+        {renderUserAvatar('h-[76px] w-[76px]', 'border-white/82')}
 
-        {/* AI Agent Photo */}
-        <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-purple-500">
-          <img src={aiAgentAvatars[selectedAgent].image} alt="AI Agent" className="w-full h-full object-cover" />
-        </div>
+        <button
+          onClick={() => setCurrentView('agent')}
+          className="relative h-12 w-12"
+          aria-label="Edit AI agent"
+        >
+          {renderAnimatedAgentAvatar('h-12 w-12')}
+        </button>
       </div>
 
-      <h2 className="text-white text-2xl font-bold text-center mb-8">Change Password</h2>
+      <h2 className="mb-5 text-center text-xl font-black text-white">Change Password</h2>
 
-      {/* Password Input */}
-      <div className="bg-[#2a2d3e] rounded-2xl p-4 flex items-center gap-3 mb-4">
-        <Lock className="w-5 h-5 text-gray-400" />
+      <div className="space-y-3">
+      <div className="flex min-h-[60px] items-center gap-3 rounded-full border border-white/8 bg-white/[0.07] px-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+        <Lock className="h-5 w-5 shrink-0 text-white/72" />
         <input
           type={showPassword ? 'text' : 'password'}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="••••••••••"
-          className="flex-1 bg-transparent text-white outline-none placeholder:text-gray-600"
+          className="min-w-0 flex-1 bg-transparent text-base font-semibold text-white outline-none placeholder:text-white/78"
+          aria-label="New password"
         />
         <button
           onClick={() => setShowPassword(!showPassword)}
-          className="text-gray-400 hover:text-white transition-colors"
+          type="button"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/58 transition-colors hover:bg-white/10 hover:text-white"
+          aria-label={showPassword ? 'Hide password' : 'Show password'}
         >
-          {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+          {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
         </button>
       </div>
 
-      {/* Confirm Password Input */}
-      <div className="bg-[#2a2d3e] rounded-2xl p-4 flex items-center gap-3 mb-8">
-        <Lock className="w-5 h-5 text-gray-400" />
+      <div className="flex min-h-[60px] items-center gap-3 rounded-full border border-white/8 bg-white/[0.07] px-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+        <Lock className="h-5 w-5 shrink-0 text-white/72" />
         <input
           type={showConfirmPassword ? 'text' : 'password'}
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
           placeholder="Confirm Password"
-          className="flex-1 bg-transparent text-white outline-none placeholder:text-gray-600"
+          className="min-w-0 flex-1 bg-transparent text-base font-semibold text-white outline-none placeholder:text-white/46"
+          aria-label="Confirm password"
         />
         <button
           onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-          className="text-gray-400 hover:text-white transition-colors"
+          type="button"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/58 transition-colors hover:bg-white/10 hover:text-white"
+          aria-label={showConfirmPassword ? 'Hide confirmation password' : 'Show confirmation password'}
         >
-          {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+          {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
         </button>
       </div>
+      </div>
 
-      {/* Confirm Button */}
+      <div className="mt-10 flex justify-center">
       <button
         onClick={() => {
           if (password && password === confirmPassword) {
-            // Save password logic here
             setCurrentView('main');
           }
         }}
         disabled={!password || password !== confirmPassword}
-        className="w-full bg-white text-black py-3.5 rounded-full font-bold hover:bg-gray-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        className="rounded-full bg-white px-9 py-3.5 text-base font-black text-black shadow-[0_16px_38px_rgba(0,0,0,0.34)] transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
       >
         Confirm
       </button>
+      </div>
+      </section>
     </motion.div>
   );
 
