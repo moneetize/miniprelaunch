@@ -11,7 +11,6 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ChevronLeft, MessageCircle, X } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import wildcardIcon from 'figma:asset/f632203f248e2d298246c5ffb0789bc0cac99ea5.png';
-import tokenCardImage from 'figma:asset/954d4954fffe47cc32573cbcfb0096fb00164115.png';
 import aiBubble from 'figma:asset/36fff8878cf3ea6d1ef44d3f08bbc2346c733ebc.png';
 import greenMorphicBall from 'figma:asset/8fd559d05db8d67dee13e79dc6418365220fd613.png';
 import tshirtRewardIcon from '../../assets/moneetize-tshirt-reward.png';
@@ -748,7 +747,7 @@ function WinningsScreen() {
 
               {!showRequestForm ? (
                 <>
-                  <img src={tokenCardImage} alt="Token Early Access" className="mx-auto mb-8 h-24 w-24 object-contain" />
+                  <img src={wildcardIcon} alt="Wild Card" className="mx-auto mb-8 h-24 w-24 object-contain" />
                   <h2 className="mb-3 text-2xl font-black text-white">Token Early Access</h2>
                   <p className="mx-auto mb-8 max-w-[220px] text-base font-medium leading-snug text-white/55">
                     Request access to redeem this launch reward.
@@ -764,7 +763,7 @@ function WinningsScreen() {
               ) : (
                 <form onSubmit={handleSubmitEarlyAccess} className="text-left">
                   <div className="mb-6 text-center">
-                    <img src={tokenCardImage} alt="" className="mx-auto mb-4 h-16 w-16 object-contain" />
+                    <img src={wildcardIcon} alt="" className="mx-auto mb-4 h-16 w-16 object-contain" />
                     <h2 className="text-2xl font-black text-white">Request access</h2>
                     <p className="mt-2 text-sm leading-relaxed text-white/55">
                       Send your name and email to request Token Early Access.
