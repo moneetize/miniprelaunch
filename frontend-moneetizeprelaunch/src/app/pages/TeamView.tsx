@@ -14,6 +14,10 @@ interface TeamMember {
   points: number;
   avatar: string;
   isCurrentUser?: boolean;
+  debt?: string;
+  status?: 'active' | 'pending';
+  email?: string;
+  canRemove?: boolean;
 }
 
 export function TeamView() {
@@ -24,6 +28,7 @@ export function TeamView() {
   const [userHandle, setUserHandle] = useState('@jesswu');
   const [userPhoto, setUserPhoto] = useState('');
   const [selectedAvatar, setSelectedAvatar] = useState('blueAvatar');
+  const [removedMemberIds, setRemovedMemberIds] = useState<number[]>([]);
 
   useEffect(() => {
     const points = getUserPoints();
@@ -62,14 +67,15 @@ export function TeamView() {
 
   const aiAgentImage = selectedAvatar === 'greenAvatar' ? greenMorphicBall : aiBubble;
   const teamMembers: TeamMember[] = [
-    { id: 1, name: `${userName} (You)`, handle: userHandle, points: userPoints, avatar: userPhoto, isCurrentUser: true },
-    { id: 2, name: 'Russell Westbrook', handle: '@russell', points: 42, avatar: 'https://images.unsplash.com/photo-1629507208649-70919ca33793?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMG1hbiUyMHBvcnRyYWl0fGVufDF8fHx8MTc3NDA4MzYxOXww&ixlib=rb-4.1.0&q=80&w=1080' },
-    { id: 3, name: 'Alex McKein', handle: '@alex', points: 40, avatar: 'https://images.unsplash.com/photo-1768853972795-2739a9685567?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjB3b21hbiUyMGF0aGxldGUlMjBwb3J0cmFpdHxlbnwxfHx8fDE3NzQxNDA1NDh8MA&ixlib=rb-4.1.0&q=80&w=1080' },
-    { id: 4, name: 'Bill Winston', handle: '@bill', points: 35, avatar: 'https://images.unsplash.com/photo-1758876204244-930299843f07?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjB5b3VuZyUyMG1hbiUyMHNtaWxpbmd8ZW58MXx8fHwxNzc0MTQwNTQ5fDA&ixlib=rb-4.1.0&q=80&w=1080' },
-    { id: 5, name: 'John Black', handle: '@john', points: 30, avatar: 'https://images.unsplash.com/photo-1655249493799-9cee4fe983bb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMHBlcnNvbiUyMGhlYWRzaG90fGVufDF8fHx8MTc3NDA2NzIwNnww&ixlib=rb-4.1.0&q=80&w=1080' },
+    { id: 1, name: 'Russell Westbrook', handle: '@russell', points: 42, debt: 'Debt: $ 8 000', avatar: 'https://images.unsplash.com/photo-1629507208649-70919ca33793?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMG1hbiUyMHBvcnRyYWl0fGVufDF8fHx8MTc3NDA4MzYxOXww&ixlib=rb-4.1.0&q=80&w=1080', status: 'active' },
+    { id: 2, name: 'Alex McKein', handle: '@alex', points: 40, debt: 'Debt: $ 8 000', avatar: 'https://images.unsplash.com/photo-1768853972795-2739a9685567?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjB3b21hbiUyMGF0aGxldGUlMjBwb3J0cmFpdHxlbnwxfHx8fDE3NzQxNDA1NDh8MA&ixlib=rb-4.1.0&q=80&w=1080', status: 'active' },
+    { id: 3, name: 'Bill Winston', handle: '@bill', points: 35, debt: 'Debt: $ 8 000', avatar: 'https://images.unsplash.com/photo-1758876204244-930299843f07?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjB5b3VuZyUyMG1hbiUyMHNtaWxpbmd8ZW58MXx8fHwxNzc0MTQwNTQ5fDA&ixlib=rb-4.1.0&q=80&w=1080', status: 'active' },
+    { id: 4, name: 'Jim Kerry', handle: '@jim', points: 27, avatar: 'https://images.unsplash.com/photo-1769636929132-e4e7b50cfac0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMGZlbWFsZSUyMGJ1c2luZXNzfGVufDF8fHx8MTc3NDEyNTQ5OXww&ixlib=rb-4.1.0&q=80&w=1080', status: 'active', canRemove: true },
+    { id: 5, name: 'test@mail.com', email: 'test@mail.com', handle: '', points: 0, avatar: '', status: 'pending' },
   ];
-  const sortedTeam = [...teamMembers].sort((a, b) => b.points - a.points);
-  const teamTotalPoints = sortedTeam.reduce((sum, member) => sum + member.points, 0);
+  const visibleTeamMembers = teamMembers.filter((member) => !removedMemberIds.includes(member.id));
+  const sortedTeam = [...visibleTeamMembers].sort((a, b) => b.points - a.points);
+  const displayedTeamProgress = 720;
 
   const renderStatusBar = () => (
     <div className="h-11 flex items-center justify-between px-4 text-white text-sm">
@@ -184,42 +190,43 @@ export function TeamView() {
               <span className="text-sm font-bold text-white">{sortedTeam.length}/5</span>
             </div>
 
-            <div className="relative overflow-hidden rounded-[1.35rem] border border-white/12 bg-gradient-to-r from-[#25292d]/96 to-[#15181c]/98 px-6 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_16px_44px_rgba(0,0,0,0.34)]">
-              <div className="absolute right-5 top-1/2 h-24 w-24 -translate-y-1/2 rounded-full bg-emerald-300/18 blur-2xl" />
+            <div className="relative overflow-hidden rounded-[1.35rem] border border-white/12 bg-gradient-to-r from-[#282b30]/96 to-[#171b1f]/98 px-7 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_16px_44px_rgba(0,0,0,0.34)]">
+              <div className="absolute right-7 top-1/2 h-24 w-24 -translate-y-1/2 rounded-full bg-emerald-300/18 blur-2xl" />
               <div className="relative z-10 flex items-center justify-between">
                 <div>
-                  <p className="mb-1 text-base font-semibold text-white/50">Team's Progress:</p>
-                  <p className="text-2xl font-black text-white">{teamTotalPoints} pts</p>
+                  <p className="mb-1 text-base font-bold text-white/50">Team's Progress:</p>
+                  <p className="text-2xl font-black text-white">{displayedTeamProgress} pts</p>
                 </div>
-                <img src={gemIcon} alt="gem" className="h-20 w-20 drop-shadow-[0_0_32px_rgba(134,255,166,0.62)]" />
+                <img src={gemIcon} alt="Gem" className="h-20 w-20 drop-shadow-[0_0_32px_rgba(134,255,166,0.62)]" />
               </div>
             </div>
 
-            <div className="rounded-[1.7rem] border border-white/8 bg-gradient-to-b from-[#1b1b2b]/98 to-[#151624]/98 px-4 pb-5 pt-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_20px_70px_rgba(0,0,0,0.38)]">
-              <div className="mb-8 flex items-end justify-center gap-4">
+            <div className="rounded-[1.7rem] border border-white/8 bg-gradient-to-b from-[#121322]/98 via-[#151524]/98 to-[#151523]/98 px-4 pb-6 pt-9 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_20px_70px_rgba(0,0,0,0.38)]">
+              <div className="mb-9 flex items-end justify-center gap-5">
                 {[
-                  { member: sortedTeam[1], place: 2, color: 'text-sky-300', border: 'border-sky-300', avatarSize: 'h-[70px] w-[70px]', crownSize: 'h-7 w-7', rankSize: 'h-7 w-7 text-sm' },
-                  { member: sortedTeam[0], place: 1, color: 'text-yellow-400', border: 'border-white', avatarSize: 'h-[92px] w-[92px]', crownSize: 'h-9 w-9', rankSize: 'h-8 w-8', lift: '-mt-4' },
-                  { member: sortedTeam[2], place: 3, color: 'text-red-400', border: 'border-red-400', avatarSize: 'h-[70px] w-[70px]', crownSize: 'h-7 w-7', rankSize: 'h-7 w-7 text-sm' },
+                  { member: sortedTeam[1], place: 2, color: 'text-sky-300', border: 'border-sky-300', avatarSize: 'h-[72px] w-[72px]', crownSize: 'h-6 w-6', rankSize: 'h-7 w-7 text-sm' },
+                  { member: sortedTeam[0], place: 1, color: 'text-yellow-400', border: 'border-white', avatarSize: 'h-[94px] w-[94px]', crownSize: 'h-9 w-9', rankSize: 'h-8 w-8', lift: '-mt-6' },
+                  { member: sortedTeam[2], place: 3, color: 'text-red-400', border: 'border-red-400', avatarSize: 'h-[72px] w-[72px]', crownSize: 'h-6 w-6', rankSize: 'h-7 w-7 text-sm' },
                 ].map((podium) => {
                   const [firstName, lastName] = splitName(podium.member?.name);
                   return (
                     <div key={podium.place} className={`flex flex-col items-center ${podium.lift || ''}`}>
-                      <svg className={`mb-2 ${podium.crownSize} ${podium.color}`} fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M10 2l2 6h6l-5 4 2 6-5-4-5 4 2-6-5-4h6z" />
+                      <svg className={`mb-2 ${podium.crownSize} ${podium.color}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 18h16M5 9l4 4 3-7 3 7 4-4v8H5V9z" />
                       </svg>
-                      <div className={`mb-2 overflow-hidden rounded-full border-[3px] ${podium.border} ${podium.avatarSize} bg-gradient-to-br from-purple-500 to-pink-500`}>
+                      <div className={`mb-2 overflow-hidden rounded-full border-[3px] ${podium.border} ${podium.avatarSize} bg-gradient-to-br from-purple-500 to-pink-500 shadow-[0_12px_28px_rgba(0,0,0,0.42)]`}>
                         {podium.member?.avatar && (
                           <img src={podium.member.avatar} alt={podium.member.name} className="h-full w-full object-cover" />
                         )}
                       </div>
-                      <div className={`-mt-5 mb-2 flex ${podium.rankSize} items-center justify-center rounded-full bg-white shadow-lg`}>
-                        <span className="font-black text-black">{podium.place}</span>
+                      <div className={`-mt-5 mb-2 flex ${podium.rankSize} items-center justify-center rounded-full bg-white shadow-[0_7px_18px_rgba(0,0,0,0.42)]`}>
+                        <span className="font-black text-[#151515]">{podium.place}</span>
                       </div>
-                      <p className="mb-1 max-w-[92px] text-center text-sm font-bold leading-tight text-white">
+                      <p className="mb-1 max-w-[96px] text-center text-sm font-black leading-tight text-white">
                         {firstName}<br />{lastName}
                       </p>
                       <p className="text-xs font-bold text-[#8ff0a8]">{podium.member?.points} pts</p>
+                      <p className="mt-0.5 text-xs font-bold text-white/40">{podium.member?.debt}</p>
                     </div>
                   );
                 })}
@@ -228,26 +235,56 @@ export function TeamView() {
               {sortedTeam.slice(3).map((member, index) => (
                 <div
                   key={member.id}
-                  className="mb-3 flex items-center gap-3 rounded-[1rem] border border-white/8 bg-white/[0.07] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                  className="mb-3 flex min-h-[62px] items-center gap-3 rounded-[1rem] border border-white/10 bg-white/[0.08] px-5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
                 >
-                  <div className="flex h-8 w-8 items-center justify-center">
-                    <span className="text-sm font-black text-white">{index + 4}</span>
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center">
+                    <span className="text-base font-black text-white/78">{index + 3}</span>
                   </div>
-                  <div className="h-10 w-10 overflow-hidden rounded-full bg-gradient-to-br from-purple-500 to-pink-500">
-                    {member.avatar && <img src={member.avatar} alt={member.name} className="h-full w-full object-cover" />}
+                  <div className="h-11 w-11 shrink-0 overflow-hidden rounded-full bg-white/10">
+                    {member.status === 'pending' ? (
+                      <div className="flex h-full w-full items-center justify-center">
+                        <span className="flex h-4 w-4 items-center justify-center rounded-full border border-white/26 text-[9px] font-black text-white/38">?</span>
+                      </div>
+                    ) : (
+                      member.avatar && <img src={member.avatar} alt={member.name} className="h-full w-full object-cover" />
+                    )}
                   </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-white">
-                      {member.name.replace(' (You)', '')}
-                      {member.isCurrentUser && <span className="text-white/45"> (You)</span>}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-base font-black text-white">
+                      {member.status === 'pending' ? member.email : member.name}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-[#8ff0a8]">{member.points}</span>
-                    <img src={gemIcon} alt="gem" className="h-5 w-5" />
-                  </div>
+                  {member.status === 'pending' ? (
+                    <span className="shrink-0 text-sm font-bold text-white/48">Pending...</span>
+                  ) : (
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="text-sm font-black text-[#8ff0a8]">{member.points}</span>
+                      <img src={gemIcon} alt="Gem" className="h-6 w-6 drop-shadow-[0_0_14px_rgba(134,255,166,0.58)]" />
+                    </div>
+                  )}
+                  {member.canRemove && (
+                    <button
+                      type="button"
+                      onClick={() => setRemovedMemberIds((ids) => [...ids, member.id])}
+                      className="ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-red-400/75 transition-colors hover:bg-red-400/10 hover:text-red-300"
+                      aria-label={`Remove ${member.name}`}
+                    >
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h8m-7 0V5h6v2m-8 3 1 9h8l1-9M10 11v5m4-5v5" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               ))}
+
+              <button
+                type="button"
+                onClick={() => navigate('/share-invites')}
+                className="mt-5 flex min-h-[62px] w-full items-center justify-between rounded-[1rem] border border-dashed border-white/10 px-6 py-3 text-base font-bold text-white/58 transition-colors hover:bg-white/[0.05] hover:text-white"
+              >
+                <span>Send invite</span>
+                <span className="text-2xl leading-none text-white/72">+</span>
+              </button>
             </div>
           </div>
         </main>
