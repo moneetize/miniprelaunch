@@ -32,7 +32,9 @@ import {
   User,
   DollarSign,
   TrendingUp,
-  Check
+  Check,
+  Shirt,
+  Car
 } from 'lucide-react';
 import { safeGetItem, safeSetItem } from '../utils/storage';
 import { getStoredProfileSettings, markProfileCompleted, notifyProfileSettingsUpdated, resolveProfilePhoto } from '../utils/profileSettings';
@@ -98,8 +100,26 @@ const interestCategories = [
   { id: 'tech', name: 'Tech', icon: Monitor },
   { id: 'movies', name: 'Movies', icon: Tv },
   { id: 'gaming', name: 'Gaming', icon: Smartphone },
+  { id: 'fashion', name: 'Fashion', icon: Shirt },
+  { id: 'car', name: 'Car', icon: Car },
   { id: 'food', name: 'Food', icon: Apple }
 ];
+
+const interestBubbleLayout = [
+  { id: 'art', left: '0%', top: '3%', size: 94, opacity: 0.38 },
+  { id: 'fitness', left: '34%', top: '0%', size: 92, opacity: 0.55 },
+  { id: 'grocery', left: '69%', top: '4%', size: 94, opacity: 0.38 },
+  { id: 'pets', left: '16%', top: '24%', size: 94, opacity: 1 },
+  { id: 'beauty', left: '51%', top: '24%', size: 94, opacity: 0.62 },
+  { id: 'photo', left: '0%', top: '46%', size: 94, opacity: 1 },
+  { id: 'books', left: '34%', top: '46%', size: 92, opacity: 0.62 },
+  { id: 'home', left: '69%', top: '46%', size: 94, opacity: 1 },
+  { id: 'tech', left: '16%', top: '68%', size: 88, opacity: 0.42 },
+  { id: 'movies', left: '51%', top: '68%', size: 88, opacity: 1 },
+  { id: 'gaming', left: '0%', top: '88%', size: 94, opacity: 0.2 },
+  { id: 'fashion', left: '34%', top: '88%', size: 92, opacity: 0.24 },
+  { id: 'car', left: '69%', top: '88%', size: 94, opacity: 0.2 },
+] as const;
 
 export function SettingsScreen() {
   const navigate = useNavigate();
@@ -247,6 +267,41 @@ export function SettingsScreen() {
     markProfileCompleted();
     notifyProfileSettingsUpdated();
     navigate('/profile-screen');
+  };
+
+  const renderAnimatedAgentAvatar = (sizeClass = 'h-12 w-12') => {
+    const isGreenAgent = aiAgentAvatars[selectedAgent].id === 'greenAvatar';
+
+    return (
+      <span className={`relative block ${sizeClass}`}>
+        <motion.span
+          className={`absolute inset-0 rounded-full bg-gradient-to-br ${
+            isGreenAgent ? glowColors.green.primary : glowColors.purple.primary
+          } blur-lg opacity-40`}
+          animate={{ opacity: [0.3, 0.5, 0.3] }}
+          transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.span
+          animate={{
+            rotate: 360,
+            scale: [1, 1.05, 1],
+          }}
+          transition={{
+            rotate: { duration: 20, repeat: Infinity, ease: 'linear' },
+            scale: { duration: 3, repeat: Infinity, ease: 'easeInOut' },
+          }}
+          className={`relative block h-full w-full overflow-hidden rounded-full border ${
+            isGreenAgent ? 'border-emerald-400/70' : 'border-purple-400/70'
+          } transition-colors`}
+          style={{
+            maskImage: 'radial-gradient(circle at center, black 40%, transparent 90%)',
+            WebkitMaskImage: 'radial-gradient(circle at center, black 40%, transparent 90%)',
+          }}
+        >
+          <img src={aiAgentAvatars[selectedAgent].image} alt="AI Agent" className="h-full w-full object-cover opacity-90" />
+        </motion.span>
+      </span>
+    );
   };
 
   // Main Settings View
@@ -884,77 +939,125 @@ export function SettingsScreen() {
   );
 
   // Interests View
-  const renderInterestsView = () => (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="pb-6"
-    >
-      {/* Header */}
-      <div className="flex items-center justify-center gap-4 mb-6">
-        <button
-          onClick={() => setCurrentView('main')}
-          className="w-12 h-12 rounded-full bg-[#2a2d3e] flex items-center justify-center hover:bg-[#35384a] transition-colors"
-        >
-          <ChevronLeft className="w-5 h-5 text-white" />
-        </button>
+  const renderInterestsView = () => {
+    const quickInterestDefaults = ['home', 'photo', 'pets', 'grocery'];
+    const quickInterestIds = [...selectedInterests, ...quickInterestDefaults.filter((interestId) => !selectedInterests.includes(interestId))].slice(0, 4);
+    const quickInterestCategories = quickInterestIds
+      .map((interestId) => interestCategories.find((category) => category.id === interestId))
+      .filter((category): category is (typeof interestCategories)[number] => Boolean(category));
 
-        {/* User Photo */}
-        <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-white/20">
-          {userPhoto ? (
-            <img src={userPhoto} alt={userName} className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-full h-full bg-gradient-to-br from-purple-500 to-pink-500" />
-          )}
-        </div>
-
-        {/* AI Agent Photo */}
-        <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-purple-500">
-          <img src={aiAgentAvatars[selectedAgent].image} alt="AI Agent" className="w-full h-full object-cover" />
-        </div>
-      </div>
-
-      <h2 className="text-white text-2xl font-bold text-center mb-3">What inspires you</h2>
-
-      {/* Interest Categories Grid */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        {interestCategories.map((category) => {
-          const isSelected = selectedInterests.includes(category.id);
-          const IconComponent = category.icon;
-          
-          return (
-            <button
-              key={category.id}
-              onClick={() => toggleInterest(category.id)}
-              className={`aspect-square rounded-3xl flex flex-col items-center justify-center gap-2 transition-all ${
-                isSelected
-                  ? 'bg-white text-black scale-105'
-                  : 'bg-[#2a2d3e] text-gray-400 hover:bg-[#35384a] hover:text-white'
-              }`}
-            >
-              <IconComponent className="w-8 h-8" />
-              <span className="text-xs font-medium">{category.name}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Save Button */}
-      <button
-        onClick={() => {
-          // Save interests to localStorage
-          safeSetItem('selectedInterests', JSON.stringify(selectedInterests));
-          notifyProfileSettingsUpdated();
-          // Navigate back to main view
-          setCurrentView('main');
-        }}
-        className="w-full bg-gradient-to-r from-purple-500 to-blue-500 text-white py-4 rounded-full font-bold hover:from-purple-600 hover:to-blue-600 transition-all shadow-lg shadow-purple-500/30"
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="pb-4 pt-5"
       >
-        Save Changes
-      </button>
-    </motion.div>
-  );
+        <section className="min-h-[calc(100vh-4.25rem)] overflow-hidden rounded-[1.6rem] border border-white/8 bg-gradient-to-b from-[#1b1d1f] via-[#17191b] to-[#111315] px-5 pb-6 pt-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_78px_rgba(0,0,0,0.62)]">
+          <div className="mb-4 flex items-center justify-center gap-5">
+            <button
+              onClick={() => setCurrentView('main')}
+              className="flex h-12 w-12 items-center justify-center rounded-full bg-white/8 text-white/82 transition-colors hover:bg-white/14"
+              aria-label="Back to profile settings"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+
+            <div className="h-[76px] w-[76px] overflow-hidden rounded-full border-2 border-white/80 bg-gradient-to-br from-purple-500 to-pink-500 shadow-[0_0_24px_rgba(255,255,255,0.18)]">
+              {userPhoto && <img src={userPhoto} alt={userName} className="h-full w-full object-cover" />}
+            </div>
+
+            <button
+              onClick={() => setCurrentView('agent')}
+              className="relative h-12 w-12"
+              aria-label="Edit AI agent"
+            >
+              {renderAnimatedAgentAvatar('h-12 w-12')}
+            </button>
+          </div>
+
+          <h2 className="mb-5 text-center text-xl font-black text-white">What inspires you</h2>
+
+          <div className="mb-7 flex items-center justify-center gap-3">
+            {quickInterestCategories.map((category) => {
+              const IconComponent = category.icon;
+
+              return (
+                <button
+                  key={category.id}
+                  onClick={() => toggleInterest(category.id)}
+                  className={`flex h-11 w-11 items-center justify-center rounded-full border transition-colors ${
+                    selectedInterests.includes(category.id)
+                      ? 'border-white/24 bg-white/14 text-white'
+                      : 'border-white/8 bg-white/8 text-white/68 hover:bg-white/14 hover:text-white'
+                  }`}
+                  aria-label={`Toggle ${category.name}`}
+                >
+                  <IconComponent className="h-4.5 w-4.5" />
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="relative mx-auto h-[470px] max-w-[320px]">
+            {interestBubbleLayout.map((bubble, index) => {
+              const category = interestCategories.find((item) => item.id === bubble.id);
+              if (!category) return null;
+
+              const IconComponent = category.icon;
+              const isSelected = selectedInterests.includes(category.id);
+              const isFeatured = isSelected || bubble.opacity >= 0.95;
+
+              return (
+                <motion.button
+                  key={category.id}
+                  type="button"
+                  onClick={() => toggleInterest(category.id)}
+                  className={`absolute flex flex-col items-center justify-center rounded-full border text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_16px_42px_rgba(0,0,0,0.34)] transition-all ${
+                    isSelected
+                      ? 'border-white/30 bg-gradient-to-b from-[#303235] to-[#17191b] text-white'
+                      : 'border-white/7 bg-gradient-to-b from-[#1d2023]/90 to-[#101214]/96 text-white/42 hover:border-white/16 hover:text-white/76'
+                  }`}
+                  style={{
+                    left: bubble.left,
+                    top: bubble.top,
+                    width: bubble.size,
+                    height: bubble.size,
+                    opacity: isSelected ? 1 : bubble.opacity,
+                  }}
+                  animate={{ y: [0, index % 2 === 0 ? -4 : 4, 0] }}
+                  transition={{
+                    duration: 4 + (index % 4) * 0.45,
+                    repeat: Infinity,
+                    ease: 'easeInOut',
+                    delay: index * 0.08,
+                  }}
+                  aria-pressed={isSelected}
+                  aria-label={`Toggle ${category.name}`}
+                >
+                  <IconComponent className={`mb-2 h-5 w-5 ${isFeatured ? 'text-white' : 'text-white/42'}`} />
+                  <span className={`text-[12px] font-black ${isFeatured ? 'text-white' : 'text-white/42'}`}>
+                    {category.name}
+                  </span>
+                </motion.button>
+              );
+            })}
+          </div>
+
+          <button
+            onClick={() => {
+              safeSetItem('selectedInterests', JSON.stringify(selectedInterests));
+              notifyProfileSettingsUpdated();
+              setCurrentView('main');
+            }}
+            className="mt-5 w-full rounded-full bg-white px-6 py-3.5 text-sm font-black text-black shadow-[0_16px_38px_rgba(0,0,0,0.34)] transition-colors hover:bg-gray-100"
+          >
+            Save Changes
+          </button>
+        </section>
+      </motion.div>
+    );
+  };
 
   // Password Change View
   const renderPasswordView = () => (
