@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
-import { ChevronDown, ChevronLeft, Search, Trash2, Users } from 'lucide-react';
+import { ChevronLeft, ChevronUp, Search, Trash2, Users } from 'lucide-react';
 import { agentChatPreview, teamChatPreview, teamMemberChats, type ChatPreview } from '../utils/chatData';
 import { getSelectedAvatarImage } from '../utils/avatarUtils';
 
 type MessageTab = 'all' | 'members' | 'teams';
 
-const profileCollapseDragConstraints = { top: -18, bottom: 18 } as const;
+const profileCollapseDragConstraints = { top: -46, bottom: 0 } as const;
 
 export function ChatList() {
   const navigate = useNavigate();
@@ -93,7 +93,7 @@ export function ChatList() {
     >
       <div className="pointer-events-none fixed inset-x-0 top-0 h-40 bg-[radial-gradient(circle_at_50%_0%,rgba(42,48,61,0.5),transparent_70%)]" />
 
-      <div className="relative mx-auto min-h-full w-full max-w-md px-4 pb-10 pt-5">
+      <div className="relative mx-auto min-h-full w-full max-w-md px-4 pb-28 pt-5">
         <div className="mb-5 flex h-7 items-center justify-between text-sm text-white">
           <span className="font-semibold">9:41</span>
           <div className="flex items-center gap-2">
@@ -105,7 +105,7 @@ export function ChatList() {
           </div>
         </div>
 
-        <header className="mb-5 ml-9 mr-20 grid w-auto grid-cols-[48px_minmax(0,1fr)_48px] items-center">
+        <header className="mx-auto mb-5 grid w-full max-w-[320px] grid-cols-[48px_minmax(0,1fr)_48px] items-center">
           <button
             type="button"
             onClick={() => navigate('/profile-screen')}
@@ -120,23 +120,7 @@ export function ChatList() {
             <p className="mt-1 text-xs font-bold text-white/42">Agent, team, and members</p>
           </div>
 
-          <motion.button
-            type="button"
-            drag="y"
-            dragConstraints={profileCollapseDragConstraints}
-            dragElastic={0.25}
-            onDragEnd={(_, info) => {
-              if (Math.abs(info.offset.y) > 14 || Math.abs(info.velocity.y) > 260) {
-                collapseToProfile();
-              }
-            }}
-            onClick={collapseToProfile}
-            whileTap={{ scale: 0.94 }}
-            className="flex h-12 w-12 shrink-0 items-center justify-center justify-self-end rounded-full border border-white/8 bg-white/8 text-white transition-colors hover:bg-white/14"
-            aria-label="Collapse messages to profile"
-          >
-            <ChevronDown className="h-5 w-5" />
-          </motion.button>
+          <span className="h-12 w-12" aria-hidden="true" />
         </header>
 
         <div className="mx-auto mb-6 grid w-[248px] grid-cols-3 rounded-full border border-white/8 bg-[#101215]/95 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_12px_36px_rgba(0,0,0,0.28)]">
@@ -207,6 +191,26 @@ export function ChatList() {
             </motion.button>
           ))}
         </div>
+      </div>
+
+      <div className="pointer-events-none fixed inset-x-0 bottom-6 z-30 flex justify-center">
+        <motion.button
+          type="button"
+          drag="y"
+          dragConstraints={profileCollapseDragConstraints}
+          dragElastic={0.18}
+          onDragEnd={(_, info) => {
+            if (info.offset.y < -14 || info.velocity.y < -260) {
+              collapseToProfile();
+            }
+          }}
+          onClick={collapseToProfile}
+          whileTap={{ scale: 0.94 }}
+          className="pointer-events-auto flex h-12 w-20 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white shadow-[0_18px_42px_rgba(0,0,0,0.42)] backdrop-blur transition-colors hover:bg-white/16"
+          aria-label="Swipe up or click to collapse messages to profile"
+        >
+          <ChevronUp className="h-6 w-6" />
+        </motion.button>
       </div>
     </motion.div>
   );

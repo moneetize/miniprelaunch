@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { motion } from 'motion/react';
-import { ChevronDown, ChevronLeft, Check, Dumbbell, Gift, Heart, Paperclip, Send, Smile } from 'lucide-react';
+import { ChevronLeft, Check, Dumbbell, Gift, Heart, Paperclip, Send, Smile } from 'lucide-react';
 import { getMemberChatById, teamChatPreview, teamMemberChats, type ChatPreview } from '../utils/chatData';
 
 interface ChatMessage {
@@ -15,8 +15,6 @@ interface ChatMessage {
   hasJoinButton?: boolean;
 }
 
-const profileCollapseDragConstraints = { top: -18, bottom: 18 } as const;
-
 export function UserChat() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -27,7 +25,6 @@ export function UserChat() {
   const isTeamChat = chat.type === 'team';
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [isCollapsing, setIsCollapsing] = useState(false);
 
   const baseMessages = useMemo<ChatMessage[]>(() => {
     if (isTeamChat) {
@@ -123,8 +120,6 @@ export function UserChat() {
     setInputValue('');
   };
 
-  const collapseToProfile = () => setIsCollapsing(true);
-
   const renderHeaderAvatar = () => {
     if (isTeamChat) {
       return (
@@ -198,14 +193,7 @@ export function UserChat() {
   };
 
   return (
-    <motion.div
-      animate={isCollapsing ? { y: '-72%', opacity: 0, scale: 0.96 } : { y: 0, opacity: 1, scale: 1 }}
-      transition={{ duration: 0.28, ease: 'easeInOut' }}
-      onAnimationComplete={() => {
-        if (isCollapsing) navigate('/profile-screen');
-      }}
-      className="absolute inset-0 flex h-full w-full flex-col overflow-hidden bg-[#07090c] text-white"
-    >
+    <div className="absolute inset-0 flex h-full w-full flex-col overflow-hidden bg-[#07090c] text-white">
       <div className="pointer-events-none fixed inset-x-0 top-0 h-44 bg-[radial-gradient(circle_at_50%_0%,rgba(42,48,61,0.48),transparent_72%)]" />
 
       <div className="relative z-10 flex h-7 shrink-0 items-center justify-between px-4 pt-5 text-sm text-white">
@@ -219,7 +207,7 @@ export function UserChat() {
         </div>
       </div>
 
-      <header className="relative z-10 ml-9 mr-20 grid w-auto shrink-0 grid-cols-[48px_minmax(0,1fr)_48px] items-center pb-5 pt-8">
+      <header className="relative z-10 mx-auto grid w-full max-w-[340px] shrink-0 grid-cols-[48px_minmax(0,1fr)_48px] items-center pb-5 pt-8">
         <button
           type="button"
           onClick={() => navigate('/chat-list')}
@@ -234,26 +222,9 @@ export function UserChat() {
           <p className="mt-1 rounded-full bg-white/8 px-3 py-1 text-xs font-bold text-white/45">{isTeamChat ? teamChatPreview.handle : chat.handle}</p>
         </div>
 
-        <motion.button
-          type="button"
-          drag="y"
-          dragConstraints={profileCollapseDragConstraints}
-          dragElastic={0.25}
-          onDragEnd={(_, info) => {
-            if (Math.abs(info.offset.y) > 14 || Math.abs(info.velocity.y) > 260) {
-              collapseToProfile();
-            }
-          }}
-          onClick={collapseToProfile}
-          whileTap={{ scale: 0.94 }}
-          className="relative h-12 w-12 shrink-0 justify-self-end"
-          aria-label="Collapse chat to profile"
-        >
+        <span className="relative h-12 w-12 shrink-0 justify-self-end">
           {renderHeaderAvatar()}
-          <span className="absolute inset-0 flex items-end justify-center pb-1.5 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]">
-            <ChevronDown className="h-4 w-4" />
-          </span>
-        </motion.button>
+        </span>
       </header>
 
       <main className="relative z-10 flex-1 overflow-y-auto px-4 pb-28 pt-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
@@ -294,6 +265,6 @@ export function UserChat() {
           <Send className="h-5 w-5" />
         </button>
       </footer>
-    </motion.div>
+    </div>
   );
 }

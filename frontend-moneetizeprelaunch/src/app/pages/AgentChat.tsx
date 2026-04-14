@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
-import { ChevronDown, ChevronLeft, Headphones, Send } from 'lucide-react';
+import { ChevronLeft, Headphones, Send } from 'lucide-react';
 import { getSelectedAvatarImage } from '../utils/avatarUtils';
 
 interface AgentMessage {
@@ -31,13 +31,10 @@ const initialAgentMessages: AgentMessage[] = [
   },
 ];
 
-const profileCollapseDragConstraints = { top: -18, bottom: 18 } as const;
-
 export function AgentChat() {
   const navigate = useNavigate();
   const [messages, setMessages] = useState(initialAgentMessages);
   const [inputValue, setInputValue] = useState('');
-  const [isCollapsing, setIsCollapsing] = useState(false);
   const agentAvatar = getSelectedAvatarImage();
 
   const addAgentResponse = (content: string) => {
@@ -66,17 +63,8 @@ export function AgentChat() {
     setInputValue('');
   };
 
-  const collapseToProfile = () => setIsCollapsing(true);
-
   return (
-    <motion.div
-      animate={isCollapsing ? { y: '-72%', opacity: 0, scale: 0.96 } : { y: 0, opacity: 1, scale: 1 }}
-      transition={{ duration: 0.28, ease: 'easeInOut' }}
-      onAnimationComplete={() => {
-        if (isCollapsing) navigate('/profile-screen');
-      }}
-      className="absolute inset-0 flex h-full w-full flex-col overflow-hidden bg-[#07090c] text-white"
-    >
+    <div className="absolute inset-0 flex h-full w-full flex-col overflow-hidden bg-[#07090c] text-white">
       <div className="pointer-events-none fixed inset-x-0 top-0 h-44 bg-[radial-gradient(circle_at_50%_0%,rgba(42,48,61,0.48),transparent_72%)]" />
 
       <div className="relative z-10 flex h-7 shrink-0 items-center justify-between px-4 pt-5 text-sm text-white">
@@ -90,7 +78,7 @@ export function AgentChat() {
         </div>
       </div>
 
-      <header className="relative z-10 ml-9 mr-20 grid w-auto shrink-0 grid-cols-[48px_minmax(0,1fr)_48px] items-center pb-5 pt-8">
+      <header className="relative z-10 mx-auto grid w-full max-w-[340px] shrink-0 grid-cols-[48px_minmax(0,1fr)_48px] items-center pb-5 pt-8">
         <button
           type="button"
           onClick={() => navigate('/chat-list')}
@@ -104,21 +92,7 @@ export function AgentChat() {
           <h1 className="text-lg font-black text-white">Your Agent</h1>
         </div>
 
-        <motion.button
-          type="button"
-          drag="y"
-          dragConstraints={profileCollapseDragConstraints}
-          dragElastic={0.25}
-          onDragEnd={(_, info) => {
-            if (Math.abs(info.offset.y) > 14 || Math.abs(info.velocity.y) > 260) {
-              collapseToProfile();
-            }
-          }}
-          onClick={collapseToProfile}
-          whileTap={{ scale: 0.94 }}
-          className="relative block h-12 w-12 justify-self-end"
-          aria-label="Collapse chat to profile"
-        >
+        <span className="relative block h-12 w-12 justify-self-end">
           <motion.span
             className="absolute inset-0 rounded-full bg-cyan-300/40 blur-lg"
             animate={{ opacity: [0.28, 0.58, 0.28], scale: [0.95, 1.08, 0.95] }}
@@ -135,10 +109,7 @@ export function AgentChat() {
           >
             <img src={agentAvatar} alt="Your Agent" className="h-full w-full object-cover opacity-90" />
           </motion.span>
-          <span className="absolute inset-0 flex items-end justify-center pb-1.5 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]">
-            <ChevronDown className="h-4 w-4" />
-          </span>
-        </motion.button>
+        </span>
       </header>
 
       <main className="relative z-10 flex-1 overflow-y-auto px-4 pb-28 pt-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
@@ -213,6 +184,6 @@ export function AgentChat() {
           <Send className="h-5 w-5" />
         </button>
       </footer>
-    </motion.div>
+    </div>
   );
 }

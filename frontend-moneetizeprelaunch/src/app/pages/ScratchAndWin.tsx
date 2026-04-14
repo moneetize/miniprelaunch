@@ -1075,8 +1075,8 @@ export function ScratchAndWin() {
       return (
         <>
           <img src={wildcardIcon} alt="Wild Card" className="h-8 w-8 object-contain" />
-          <span className="text-base font-bold text-white">{item.label}</span>
-          <span className="max-w-[132px] text-center text-sm leading-tight text-gray-300">
+          <span className="max-w-[116px] text-center text-[12px] font-black leading-tight text-white">{item.label}</span>
+          <span className="max-w-[120px] text-center text-[10px] font-semibold leading-[1.15] text-gray-300">
             {item.description || 'Description of what a wild card gives'}
           </span>
         </>
