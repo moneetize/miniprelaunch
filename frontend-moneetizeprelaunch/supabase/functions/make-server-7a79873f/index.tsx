@@ -33,6 +33,7 @@ const SCRATCH_HISTORY_LIMIT = 50;
 const RECOMMENDED_FRIENDS_KEY = 'network:recommended_friends';
 const EARLY_ACCESS_REQUESTS_KEY = 'early_access_requests';
 const EMAIL_QUEUE_KEY = 'email_notifications';
+const MARKETPLACE_ORDERS_KEY = 'marketplace_orders';
 const EARLY_ACCESS_POINTS_AWARD = 25;
 const ADMIN_NOTIFICATION_EMAIL = 'admin@moneetize.com';
 
@@ -331,6 +332,37 @@ const parseStoredJsonArray = (value: unknown) => {
 };
 
 const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+const escapeHtml = (value: unknown) => `${value ?? ''}`.replace(/[&<>"']/g, (char) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+}[char] || char));
+
+const normalizeMarketplaceOrderItems = (items: unknown) => {
+  if (!Array.isArray(items)) return [];
+
+  return items
+    .map((item: any) => ({
+      id: `${item?.id || crypto.randomUUID()}`,
+      productId: `${item?.productId || ''}`,
+      name: `${item?.name || ''}`.trim(),
+      pointsPrice: Math.max(0, Math.round(parseStoredNumber(item?.pointsPrice, 0))),
+      quantity: Math.max(1, Math.round(parseStoredNumber(item?.quantity, 1))),
+      color: `${item?.color || 'Default'}`,
+      logo: `${item?.logo || 'Default'}`,
+    }))
+    .filter((item) => item.name);
+};
+
+const formatMarketplaceAddress = (address: any) => [
+  address?.addressLine1,
+  address?.addressLine2,
+  [address?.city, address?.region, address?.postalCode].filter(Boolean).join(' '),
+  address?.country,
+].filter(Boolean).join(', ');
 
 const getUserDisplayName = (user: any, fallbackName = '') => (
   user?.user_metadata?.name ||
@@ -803,6 +835,168 @@ app.get("/make-server-7a79873f/scratch/profile", async (c) => {
       error: 'Failed to load scratch profile',
       details: error instanceof Error ? error.message : 'Unknown error'
     }, 500);
+  }
+});
+
+// Marketplace order routes
+app.post("/make-server-7a79873f/marketplace/order", async (c) => {
+  try {
+    const currentUser = await verifyCurrentUser(c);
+    if ('response' in currentUser) return currentUser.response;
+
+    const body = await c.req.json();
+    const items = normalizeMarketplaceOrderItems(body?.items);
+    const pointsTotal = Math.max(
+      0,
+      Math.round(parseStoredNumber(
+        body?.pointsTotal,
+        items.reduce((total, item) => total + item.pointsPrice * item.quantity, 0),
+      )),
+    );
+
+    if (!items.length) {
+      return c.json({ success: false, error: 'At least one marketplace item is required' }, 400);
+    }
+
+    const customer = {
+      name: `${body?.customer?.name || getUserDisplayName(currentUser.user)}`.trim(),
+      email: `${body?.customer?.email || currentUser.user.email || ''}`.trim().toLowerCase(),
+      phone: `${body?.customer?.phone || ''}`.trim(),
+    };
+
+    if (!customer.name) {
+      return c.json({ success: false, error: 'Customer name is required' }, 400);
+    }
+
+    if (!customer.email || !isValidEmail(customer.email)) {
+      return c.json({ success: false, error: 'A valid customer email is required' }, 400);
+    }
+
+    const shippingAddress = {
+      addressLine1: `${body?.shippingAddress?.addressLine1 || ''}`.trim(),
+      addressLine2: `${body?.shippingAddress?.addressLine2 || ''}`.trim(),
+      city: `${body?.shippingAddress?.city || ''}`.trim(),
+      region: `${body?.shippingAddress?.region || ''}`.trim(),
+      postalCode: `${body?.shippingAddress?.postalCode || ''}`.trim(),
+      country: `${body?.shippingAddress?.country || ''}`.trim(),
+    };
+
+    if (!shippingAddress.addressLine1 || !shippingAddress.city || !shippingAddress.region || !shippingAddress.postalCode || !shippingAddress.country) {
+      return c.json({ success: false, error: 'Complete shipping address is required' }, 400);
+    }
+
+    const now = new Date().toISOString();
+    const orderNumber = `${body?.orderNumber || `MNTZ-${Date.now().toString().slice(-6)}`}`.trim();
+    const order = {
+      id: `${body?.id || crypto.randomUUID()}`,
+      orderNumber,
+      userId: currentUser.user.id,
+      userEmail: currentUser.user.email,
+      items,
+      pointsTotal,
+      paymentMethod: 'points',
+      customer,
+      shippingAddress,
+      status: 'pending',
+      adminEmail: ADMIN_NOTIFICATION_EMAIL,
+      createdAt: `${body?.createdAt || now}`,
+      updatedAt: now,
+    };
+
+    const addressText = formatMarketplaceAddress(shippingAddress);
+    const itemLines = items.map((item) => (
+      `${item.quantity}x ${item.name} (${item.color} / ${item.logo}) - ${item.pointsPrice * item.quantity} pts`
+    )).join('\n');
+    const itemRows = items.map((item) => `
+      <tr>
+        <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;">${escapeHtml(item.quantity)}x ${escapeHtml(item.name)}<br><span style="color:#6b7280;">${escapeHtml(item.color)} / ${escapeHtml(item.logo)}</span></td>
+        <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;text-align:right;">${escapeHtml(item.pointsPrice * item.quantity)} pts</td>
+      </tr>
+    `).join('');
+
+    const adminEmail = await dispatchEmailNotification({
+      to: ADMIN_NOTIFICATION_EMAIL,
+      subject: `New Moneetize marketplace order ${orderNumber}`,
+      text: `Order: ${orderNumber}\nCustomer: ${customer.name}\nEmail: ${customer.email}\nShipping: ${addressText}\n\nItems:\n${itemLines}\n\nTotal: ${pointsTotal} pts`,
+      html: `
+        <h2>New marketplace order ${escapeHtml(orderNumber)}</h2>
+        <p><strong>Customer:</strong> ${escapeHtml(customer.name)}<br><strong>Email:</strong> ${escapeHtml(customer.email)}${customer.phone ? `<br><strong>Phone:</strong> ${escapeHtml(customer.phone)}` : ''}</p>
+        <p><strong>Shipping:</strong> ${escapeHtml(addressText)}</p>
+        <table style="width:100%;border-collapse:collapse;">${itemRows}</table>
+        <p><strong>Total:</strong> ${escapeHtml(pointsTotal)} pts</p>
+      `,
+    });
+
+    const customerEmail = await dispatchEmailNotification({
+      to: customer.email,
+      subject: `Your Moneetize marketplace order ${orderNumber}`,
+      text: `Hi ${customer.name},\n\nWe received your Moneetize marketplace order ${orderNumber}.\n\nItems:\n${itemLines}\n\nTotal: ${pointsTotal} pts\nShipping to: ${addressText}\n\nMoneetize`,
+      html: `
+        <p>Hi ${escapeHtml(customer.name)},</p>
+        <p>We received your Moneetize marketplace order <strong>${escapeHtml(orderNumber)}</strong>.</p>
+        <table style="width:100%;border-collapse:collapse;">${itemRows}</table>
+        <p><strong>Total:</strong> ${escapeHtml(pointsTotal)} pts</p>
+        <p><strong>Shipping to:</strong> ${escapeHtml(addressText)}</p>
+        <p>Moneetize</p>
+      `,
+    });
+
+    const savedOrder = {
+      ...order,
+      emailDelivery: adminEmail.status === 'sent' && customerEmail.status === 'sent'
+        ? 'sent'
+        : adminEmail.status === 'failed' || customerEmail.status === 'failed'
+          ? 'failed'
+          : 'queued',
+      emailNotifications: [
+        {
+          to: ADMIN_NOTIFICATION_EMAIL,
+          type: 'admin',
+          subject: `New Moneetize marketplace order ${orderNumber}`,
+          ...adminEmail,
+        },
+        {
+          to: customer.email,
+          type: 'customer',
+          subject: `Your Moneetize marketplace order ${orderNumber}`,
+          ...customerEmail,
+        },
+      ],
+    };
+
+    const orders = parseStoredJsonArray(await kv.get(MARKETPLACE_ORDERS_KEY));
+    await kv.set(
+      MARKETPLACE_ORDERS_KEY,
+      JSON.stringify([savedOrder, ...orders.filter((existingOrder: any) => existingOrder?.id !== savedOrder.id)].slice(0, 100)),
+    );
+
+    return c.json({ success: true, data: { order: savedOrder } }, 200);
+  } catch (error) {
+    console.error('Marketplace order endpoint error:', error);
+    return c.json({
+      success: false,
+      error: 'Failed to submit marketplace order',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+});
+
+app.get("/make-server-7a79873f/admin/marketplace-orders", async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if ('response' in admin) return admin.response;
+
+    const orders = parseStoredJsonArray(await kv.get(MARKETPLACE_ORDERS_KEY));
+
+    return c.json({
+      success: true,
+      data: {
+        orders: orders.sort((a: any, b: any) => `${b.createdAt || ''}`.localeCompare(`${a.createdAt || ''}`)),
+      },
+    }, 200);
+  } catch (error) {
+    console.error('List marketplace orders endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to load marketplace orders' }, 500);
   }
 });
 

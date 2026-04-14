@@ -30,7 +30,11 @@ import { loadProductCatalog, saveProductCatalog } from '../services/productServi
 import { grantEarlyAccessRequest, loadEarlyAccessRequests, type EarlyAccessRequest } from '../services/earlyAccessService';
 import {
   loadMarketplaceProducts,
+  loadMarketplaceOrders,
+  loadMarketplaceOrdersFromServer,
   saveMarketplaceProducts,
+  MARKETPLACE_ORDERS_UPDATED_EVENT,
+  type MarketplaceOrder,
   type MarketplaceProduct,
 } from '../services/marketplaceService';
 
@@ -129,6 +133,7 @@ export function AdminPanel() {
   const [isLoadingEarlyAccess, setIsLoadingEarlyAccess] = useState(false);
   const [grantingEarlyAccessId, setGrantingEarlyAccessId] = useState<string | null>(null);
   const [marketplaceProducts, setMarketplaceProducts] = useState<MarketplaceProduct[]>([]);
+  const [marketplaceOrders, setMarketplaceOrders] = useState<MarketplaceOrder[]>([]);
   const [marketplaceDraft, setMarketplaceDraft] = useState<MarketplaceProduct>(() => createMarketplaceDraft());
   const [editingMarketplaceId, setEditingMarketplaceId] = useState<string | null>(null);
   
@@ -149,8 +154,22 @@ export function AdminPanel() {
       loadProducts();
       loadEarlyAccessQueue();
       loadMarketplaceCatalog();
+      void loadMarketplaceOrdersQueue();
     }
   }, []);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    const syncMarketplaceOrders = () => setMarketplaceOrders(loadMarketplaceOrders());
+    window.addEventListener(MARKETPLACE_ORDERS_UPDATED_EVENT, syncMarketplaceOrders);
+    window.addEventListener('storage', syncMarketplaceOrders);
+
+    return () => {
+      window.removeEventListener(MARKETPLACE_ORDERS_UPDATED_EVENT, syncMarketplaceOrders);
+      window.removeEventListener('storage', syncMarketplaceOrders);
+    };
+  }, [isAdmin]);
 
   const loadProducts = async () => {
     try {
@@ -186,6 +205,11 @@ export function AdminPanel() {
 
   const loadMarketplaceCatalog = () => {
     setMarketplaceProducts(loadMarketplaceProducts());
+    setMarketplaceOrders(loadMarketplaceOrders());
+  };
+
+  const loadMarketplaceOrdersQueue = async () => {
+    setMarketplaceOrders(await loadMarketplaceOrdersFromServer());
   };
 
   const handleGrantEarlyAccess = async (requestId: string) => {
@@ -562,6 +586,7 @@ export function AdminPanel() {
   const filteredProducts = getFilteredAndSortedProducts();
   const groupedProducts = groupProductsByCategory(filteredProducts);
   const activeMarketplaceProducts = marketplaceProducts.filter((product) => product.status === 'active').length;
+  const pendingMarketplaceOrders = marketplaceOrders.filter((order) => (order.status || 'pending') === 'pending').length;
 
   const renderMarketplaceAdmin = () => (
     <div className="space-y-5">
@@ -770,22 +795,97 @@ export function AdminPanel() {
           </div>
         </div>
       </div>
+
+      <div className="rounded-lg border border-white/10 bg-[#101311] p-4 shadow-[0_18px_42px_rgba(0,0,0,0.28)]">
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-black text-white">Marketplace Orders</h2>
+            <p className="mt-1 text-xs font-semibold text-white/45">
+              {marketplaceOrders.length} total | {pendingMarketplaceOrders} pending | Confirmations route to admin@moneetize.com and the customer.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadMarketplaceOrdersQueue()}
+            className="rounded-lg border border-white/10 bg-white/[0.08] px-3 py-2 text-xs font-black text-white transition-colors hover:bg-white/12"
+          >
+            Refresh Orders
+          </button>
+        </div>
+
+        {marketplaceOrders.length > 0 ? (
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {marketplaceOrders.map((order) => (
+              <div key={order.id} className="rounded-lg border border-white/10 bg-white/[0.055] p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-black text-white">{order.orderNumber || order.id}</p>
+                    <p className="mt-1 text-xs font-semibold text-white/45">
+                      {new Date(order.createdAt).toLocaleString()} | {order.emailDelivery || 'queued'}
+                    </p>
+                  </div>
+                  <span className="rounded-md border border-[#8ff0a8]/25 bg-[#8ff0a8]/10 px-2 py-1 text-[10px] font-black uppercase text-[#8ff0a8]">
+                    {order.status || 'pending'}
+                  </span>
+                </div>
+
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-white/35">Customer</p>
+                    <p className="mt-1 text-sm font-black text-white">{order.customer?.name || 'Moneetize user'}</p>
+                    <p className="text-xs font-semibold text-white/45">{order.customer?.email || order.userEmail || 'No email'}</p>
+                    {order.customer?.phone && <p className="text-xs font-semibold text-white/35">{order.customer.phone}</p>}
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-white/35">Ship To</p>
+                    <p className="mt-1 text-xs font-semibold leading-snug text-white/55">
+                      {order.shippingAddress
+                        ? `${order.shippingAddress.addressLine1}${order.shippingAddress.addressLine2 ? `, ${order.shippingAddress.addressLine2}` : ''}, ${order.shippingAddress.city}, ${order.shippingAddress.region} ${order.shippingAddress.postalCode}, ${order.shippingAddress.country}`
+                        : 'Shipping address pending'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-3 rounded-lg bg-black/18 p-3">
+                  <div className="mb-2 flex items-center justify-between text-xs font-black text-white/45">
+                    <span>Items</span>
+                    <span>{order.pointsTotal.toLocaleString()} pts</span>
+                  </div>
+                  <div className="space-y-2">
+                    {order.items.map((item) => (
+                      <div key={item.id} className="flex items-center justify-between gap-3 text-xs font-semibold text-white/60">
+                        <span className="min-w-0 truncate">{item.quantity}x {item.name} ({item.color} / {item.logo})</span>
+                        <span className="shrink-0 text-[#8ff0a8]">{(item.pointsPrice * item.quantity).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-white/10 px-4 py-8 text-center">
+            <ShoppingBag className="mx-auto h-8 w-8 text-white/30" />
+            <p className="mt-3 text-sm font-bold text-white/45">Orders will appear here after marketplace checkout.</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 
   if (isCheckingAdmin) {
     return (
-      <div className="min-h-screen w-full bg-[#0a0e1a] flex items-center justify-center px-4">
+      <div className="min-h-screen w-full bg-[#050706] flex items-center justify-center px-4 text-white">
         <motion.div
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          className="bg-[#1a1d2e] rounded-3xl p-8 w-full max-w-md text-center"
+          className="w-full max-w-md rounded-lg border border-white/10 bg-[#111512] p-6 text-center shadow-[0_24px_70px_rgba(0,0,0,0.5)]"
         >
-          <div className="w-16 h-16 bg-purple-500 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Users className="w-8 h-8 text-white" />
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-[#8ff0a8]/25 bg-[#8ff0a8]/10">
+            <Users className="h-7 w-7 text-[#8ff0a8]" />
           </div>
-          <h2 className="text-white text-2xl font-bold mb-2">Checking admin access</h2>
-          <p className="text-gray-400 text-sm">Verifying your signed-in Moneetize account.</p>
+          <h2 className="mb-2 text-2xl font-black text-white">Checking Admin Access</h2>
+          <p className="text-sm font-semibold text-white/45">Verifying your signed-in Moneetize account.</p>
         </motion.div>
       </div>
     );
@@ -793,31 +893,32 @@ export function AdminPanel() {
 
   if (!isAdmin) {
     return (
-      <div className="min-h-screen w-full bg-[#0a0e1a] flex items-center justify-center px-4">
+      <div className="min-h-screen w-full bg-[#050706] flex items-center justify-center px-4 text-white">
         <motion.div
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          className="bg-[#1a1d2e] rounded-3xl p-8 w-full max-w-md"
+          className="w-full max-w-md rounded-lg border border-white/10 bg-[#111512] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.5)]"
         >
-          <div className="text-center mb-6">
-            <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-              <AlertCircle className="w-8 h-8 text-red-300" />
+          <div className="mb-6 text-center">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-red-300/20 bg-red-500/10">
+              <AlertCircle className="h-7 w-7 text-red-300" />
             </div>
-            <h2 className="text-white text-2xl font-bold mb-2">Admin Account Required</h2>
-            <p className="text-gray-400 text-sm">
+            <p className="text-xs font-black uppercase tracking-[0.08em] text-[#8ff0a8]">Moneetize Admin</p>
+            <h2 className="mt-2 mb-2 text-2xl font-black text-white">Admin Account Required</h2>
+            <p className="text-sm font-semibold leading-relaxed text-white/45">
               Log in with an account that has the Supabase admin role to manage products.
             </p>
           </div>
           <div className="flex gap-3">
             <button
               onClick={() => navigate('/profile-feeds')}
-              className="flex-1 bg-[#2a2d3e] text-white py-3 rounded-full font-semibold hover:bg-[#35384a] transition-colors"
+              className="h-12 flex-1 rounded-lg border border-white/10 bg-white/[0.08] text-sm font-black text-white transition-colors hover:bg-white/12"
             >
               Cancel
             </button>
             <button
               onClick={() => navigate('/login')}
-              className="flex-1 bg-purple-500 text-white py-3 rounded-full font-bold hover:bg-purple-600 transition-colors"
+              className="h-12 flex-1 rounded-lg bg-[#8ff0a8] text-sm font-black text-[#06120a] transition-colors hover:bg-[#7be594]"
             >
               Login
             </button>

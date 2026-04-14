@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
-import { ChevronLeft, Minus, Plus, Search, ShoppingBag, Trash2 } from 'lucide-react';
+import { CheckCircle, ChevronLeft, Minus, Plus, Search, ShoppingBag, Trash2, X } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import {
   loadMarketplaceProducts,
   saveMarketplaceProducts,
-  saveMarketplaceOrder,
+  submitMarketplaceOrder,
+  MARKETPLACE_ADMIN_EMAIL,
   MARKETPLACE_PRODUCTS_UPDATED_EVENT,
+  type MarketplaceOrder,
   type MarketplaceOrderItem,
   type MarketplaceProduct,
 } from '../services/marketplaceService';
 import { getUserPoints, subtractUserPoints } from '../utils/pointsManager';
+import { getStoredProfileSettings, PROFILE_SETTINGS_UPDATED_EVENT, type StoredProfileSettings } from '../utils/profileSettings';
 
 type CartItem = MarketplaceOrderItem;
 type SliderKey = 'products' | 'colors' | 'logos' | 'cart';
@@ -25,6 +28,18 @@ interface DragState {
   isDragging: boolean;
   startX: number;
   scrollLeft: number;
+}
+
+interface CheckoutFormState {
+  name: string;
+  email: string;
+  phone: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  region: string;
+  postalCode: string;
+  country: string;
 }
 
 const colorSwatches: Record<string, string> = {
@@ -108,8 +123,27 @@ function getBadgeClass(badge?: MarketplaceProduct['badge']) {
   return 'bg-[#00e676] text-black';
 }
 
+function createCheckoutForm(profile: StoredProfileSettings): CheckoutFormState {
+  return {
+    name: profile.name || '',
+    email: profile.email || '',
+    phone: '',
+    addressLine1: '',
+    addressLine2: '',
+    city: '',
+    region: '',
+    postalCode: '',
+    country: 'United States',
+  };
+}
+
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 export function MerchMarketplace() {
   const navigate = useNavigate();
+  const [profileSettings, setProfileSettings] = useState(() => getStoredProfileSettings({ fallbackName: 'Jess Wu' }));
   const [products, setProducts] = useState<MarketplaceProduct[]>(() => loadMarketplaceProducts());
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [userPoints, setUserPoints] = useState(() => getUserPoints());
@@ -117,6 +151,10 @@ export function MerchMarketplace() {
   const [selectedProductId, setSelectedProductId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [message, setMessage] = useState('');
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+  const [latestOrder, setLatestOrder] = useState<MarketplaceOrder | null>(null);
+  const [checkoutForm, setCheckoutForm] = useState(() => createCheckoutForm(profileSettings));
   const [draggingSlider, setDraggingSlider] = useState<SliderKey | null>(null);
   const sliderDragRef = useRef<Record<SliderKey, DragState>>({
     products: { isDragging: false, startX: 0, scrollLeft: 0 },
@@ -133,6 +171,26 @@ export function MerchMarketplace() {
     return () => {
       window.removeEventListener(MARKETPLACE_PRODUCTS_UPDATED_EVENT, syncProducts);
       window.removeEventListener('storage', syncProducts);
+    };
+  }, []);
+
+  useEffect(() => {
+    const syncProfile = () => {
+      const nextProfile = getStoredProfileSettings({ fallbackName: 'Jess Wu' });
+      setProfileSettings(nextProfile);
+      setCheckoutForm((current) => ({
+        ...current,
+        name: current.name || nextProfile.name,
+        email: current.email || nextProfile.email,
+      }));
+    };
+
+    window.addEventListener(PROFILE_SETTINGS_UPDATED_EVENT, syncProfile);
+    window.addEventListener('storage', syncProfile);
+
+    return () => {
+      window.removeEventListener(PROFILE_SETTINGS_UPDATED_EVENT, syncProfile);
+      window.removeEventListener('storage', syncProfile);
     };
   }, []);
 
@@ -250,11 +308,26 @@ export function MerchMarketplace() {
     setCartItems((items) => items.filter((item) => item.id !== itemId));
   };
 
-  const checkout = async () => {
+  const openCheckout = () => {
     if (cartItems.length === 0) {
       setMessage('Add a merch item before checkout.');
       return;
     }
+
+    setMessage('');
+    setLatestOrder(null);
+    setIsCheckoutOpen(true);
+  };
+
+  const updateCheckoutField = (field: keyof CheckoutFormState, value: string) => {
+    setCheckoutForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  };
+
+  const placeOrder = async () => {
+    if (isSubmittingOrder) return;
 
     const unavailableItem = cartItems.find((item) => {
       const product = products.find((entry) => entry.id === item.productId);
@@ -265,21 +338,73 @@ export function MerchMarketplace() {
       return;
     }
 
+    const requiredFields: Array<keyof CheckoutFormState> = ['name', 'email', 'addressLine1', 'city', 'region', 'postalCode', 'country'];
+    const hasMissingField = requiredFields.some((field) => !checkoutForm[field].trim());
+    if (hasMissingField) {
+      setMessage('Add your shipping details before placing the order.');
+      return;
+    }
+
+    if (!isValidEmail(checkoutForm.email.trim())) {
+      setMessage('Add a valid email for your order confirmation.');
+      return;
+    }
+
+    setIsSubmittingOrder(true);
+
     const result = await subtractUserPoints(cartTotal, 'marketplace-redemption');
     setUserPoints(result.newTotal);
 
     if (!result.success) {
       setMessage(`You need ${formatPoints(cartTotal - result.newTotal)} more points to redeem this cart.`);
+      setIsSubmittingOrder(false);
       return;
     }
 
-    saveMarketplaceOrder({
+    const createdAt = new Date().toISOString();
+    const orderNumber = `MNTZ-${Date.now().toString().slice(-6)}`;
+    const order: MarketplaceOrder = {
       id: `marketplace-order-${Date.now()}`,
+      orderNumber,
       items: cartItems,
       pointsTotal: cartTotal,
       paymentMethod: 'points',
-      createdAt: new Date().toISOString(),
-    });
+      customer: {
+        name: checkoutForm.name.trim(),
+        email: checkoutForm.email.trim().toLowerCase(),
+        phone: checkoutForm.phone.trim() || undefined,
+      },
+      shippingAddress: {
+        addressLine1: checkoutForm.addressLine1.trim(),
+        addressLine2: checkoutForm.addressLine2.trim() || undefined,
+        city: checkoutForm.city.trim(),
+        region: checkoutForm.region.trim(),
+        postalCode: checkoutForm.postalCode.trim(),
+        country: checkoutForm.country.trim(),
+      },
+      status: 'pending',
+      adminEmail: MARKETPLACE_ADMIN_EMAIL,
+      userEmail: checkoutForm.email.trim().toLowerCase(),
+      emailDelivery: 'queued',
+      emailNotifications: [
+        {
+          to: MARKETPLACE_ADMIN_EMAIL,
+          type: 'admin',
+          subject: `Moneetize marketplace order ${orderNumber}`,
+          status: 'queued',
+        },
+        {
+          to: checkoutForm.email.trim().toLowerCase(),
+          type: 'customer',
+          subject: `Your Moneetize marketplace order ${orderNumber}`,
+          status: 'queued',
+        },
+      ],
+      createdAt,
+      updatedAt: createdAt,
+    };
+
+    const savedOrder = await submitMarketplaceOrder(order);
 
     const nextProducts = products.map((product) => {
       const redeemedQuantity = cartItems
@@ -293,43 +418,58 @@ export function MerchMarketplace() {
 
     setProducts(saveMarketplaceProducts(nextProducts));
     setCartItems([]);
-    setMessage('Redeemed with points. Your merch request was saved.');
+    setLatestOrder(savedOrder);
+    setMessage(
+      savedOrder.emailDelivery === 'sent'
+        ? `Order ${savedOrder.orderNumber || orderNumber} placed. Confirmations were sent.`
+        : savedOrder.emailDelivery === 'failed'
+          ? `Order ${savedOrder.orderNumber || orderNumber} placed. Email confirmation needs retry.`
+          : `Order ${savedOrder.orderNumber || orderNumber} placed. Email confirmations are queued.`,
+    );
+    setIsCheckoutOpen(false);
+    setIsSubmittingOrder(false);
   };
 
   return (
     <div className="h-screen w-full overflow-y-auto bg-[#050706] text-white [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       <header className="sticky top-0 z-30 border-b border-white/10 bg-[#050706]/95 backdrop-blur-md">
-        <div className="mx-auto flex min-h-[68px] w-full max-w-3xl items-center gap-3 px-4">
+        <div className="mx-auto grid min-h-[68px] w-full max-w-3xl grid-cols-[48px_minmax(0,1fr)_48px] items-center gap-3 px-4">
           <button
             type="button"
             onClick={() => navigate(-1)}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.08] text-white"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.08] text-white shadow-[0_12px_26px_rgba(0,0,0,0.24)]"
             aria-label="Go back"
           >
             <ChevronLeft className="h-5 w-5" />
           </button>
 
-          <button type="button" onClick={() => navigate('/winnings')} className="flex min-w-0 items-center gap-3 text-left">
-            <img src="/brand/logos/logo_icon_only_white.svg" alt="Moneetize" className="h-8 w-8" />
-            <div className="min-w-0">
-              <p className="truncate text-lg font-black leading-tight text-white">moneetize merch</p>
-              <p className="text-xs font-bold leading-tight text-white/45">Points only</p>
-            </div>
+          <button
+            type="button"
+            onClick={() => navigate('/profile-screen')}
+            className="mx-auto flex min-w-0 max-w-[220px] items-center gap-2 rounded-full bg-white px-2.5 py-1.5 text-left text-black shadow-[0_16px_34px_rgba(0,0,0,0.25)]"
+            aria-label="Open profile"
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#111514] text-[10px] font-black text-white">
+              {profileSettings.photo ? (
+                <img src={profileSettings.photo} alt="" className="h-full w-full object-cover" />
+              ) : (
+                profileSettings.name.slice(0, 2).toUpperCase()
+              )}
+            </span>
+            <span className="min-w-0 truncate text-sm font-black">{profileSettings.name}</span>
+            <span className="flex items-center gap-1 text-xs font-black text-[#16883c]">
+              <img src={gemIcon} alt="" className="h-4 w-4" />
+              {formatPoints(userPoints)}
+            </span>
           </button>
 
-          <div className="ml-auto flex items-center gap-2">
-            <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.08] px-3 py-2">
-              <img src={gemIcon} alt="Points" className="h-5 w-5" />
-              <span className="text-sm font-black text-[#8ff0a8]">{formatPoints(userPoints)}</span>
-            </div>
-            <div className="relative flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/[0.08]">
-              <ShoppingBag className="h-5 w-5" />
-              {cartCount > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#00e676] px-1 text-[10px] font-black text-black">
-                  {cartCount}
-                </span>
-              )}
-            </div>
+          <div className="relative flex h-10 w-10 justify-self-end items-center justify-center rounded-lg border border-white/10 bg-white/[0.08]">
+            <ShoppingBag className="h-5 w-5" />
+            {cartCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#00e676] px-1 text-[10px] font-black text-black">
+                {cartCount}
+              </span>
+            )}
           </div>
         </div>
       </header>
@@ -590,15 +730,167 @@ export function MerchMarketplace() {
             <p className="mt-3 rounded-lg bg-white/[0.055] px-4 py-3 text-sm font-bold text-white/70">{message}</p>
           )}
 
+          {latestOrder && (
+            <div className="mt-3 flex items-center gap-3 rounded-lg border border-[#8ff0a8]/30 bg-[#8ff0a8]/10 px-4 py-3 text-sm font-bold text-[#caffe0]">
+              <CheckCircle className="h-5 w-5 text-[#8ff0a8]" />
+              <span>Admin order queue updated for {latestOrder.orderNumber || 'your merch order'}.</span>
+            </div>
+          )}
+
           <button
             type="button"
-            onClick={checkout}
+            onClick={openCheckout}
             className="mt-4 h-12 w-full rounded-lg bg-[#8ff0a8] text-sm font-black text-[#07110a] shadow-[0_14px_34px_rgba(143,240,168,0.24)]"
           >
             Checkout
           </button>
         </section>
       </main>
+
+      {isCheckoutOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 px-3 py-4 backdrop-blur-sm sm:items-center">
+          <motion.form
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void placeOrder();
+            }}
+            className="max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-lg border border-white/10 bg-[#111512] p-4 text-white shadow-[0_24px_70px_rgba(0,0,0,0.5)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.08em] text-[#8ff0a8]">Points checkout</p>
+                <h2 className="mt-1 text-2xl font-black leading-tight">Shipping Details</h2>
+                <p className="mt-1 text-sm font-bold text-white/45">
+                  {formatPoints(cartTotal)} points for {cartCount} item{cartCount === 1 ? '' : 's'}.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCheckoutOpen(false)}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.08] text-white/70"
+                aria-label="Close checkout"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <p className="mb-2 text-xs font-black text-white/42">Pay with:</p>
+            <div className="mb-4 grid grid-cols-3 gap-2">
+              <span className="rounded-lg bg-white px-3 py-2 text-center text-xs font-black text-black">Points Only</span>
+              <span className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-center text-xs font-black text-white/25">USDT</span>
+              <span className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-center text-xs font-black text-white/25">Card</span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-xs font-black text-white/42">Name</span>
+                <input
+                  value={checkoutForm.name}
+                  onChange={(event) => updateCheckoutField('name', event.target.value)}
+                  className="h-11 w-full rounded-lg border border-white/10 bg-white/[0.07] px-3 text-sm font-bold text-white outline-none placeholder:text-white/25 focus:border-[#8ff0a8]"
+                  placeholder="Your name"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-black text-white/42">Email</span>
+                <input
+                  type="email"
+                  value={checkoutForm.email}
+                  onChange={(event) => updateCheckoutField('email', event.target.value)}
+                  className="h-11 w-full rounded-lg border border-white/10 bg-white/[0.07] px-3 text-sm font-bold text-white outline-none placeholder:text-white/25 focus:border-[#8ff0a8]"
+                  placeholder="you@email.com"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-black text-white/42">Phone</span>
+                <input
+                  value={checkoutForm.phone}
+                  onChange={(event) => updateCheckoutField('phone', event.target.value)}
+                  className="h-11 w-full rounded-lg border border-white/10 bg-white/[0.07] px-3 text-sm font-bold text-white outline-none placeholder:text-white/25 focus:border-[#8ff0a8]"
+                  placeholder="Optional"
+                />
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-xs font-black text-white/42">Address</span>
+                <input
+                  value={checkoutForm.addressLine1}
+                  onChange={(event) => updateCheckoutField('addressLine1', event.target.value)}
+                  className="h-11 w-full rounded-lg border border-white/10 bg-white/[0.07] px-3 text-sm font-bold text-white outline-none placeholder:text-white/25 focus:border-[#8ff0a8]"
+                  placeholder="Street address"
+                />
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-xs font-black text-white/42">Apt, suite, unit</span>
+                <input
+                  value={checkoutForm.addressLine2}
+                  onChange={(event) => updateCheckoutField('addressLine2', event.target.value)}
+                  className="h-11 w-full rounded-lg border border-white/10 bg-white/[0.07] px-3 text-sm font-bold text-white outline-none placeholder:text-white/25 focus:border-[#8ff0a8]"
+                  placeholder="Optional"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-black text-white/42">City</span>
+                <input
+                  value={checkoutForm.city}
+                  onChange={(event) => updateCheckoutField('city', event.target.value)}
+                  className="h-11 w-full rounded-lg border border-white/10 bg-white/[0.07] px-3 text-sm font-bold text-white outline-none placeholder:text-white/25 focus:border-[#8ff0a8]"
+                  placeholder="City"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-black text-white/42">State / Region</span>
+                <input
+                  value={checkoutForm.region}
+                  onChange={(event) => updateCheckoutField('region', event.target.value)}
+                  className="h-11 w-full rounded-lg border border-white/10 bg-white/[0.07] px-3 text-sm font-bold text-white outline-none placeholder:text-white/25 focus:border-[#8ff0a8]"
+                  placeholder="State"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-black text-white/42">ZIP / Postal</span>
+                <input
+                  value={checkoutForm.postalCode}
+                  onChange={(event) => updateCheckoutField('postalCode', event.target.value)}
+                  className="h-11 w-full rounded-lg border border-white/10 bg-white/[0.07] px-3 text-sm font-bold text-white outline-none placeholder:text-white/25 focus:border-[#8ff0a8]"
+                  placeholder="Postal code"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-black text-white/42">Country</span>
+                <input
+                  value={checkoutForm.country}
+                  onChange={(event) => updateCheckoutField('country', event.target.value)}
+                  className="h-11 w-full rounded-lg border border-white/10 bg-white/[0.07] px-3 text-sm font-bold text-white outline-none placeholder:text-white/25 focus:border-[#8ff0a8]"
+                  placeholder="Country"
+                />
+              </label>
+            </div>
+
+            {message && (
+              <p className="mt-4 rounded-lg bg-white/[0.06] px-4 py-3 text-sm font-bold text-white/70">{message}</p>
+            )}
+
+            <div className="mt-5 grid grid-cols-[1fr_auto] gap-3">
+              <button
+                type="submit"
+                disabled={isSubmittingOrder}
+                className="h-12 rounded-lg bg-[#8ff0a8] text-sm font-black text-[#07110a] shadow-[0_14px_34px_rgba(143,240,168,0.24)] disabled:cursor-wait disabled:opacity-60"
+              >
+                {isSubmittingOrder ? 'Placing Order...' : 'Buy'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsCheckoutOpen(false)}
+                className="h-12 rounded-lg border border-white/10 bg-white/[0.08] px-4 text-sm font-black text-white/68"
+              >
+                Cancel
+              </button>
+            </div>
+          </motion.form>
+        </div>
+      )}
     </div>
   );
 }

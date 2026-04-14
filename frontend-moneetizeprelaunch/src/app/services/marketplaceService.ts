@@ -1,3 +1,4 @@
+import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { safeGetItem, safeSetItem } from '../utils/storage';
 
 export type MarketplaceProductStatus = 'active' | 'draft';
@@ -31,15 +32,54 @@ export interface MarketplaceOrderItem {
 
 export interface MarketplaceOrder {
   id: string;
+  orderNumber?: string;
   items: MarketplaceOrderItem[];
   pointsTotal: number;
   paymentMethod: 'points';
+  customer?: MarketplaceCustomer;
+  shippingAddress?: MarketplaceShippingAddress;
+  status?: MarketplaceOrderStatus;
+  adminEmail?: string;
+  userEmail?: string;
+  emailDelivery?: MarketplaceEmailDelivery;
+  emailNotifications?: MarketplaceEmailNotification[];
   createdAt: string;
+  updatedAt?: string;
+}
+
+export type MarketplaceOrderStatus = 'pending' | 'processing' | 'fulfilled' | 'cancelled';
+export type MarketplaceEmailDelivery = 'sent' | 'queued' | 'failed';
+
+export interface MarketplaceCustomer {
+  name: string;
+  email: string;
+  phone?: string;
+}
+
+export interface MarketplaceShippingAddress {
+  addressLine1: string;
+  addressLine2?: string;
+  city: string;
+  region: string;
+  postalCode: string;
+  country: string;
+}
+
+export interface MarketplaceEmailNotification {
+  to: string;
+  type: 'admin' | 'customer';
+  subject: string;
+  status: MarketplaceEmailDelivery;
+  error?: string;
 }
 
 const MARKETPLACE_PRODUCTS_KEY = 'moneetizeMarketplaceProducts';
 const MARKETPLACE_ORDERS_KEY = 'moneetizeMarketplaceOrders';
 export const MARKETPLACE_PRODUCTS_UPDATED_EVENT = 'moneetize-marketplace-products-updated';
+export const MARKETPLACE_ORDERS_UPDATED_EVENT = 'moneetize-marketplace-orders-updated';
+export const MARKETPLACE_ADMIN_EMAIL = 'admin@moneetize.com';
+
+const MARKETPLACE_API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-7a79873f`;
 
 const productAssetPath = '/marketplace/products/';
 const logoColors = ['Black', 'Dark Blue', 'Green', 'Light Blue', 'Pink', 'Purple', 'Yellow'];
@@ -320,6 +360,22 @@ function emitMarketplaceUpdate() {
   window.dispatchEvent(new CustomEvent(MARKETPLACE_PRODUCTS_UPDATED_EVENT));
 }
 
+function emitMarketplaceOrdersUpdate() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(MARKETPLACE_ORDERS_UPDATED_EVENT));
+}
+
+function parseOrderList(value: string | null) {
+  if (!value) return [];
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed as MarketplaceOrder[] : [];
+  } catch {
+    return [];
+  }
+}
+
 export function loadMarketplaceProducts() {
   const storedProducts = parseProductList(safeGetItem(MARKETPLACE_PRODUCTS_KEY));
   return mergeDefaultProducts(storedProducts).map(normalizeProduct);
@@ -334,12 +390,108 @@ export function saveMarketplaceProducts(products: MarketplaceProduct[]) {
 
 export function saveMarketplaceOrder(order: MarketplaceOrder) {
   try {
-    const existingJson = safeGetItem(MARKETPLACE_ORDERS_KEY);
-    const existingOrders: MarketplaceOrder[] = existingJson ? JSON.parse(existingJson) : [];
-    safeSetItem(MARKETPLACE_ORDERS_KEY, JSON.stringify([order, ...existingOrders].slice(0, 100)));
+    const existingOrders = loadMarketplaceOrders();
+    const nextOrders = [
+      order,
+      ...existingOrders.filter((existingOrder) => existingOrder.id !== order.id),
+    ].slice(0, 100);
+    safeSetItem(MARKETPLACE_ORDERS_KEY, JSON.stringify(nextOrders));
   } catch {
     safeSetItem(MARKETPLACE_ORDERS_KEY, JSON.stringify([order]));
   }
 
+  emitMarketplaceOrdersUpdate();
   return order;
+}
+
+export function loadMarketplaceOrders() {
+  return parseOrderList(safeGetItem(MARKETPLACE_ORDERS_KEY));
+}
+
+interface MarketplaceOrderResponse {
+  success?: boolean;
+  data?: {
+    order?: MarketplaceOrder;
+    orders?: MarketplaceOrder[];
+  };
+  error?: string;
+}
+
+async function readJson<T>(response: Response): Promise<T> {
+  const text = await response.text();
+  return text ? (JSON.parse(text) as T) : ({} as T);
+}
+
+export async function submitMarketplaceOrder(order: MarketplaceOrder) {
+  const queuedOrder: MarketplaceOrder = {
+    ...order,
+    adminEmail: order.adminEmail || MARKETPLACE_ADMIN_EMAIL,
+    emailDelivery: order.emailDelivery || 'queued',
+    updatedAt: new Date().toISOString(),
+  };
+
+  saveMarketplaceOrder(queuedOrder);
+
+  const accessToken = safeGetItem('access_token');
+  if (!accessToken) {
+    return queuedOrder;
+  }
+
+  try {
+    const response = await fetch(`${MARKETPLACE_API_URL}/marketplace/order`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: publicAnonKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(queuedOrder),
+    });
+    const result = await readJson<MarketplaceOrderResponse>(response);
+
+    if (!response.ok || !result.success || !result.data?.order) {
+      console.warn('Marketplace order email dispatch was queued locally:', result.error || response.statusText);
+      return queuedOrder;
+    }
+
+    return saveMarketplaceOrder(result.data.order);
+  } catch (error) {
+    console.warn('Marketplace order email dispatch failed; local order remains queued.', error);
+    return queuedOrder;
+  }
+}
+
+export async function loadMarketplaceOrdersFromServer() {
+  const localOrders = loadMarketplaceOrders();
+  const accessToken = safeGetItem('access_token');
+  if (!accessToken) return localOrders;
+
+  try {
+    const response = await fetch(`${MARKETPLACE_API_URL}/admin/marketplace-orders`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: publicAnonKey,
+        'Content-Type': 'application/json',
+      },
+    });
+    const result = await readJson<MarketplaceOrderResponse>(response);
+
+    if (!response.ok || !result.success || !result.data?.orders) {
+      return localOrders;
+    }
+
+    const mergedOrders = [
+      ...result.data.orders,
+      ...localOrders.filter((localOrder) => (
+        !result.data?.orders?.some((remoteOrder) => remoteOrder.id === localOrder.id)
+      )),
+    ].slice(0, 100);
+
+    safeSetItem(MARKETPLACE_ORDERS_KEY, JSON.stringify(mergedOrders));
+    emitMarketplaceOrdersUpdate();
+    return mergedOrders;
+  } catch {
+    return localOrders;
+  }
 }
