@@ -572,7 +572,7 @@ export function ProfileScreen() {
   };
 
   const profileStats = [
-    { label: 'Balance', value: `$ ${displayBalance}`, icon: <Copy className="h-3 w-3" /> },
+    { label: 'USDT (Locked)', value: `$ ${displayBalance}`, icon: <Copy className="h-3 w-3" /> },
     { label: 'Following', value: followingCount, icon: <ChevronUp className="h-3 w-3" /> },
     { label: 'Followers', value: followersCount, icon: <ChevronUp className="h-3 w-3 rotate-180" /> },
   ];

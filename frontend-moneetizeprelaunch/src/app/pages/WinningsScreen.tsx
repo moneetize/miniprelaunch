@@ -147,7 +147,7 @@ function getHistoryRewards(draw: ScratchDrawResult): HistoryRewardIcon[] {
 }
 
 const coreRedeemableItems: RewardItem[] = [
-  { id: 'usdt-balance', label: 'USDT Balance', icon: 'usdt' },
+  { id: 'usdt-balance', label: 'USDT (Locked)', icon: 'usdt' },
   { id: 'tripto-allocation', label: 'Tripto Allocation', icon: 'tripto' },
   { id: 'moneetize-shirt', label: 'Moneetize Merch', icon: 'shirt', image: tshirtRewardIcon },
   { id: 'token-early-access', label: 'Token Early Access', icon: 'wildcard', image: wildcardIcon, isEarlyAccess: true },
@@ -194,7 +194,7 @@ function getRedeemableProducts(history: ScratchDrawResult[]) {
       if (item.type === 'usdt') {
         products.set('usdt-balance', {
           id: 'usdt-balance',
-          label: item.label || 'USDT Balance',
+          label: 'USDT (Locked)',
           icon: 'usdt',
         });
       }
@@ -371,7 +371,7 @@ function WinningsScreen() {
     if (reward.type === 'usdt') {
       return (
         <span className="rounded-full bg-emerald-300/12 px-2 py-1 text-[10px] font-black text-emerald-100">
-          ${formatMoney(reward.amount || 0)}
+          ${formatMoney(reward.amount || 0)} locked
         </span>
       );
     }
@@ -622,6 +622,7 @@ function WinningsScreen() {
             <div className="mt-1 flex items-end justify-center gap-2">
               <p className="text-[42px] font-black leading-none text-white">${displayBalance}</p>
               <span className="pb-1 text-[11px] font-black text-white/70">USDT</span>
+              <span className="pb-1 text-[10px] font-black text-white/44">(Locked)</span>
             </div>
             <p className="mt-3 text-[12px] font-bold text-white/38">= ${approximateBalance}</p>
             <p className="mt-2 text-[12px] font-black text-red-400">- 1.45 (-5.9%)</p>
@@ -637,7 +638,10 @@ function WinningsScreen() {
                 <span className="text-[14px] font-black text-white">USDT</span>
               </div>
               <p className="mt-4 text-[12px] font-bold text-white/48">Balance</p>
-              <p className="mt-1 text-[33px] font-black leading-none text-white">${displayBalance}</p>
+              <div className="mt-1 flex items-end gap-2">
+                <p className="text-[33px] font-black leading-none text-white">${displayBalance}</p>
+                <span className="pb-1 text-[10px] font-black text-white/44">(Locked)</span>
+              </div>
               <p className="mt-3 text-[12px] font-bold text-white/38">= ${formatMoney(Math.max(usdtBalance * 16.05, usdtBalance))}</p>
             </div>
 

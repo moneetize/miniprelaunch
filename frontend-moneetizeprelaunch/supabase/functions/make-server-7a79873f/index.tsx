@@ -103,7 +103,7 @@ const createGoldenWindow = () => ({
   eyebrow: 'GOLDEN EVENT',
   title: '🟡 Golden Apex Active',
   subtext: 'A high-intensity coordination window is active. Participants in this window generate the highest-value outcomes.',
-  topRewards: ['💵 $25+ USDT', '🛍️ Shopping Spree rewards', '📈 Major participation boosts'],
+  topRewards: ['💵 $25+ USDT (Locked)', '🛍️ Shopping Spree rewards', '📈 Major participation boosts'],
   remaining: { hours: 0, minutes: 2, seconds: 14 },
   cta: '⚡ Activate Now',
 });
@@ -459,7 +459,7 @@ const createScratchRewardItems = (ticket: typeof scratchTickets[number]) => {
     {
       id: `${ticket.id}-usdt`,
       type: 'usdt',
-      label: 'USDT balance',
+      label: 'USDT (Locked)',
       amount: ticket.reward.usdt,
       unit: 'USDT',
       icon: 'usdt',

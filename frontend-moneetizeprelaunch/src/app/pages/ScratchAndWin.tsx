@@ -54,7 +54,7 @@ type PreGameStep =
   | 'wildCard'
   | 'expiration';
 
-const formatUsdt = (value = 0) => `$${value.toFixed(2)} USDT`;
+const formatUsdt = (value = 0) => `$${value.toFixed(2)} USDT (Locked)`;
 
 const participationProgressByLevel: Record<number, number> = {
   1: 24,
@@ -151,7 +151,7 @@ const createGoldenWindow = () => ({
   eyebrow: 'GOLDEN EVENT',
   title: '🟡 Golden Apex Active',
   subtext: 'A high-intensity coordination window is active. Participants in this window generate the highest-value outcomes.',
-  topRewards: ['💵 $25+ USDT', '🛍️ Shopping Spree rewards', '📈 Major participation boosts'],
+  topRewards: ['💵 $25+ USDT (Locked)', '🛍️ Shopping Spree rewards', '📈 Major participation boosts'],
   remaining: { hours: 0, minutes: 2, seconds: 14 },
   cta: '⚡ Activate Now',
 });
@@ -186,7 +186,7 @@ const createTeaserReward = ({
   const items: ScratchRewardItem[] = [
     { id: `${ticketId}-points`, type: 'points', label: 'Participation Score', amount: score, unit: 'score', icon: 'gem' },
     { id: `${ticketId}-wildcard`, type: 'wildcard', label: wildCardName, description: wildCardDescription, icon: 'wildcard' },
-    { id: `${ticketId}-usdt`, type: 'usdt', label: 'USDT balance', amount: usdt, unit: 'USDT', icon: 'usdt' },
+    { id: `${ticketId}-usdt`, type: 'usdt', label: 'USDT (Locked)', amount: usdt, unit: 'USDT', icon: 'usdt' },
     { id: `${ticketId}-tripto`, type: 'tripto', label: 'Tripto (Locked)', amount: triptoPoints, unit: 'Tripto', icon: 'tripto' },
   ];
 
@@ -983,7 +983,7 @@ export function ScratchAndWin() {
   const goldenWindow = reward.goldenWindow;
   const isGoldenApexActive = Boolean(goldenWindow?.active || ticket.isGolden);
   const goldenRemaining = goldenWindow?.remaining ?? ticket.countdown ?? { hours: 0, minutes: 2, seconds: 14 };
-  const goldenTopRewards = goldenWindow?.topRewards ?? ['💵 $25+ USDT', '🛍️ Shopping Spree rewards', '📈 Major participation boosts'];
+  const goldenTopRewards = goldenWindow?.topRewards ?? ['💵 $25+ USDT (Locked)', '🛍️ Shopping Spree rewards', '📈 Major participation boosts'];
   const goldenEventTitle = goldenWindow?.title ?? '🟡 Golden Apex Active';
   const goldenEventEyebrow = goldenWindow?.eyebrow ?? 'GOLDEN EVENT';
   const goldenEventSubtext =
@@ -1013,7 +1013,7 @@ export function ScratchAndWin() {
     {
       id: 'fallback-usdt',
       type: 'usdt',
-      label: 'USDT balance',
+      label: 'USDT (Locked)',
       amount: reward.usdt,
       unit: 'USDT',
       icon: 'usdt',
@@ -1021,7 +1021,7 @@ export function ScratchAndWin() {
     {
       id: 'fallback-tripto',
       type: 'tripto',
-      label: 'Tripto points',
+      label: 'Tripto (Locked)',
       amount: lockedTriptoPoints,
       unit: 'Tripto',
       icon: 'tripto',
@@ -1259,7 +1259,7 @@ export function ScratchAndWin() {
                   className="flex flex-col items-center"
                 >
                   <p className="text-[28px] font-black text-white">${reward.usdt.toFixed(2)}</p>
-                  <p className="mt-1 rounded-full bg-white px-4 py-1 text-[11px] font-black text-black">USDT</p>
+                  <p className="mt-1 rounded-full bg-white px-4 py-1 text-[11px] font-black text-black">USDT (Locked)</p>
                 </motion.div>
               ) : (
                 <div className="flex items-center gap-10 text-white drop-shadow-[0_0_18px_rgba(255,255,255,0.58)]">
@@ -1424,7 +1424,7 @@ export function ScratchAndWin() {
 
                 <div className="relative z-10 mx-auto mt-9 max-w-[186px] rounded-[0.8rem] border border-[#7fc7a6]/55 bg-black/25 px-6 py-6">
                   <p className="text-[44px] font-black leading-none text-white">${reward.usdt.toFixed(2)}</p>
-                  <p className="mx-auto mt-4 w-fit rounded-full bg-white px-6 py-2 text-[13px] font-black text-black">USDT</p>
+                  <p className="mx-auto mt-4 w-fit rounded-full bg-white px-6 py-2 text-[13px] font-black text-black">USDT (Locked)</p>
                 </div>
 
                 <p className="relative z-10 mt-7 text-[16px] font-black text-white">You also get:</p>
@@ -2156,7 +2156,7 @@ export function ScratchAndWin() {
               <div className="relative z-10 mt-7 rounded-[1.35rem] border border-white/12 bg-black/28 p-5 text-left">
                 <p className="mb-3 text-center text-sm font-black text-white">Results:</p>
                 <div className="space-y-2 text-sm font-semibold text-white">
-                  <div className="rounded-2xl bg-white/8 px-4 py-3">💵 Cash rewards (rank-based)</div>
+                  <div className="rounded-2xl bg-white/8 px-4 py-3">🔒 USDT rewards (locked)</div>
                   <div className="rounded-2xl bg-white/8 px-4 py-3">📈 Participation advantage</div>
                   <div className="rounded-2xl bg-white/8 px-4 py-3">🔒 Tripto accumulated</div>
                 </div>

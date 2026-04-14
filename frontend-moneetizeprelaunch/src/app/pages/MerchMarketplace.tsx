@@ -846,7 +846,7 @@ export function MerchMarketplace() {
             <p className="mb-2 text-xs font-black text-white/42">Pay with:</p>
             <div className="mb-4 grid grid-cols-3 gap-2">
               <span className="rounded-lg bg-white px-3 py-2 text-center text-xs font-black text-black">Points Only</span>
-              <span className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-center text-xs font-black text-white/25">USDT</span>
+              <span className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-center text-xs font-black text-white/25">USDT (Locked)</span>
               <span className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-center text-xs font-black text-white/25">Card</span>
             </div>
 
