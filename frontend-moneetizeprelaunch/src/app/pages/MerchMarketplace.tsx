@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import { ChevronLeft, Minus, Plus, Search, ShoppingBag, Trash2 } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
-import tshirtRewardIcon from '../../assets/moneetize-tshirt-reward.png';
 import {
   loadMarketplaceProducts,
   saveMarketplaceProducts,
@@ -15,43 +14,80 @@ import {
 import { getUserPoints, subtractUserPoints } from '../utils/pointsManager';
 
 type CartItem = MarketplaceOrderItem;
+type SliderKey = 'products' | 'colors' | 'logos' | 'cart';
 
 interface SelectedVariant {
   color: string;
   logo: string;
 }
 
+interface DragState {
+  isDragging: boolean;
+  startX: number;
+  scrollLeft: number;
+}
+
 const colorSwatches: Record<string, string> = {
   Black: '#08090a',
   White: '#f5f5f0',
-  Charcoal: '#52575d',
-  Slate: '#5e7da9',
-  Mint: '#8ff0d6',
-  Blue: '#4779bd',
+  Natural: '#efe8da',
+  Clear: '#d8edf0',
   Steel: '#9ba3a7',
+  Blue: '#4779bd',
+  'Dark Blue': '#19395f',
+  'Light Blue': '#8bd8ef',
+  'Light Green': '#9fe4bd',
 };
 
-const logoPreviewByVariant: Record<string, string> = {
-  Horizontal: '/brand/logos/logo_horizontal_white.svg',
-  Stacked: '/brand/logos/logo_stacked_white.svg',
-  Message: '/brand/logos/logo_message_white.svg',
-  'Icon Only': '/brand/logos/logo_icon_only_white.svg',
-  'Classic Logo': '/brand/logos/logo_horizontal_white.svg',
-  'Wildcard Logo': '/brand/logos/logo_icon_only_white.svg',
-  'Golden Logo': '/brand/logos/logo_stacked_white.svg',
-  'Moneetize Badge': '/brand/logos/logo_icon_only_white.svg',
-  'Team Logo': '/brand/logos/logo_horizontal_white.svg',
+const logoSwatches: Record<string, string> = {
+  Black: '#08090a',
+  White: '#ffffff',
+  Green: '#8eea78',
+  'Dark Blue': '#1e4f87',
+  'Light Blue': '#89e4f4',
+  Pink: '#ff8ab9',
+  Purple: '#8e74ff',
+  Yellow: '#ffe65a',
 };
 
 function formatPoints(value: number) {
   return value.toLocaleString('en-US');
 }
 
+function variantKey(color: string, logo: string) {
+  return `${color}__${logo}`;
+}
+
 function getDefaultVariant(product: MarketplaceProduct): SelectedVariant {
   return {
     color: product.colorVariants[0] || 'Black',
-    logo: product.logoVariants[0] || 'Horizontal',
+    logo: product.logoVariants[0] || 'Light Blue',
   };
+}
+
+function getAvailableLogos(product: MarketplaceProduct, color: string) {
+  const variantImages = product.variantImages || {};
+  const logos = Object.keys(variantImages)
+    .filter((key) => key.startsWith(`${color}__`))
+    .map((key) => key.split('__')[1])
+    .filter(Boolean);
+
+  return logos.length ? logos : product.logoVariants;
+}
+
+function getProductImage(product: MarketplaceProduct, variant: SelectedVariant) {
+  const variantImages = product.variantImages || {};
+  const directMatch = variantImages[variantKey(variant.color, variant.logo)];
+  if (directMatch) return directMatch;
+
+  const colorMatch = Object.entries(variantImages).find(([key]) => key.startsWith(`${variant.color}__`));
+  if (colorMatch) return colorMatch[1];
+
+  const logoMatch = Object.entries(variantImages).find(([key]) => key.endsWith(`__${variant.logo}`));
+  if (logoMatch) return logoMatch[1];
+
+  const firstVariant = Object.values(variantImages)[0];
+  return firstVariant || product.image || '';
 }
 
 function createCartItem(product: MarketplaceProduct, variant: SelectedVariant): CartItem {
@@ -78,8 +114,16 @@ export function MerchMarketplace() {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [userPoints, setUserPoints] = useState(() => getUserPoints());
   const [selectedVariants, setSelectedVariants] = useState<Record<string, SelectedVariant>>({});
+  const [selectedProductId, setSelectedProductId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [message, setMessage] = useState('');
+  const [draggingSlider, setDraggingSlider] = useState<SliderKey | null>(null);
+  const sliderDragRef = useRef<Record<SliderKey, DragState>>({
+    products: { isDragging: false, startX: 0, scrollLeft: 0 },
+    colors: { isDragging: false, startX: 0, scrollLeft: 0 },
+    logos: { isDragging: false, startX: 0, scrollLeft: 0 },
+    cart: { isDragging: false, startX: 0, scrollLeft: 0 },
+  });
 
   useEffect(() => {
     const syncProducts = () => setProducts(loadMarketplaceProducts());
@@ -104,19 +148,88 @@ export function MerchMarketplace() {
     ));
   }, [activeProducts, searchQuery]);
 
+  useEffect(() => {
+    if (!filteredProducts.length) {
+      setSelectedProductId('');
+      return;
+    }
+
+    if (!filteredProducts.some((product) => product.id === selectedProductId)) {
+      setSelectedProductId(filteredProducts[0].id);
+    }
+  }, [filteredProducts, selectedProductId]);
+
+  const activeProduct = filteredProducts.find((product) => product.id === selectedProductId) || filteredProducts[0];
   const cartCount = cartItems.reduce((total, item) => total + item.quantity, 0);
   const cartTotal = cartItems.reduce((total, item) => total + item.pointsPrice * item.quantity, 0);
-
   const getSelectedVariant = (product: MarketplaceProduct) => selectedVariants[product.id] || getDefaultVariant(product);
+  const activeVariant = activeProduct ? getSelectedVariant(activeProduct) : null;
+  const activeImage = activeProduct && activeVariant ? getProductImage(activeProduct, activeVariant) : '';
+  const availableLogos = activeProduct && activeVariant ? getAvailableLogos(activeProduct, activeVariant.color) : [];
+
+  const handleSliderPointerDown = (key: SliderKey, event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+
+    const slider = event.currentTarget;
+    sliderDragRef.current[key] = {
+      isDragging: true,
+      startX: event.clientX,
+      scrollLeft: slider.scrollLeft,
+    };
+    setDraggingSlider(key);
+    slider.setPointerCapture(event.pointerId);
+  };
+
+  const handleSliderPointerMove = (key: SliderKey, event: ReactPointerEvent<HTMLDivElement>) => {
+    const slider = event.currentTarget;
+    const drag = sliderDragRef.current[key];
+    if (!drag.isDragging) return;
+
+    const deltaX = event.clientX - drag.startX;
+    if (Math.abs(deltaX) > 2) event.preventDefault();
+    slider.scrollLeft = drag.scrollLeft - deltaX;
+  };
+
+  const handleSliderPointerEnd = (key: SliderKey, event: ReactPointerEvent<HTMLDivElement>) => {
+    const slider = event.currentTarget;
+    if (slider.hasPointerCapture(event.pointerId)) {
+      slider.releasePointerCapture(event.pointerId);
+    }
+
+    sliderDragRef.current[key].isDragging = false;
+    setDraggingSlider(null);
+  };
+
+  const handleSliderWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    const slider = event.currentTarget;
+    if (slider.scrollWidth <= slider.clientWidth) return;
+
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (delta === 0) return;
+
+    event.preventDefault();
+    slider.scrollLeft += delta;
+  };
 
   const updateProductVariant = (product: MarketplaceProduct, updates: Partial<SelectedVariant>) => {
-    setSelectedVariants((current) => ({
-      ...current,
-      [product.id]: {
+    setSelectedVariants((current) => {
+      const nextVariant = {
         ...getSelectedVariant(product),
         ...updates,
-      },
-    }));
+      };
+
+      if (updates.color) {
+        const nextLogos = getAvailableLogos(product, updates.color);
+        if (nextLogos.length && !nextLogos.includes(nextVariant.logo)) {
+          nextVariant.logo = nextLogos[0];
+        }
+      }
+
+      return {
+        ...current,
+        [product.id]: nextVariant,
+      };
+    });
   };
 
   const addProductToCart = (product: MarketplaceProduct) => {
@@ -167,6 +280,7 @@ export function MerchMarketplace() {
       paymentMethod: 'points',
       createdAt: new Date().toISOString(),
     });
+
     const nextProducts = products.map((product) => {
       const redeemedQuantity = cartItems
         .filter((item) => item.productId === product.id)
@@ -176,6 +290,7 @@ export function MerchMarketplace() {
         ? { ...product, inventory: Math.max(0, product.inventory - redeemedQuantity) }
         : product;
     });
+
     setProducts(saveMarketplaceProducts(nextProducts));
     setCartItems([]);
     setMessage('Redeemed with points. Your merch request was saved.');
@@ -184,7 +299,7 @@ export function MerchMarketplace() {
   return (
     <div className="h-screen w-full overflow-y-auto bg-[#050706] text-white [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       <header className="sticky top-0 z-30 border-b border-white/10 bg-[#050706]/95 backdrop-blur-md">
-        <div className="mx-auto flex min-h-[68px] w-full max-w-6xl items-center gap-3 px-4">
+        <div className="mx-auto flex min-h-[68px] w-full max-w-3xl items-center gap-3 px-4">
           <button
             type="button"
             onClick={() => navigate(-1)}
@@ -198,7 +313,7 @@ export function MerchMarketplace() {
             <img src="/brand/logos/logo_icon_only_white.svg" alt="Moneetize" className="h-8 w-8" />
             <div className="min-w-0">
               <p className="truncate text-lg font-black leading-tight text-white">moneetize merch</p>
-              <p className="text-xs font-bold leading-tight text-white/45">Redeem with points</p>
+              <p className="text-xs font-bold leading-tight text-white/45">Points only</p>
             </div>
           </button>
 
@@ -219,200 +334,260 @@ export function MerchMarketplace() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl px-4 pb-28 pt-5">
-        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <main className="mx-auto w-full max-w-3xl px-4 pb-28 pt-5">
+        <div className="mb-4 flex items-center gap-3">
           <div>
             <h1 className="text-2xl font-black leading-tight text-white">Marketplace</h1>
-            <p className="mt-1 text-sm font-semibold text-white/48">Pick a product, choose a color, choose a logo, redeem with points.</p>
+            <p className="mt-1 text-sm font-semibold text-white/48">Swipe products. Pick color. Pick logo.</p>
           </div>
-
-          <div className="relative w-full sm:max-w-xs">
-            <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
+          <div className="relative ml-auto hidden w-52 sm:block">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
             <input
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search products"
-              className="h-11 w-full rounded-lg border border-white/10 bg-white/[0.08] pl-11 pr-4 text-sm font-bold text-white outline-none placeholder:text-white/30"
+              placeholder="Search"
+              className="h-10 w-full rounded-lg border border-white/10 bg-white/[0.08] pl-9 pr-3 text-sm font-bold text-white outline-none placeholder:text-white/30"
             />
           </div>
         </div>
 
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" aria-label="Marketplace products">
-          {filteredProducts.map((product) => {
-            const selectedVariant = getSelectedVariant(product);
-            const productLogo = logoPreviewByVariant[selectedVariant.logo] || '/brand/logos/logo_icon_only_white.svg';
+        <div className="relative mb-4 sm:hidden">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
+          <input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search merch"
+            className="h-10 w-full rounded-lg border border-white/10 bg-white/[0.08] pl-9 pr-3 text-sm font-bold text-white outline-none placeholder:text-white/30"
+          />
+        </div>
 
-            return (
-              <motion.article
-                key={product.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="overflow-hidden rounded-lg border border-white/10 bg-[#151817] shadow-[0_18px_38px_rgba(0,0,0,0.24)]"
-              >
-                <div className="relative flex aspect-[4/3] items-center justify-center bg-[#20231f]">
-                  {product.badge && (
-                    <span className={`absolute left-3 top-3 rounded-md px-2 py-1 text-[10px] font-black ${getBadgeClass(product.badge)}`}>
-                      {product.badge}
+        {activeProduct && activeVariant ? (
+          <>
+            <section
+              onPointerDown={(event) => handleSliderPointerDown('products', event)}
+              onPointerMove={(event) => handleSliderPointerMove('products', event)}
+              onPointerUp={(event) => handleSliderPointerEnd('products', event)}
+              onPointerCancel={(event) => handleSliderPointerEnd('products', event)}
+              onPointerLeave={(event) => handleSliderPointerEnd('products', event)}
+              onWheel={handleSliderWheel}
+              className={`-mx-4 flex gap-3 overflow-x-auto px-4 pb-3 select-none touch-pan-y [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+                draggingSlider === 'products' ? 'cursor-grabbing snap-none' : 'cursor-grab snap-x'
+              }`}
+              aria-label="Marketplace products"
+            >
+              {filteredProducts.map((product) => {
+                const variant = getSelectedVariant(product);
+                const productImage = getProductImage(product, variant);
+                const isSelected = product.id === activeProduct.id;
+
+                return (
+                  <motion.button
+                    key={product.id}
+                    type="button"
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    onClick={() => setSelectedProductId(product.id)}
+                    className={`min-w-[132px] snap-center rounded-lg border p-2 text-left transition-colors ${
+                      isSelected
+                        ? 'border-[#8ff0a8] bg-[#8ff0a8]/10'
+                        : 'border-white/10 bg-white/[0.055]'
+                    }`}
+                  >
+                    <span className="flex aspect-square items-center justify-center rounded-lg bg-white/[0.04]">
+                      <img src={productImage} alt={product.name} className="h-full w-full rounded-lg object-contain" />
                     </span>
-                  )}
-                  <img src={product.image || tshirtRewardIcon} alt={product.name} className="h-[78%] w-[78%] object-contain opacity-90" />
-                  <img src={productLogo} alt="" className="absolute h-9 max-w-[118px] object-contain opacity-85" />
+                    <span className="mt-2 block line-clamp-1 text-sm font-black text-white">{product.name}</span>
+                    <span className="text-xs font-black text-[#8ff0a8]">{formatPoints(product.pointsPrice)} pts</span>
+                  </motion.button>
+                );
+              })}
+            </section>
+
+            <motion.section
+              key={activeProduct.id}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-2 overflow-hidden rounded-lg border border-white/10 bg-[#151817]"
+            >
+              <div className="relative flex min-h-[330px] items-center justify-center bg-[#1d211e] px-4 py-5">
+                {activeProduct.badge && (
+                  <span className={`absolute left-4 top-4 rounded-md px-2 py-1 text-[10px] font-black ${getBadgeClass(activeProduct.badge)}`}>
+                    {activeProduct.badge}
+                  </span>
+                )}
+                <span className="absolute right-4 top-4 rounded-md border border-white/10 bg-black/18 px-2 py-1 text-[10px] font-black text-white/56">
+                  {activeProduct.category}
+                </span>
+                <img src={activeImage} alt={`${activeProduct.name} ${activeVariant.color} ${activeVariant.logo}`} className="max-h-[300px] w-full object-contain" />
+              </div>
+
+              <div className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-[23px] font-black leading-tight text-white">{activeProduct.name}</h2>
+                    <p className="mt-2 line-clamp-2 max-w-lg text-sm font-semibold leading-snug text-white/48">{activeProduct.description}</p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-2xl font-black leading-none text-[#00e676]">{formatPoints(activeProduct.pointsPrice)}</p>
+                    <p className="mt-1 text-[11px] font-bold text-white/35">points</p>
+                  </div>
                 </div>
 
-                <div className="p-4">
-                  <p className="text-base font-black text-white">{product.name}</p>
-                  <p className="mt-1 line-clamp-2 min-h-10 text-sm font-semibold leading-snug text-white/42">{product.description}</p>
-
-                  <div className="mt-4 space-y-3">
-                    <div>
-                      <p className="mb-2 text-[10px] font-black uppercase text-white/35">Color</p>
-                      <div className="flex flex-wrap gap-2">
-                        {product.colorVariants.map((color) => (
-                          <button
-                            key={color}
-                            type="button"
-                            onClick={() => updateProductVariant(product, { color })}
-                            className={`h-6 w-6 rounded-md border-2 ${
-                              selectedVariant.color === color ? 'border-[#00e676]' : 'border-white/18'
-                            }`}
-                            style={{ backgroundColor: colorSwatches[color] || '#6b7280' }}
-                            aria-label={`${product.name} color ${color}`}
-                          />
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <p className="mb-2 text-[10px] font-black uppercase text-white/35">Logo</p>
-                      <div className="flex flex-wrap gap-2">
-                        {product.logoVariants.map((logo) => (
-                          <button
-                            key={logo}
-                            type="button"
-                            onClick={() => updateProductVariant(product, { logo })}
-                            className={`rounded-md border px-2.5 py-1.5 text-[11px] font-black transition-colors ${
-                              selectedVariant.logo === logo
-                                ? 'border-[#00e676] bg-[#00e676]/12 text-white'
-                                : 'border-white/10 bg-white/[0.06] text-white/48'
-                            }`}
-                          >
-                            {logo}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                <div className="mt-5">
+                  <p className="mb-2 text-[11px] font-black uppercase text-white/38">Product Color</p>
+                  <div
+                    onPointerDown={(event) => handleSliderPointerDown('colors', event)}
+                    onPointerMove={(event) => handleSliderPointerMove('colors', event)}
+                    onPointerUp={(event) => handleSliderPointerEnd('colors', event)}
+                    onPointerCancel={(event) => handleSliderPointerEnd('colors', event)}
+                    onPointerLeave={(event) => handleSliderPointerEnd('colors', event)}
+                    onWheel={handleSliderWheel}
+                    className={`-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 select-none touch-pan-y [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+                      draggingSlider === 'colors' ? 'cursor-grabbing snap-none' : 'cursor-grab snap-x'
+                    }`}
+                  >
+                    {activeProduct.colorVariants.map((color) => (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={() => updateProductVariant(activeProduct, { color })}
+                        className={`flex min-w-[96px] snap-center items-center gap-2 rounded-lg border px-3 py-2 text-sm font-black ${
+                          activeVariant.color === color
+                            ? 'border-[#00e676] bg-[#00e676]/12 text-white'
+                            : 'border-white/10 bg-white/[0.06] text-white/50'
+                        }`}
+                      >
+                        <span className="h-5 w-5 rounded-md border border-white/20" style={{ backgroundColor: colorSwatches[color] || '#6b7280' }} />
+                        {color}
+                      </button>
+                    ))}
                   </div>
+                </div>
 
-                  <div className="mt-5 flex items-end justify-between gap-3">
+                <div className="mt-4">
+                  <p className="mb-2 text-[11px] font-black uppercase text-white/38">Logo Color</p>
+                  <div
+                    onPointerDown={(event) => handleSliderPointerDown('logos', event)}
+                    onPointerMove={(event) => handleSliderPointerMove('logos', event)}
+                    onPointerUp={(event) => handleSliderPointerEnd('logos', event)}
+                    onPointerCancel={(event) => handleSliderPointerEnd('logos', event)}
+                    onPointerLeave={(event) => handleSliderPointerEnd('logos', event)}
+                    onWheel={handleSliderWheel}
+                    className={`-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 select-none touch-pan-y [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+                      draggingSlider === 'logos' ? 'cursor-grabbing snap-none' : 'cursor-grab snap-x'
+                    }`}
+                  >
+                    {availableLogos.map((logo) => (
+                      <button
+                        key={logo}
+                        type="button"
+                        onClick={() => updateProductVariant(activeProduct, { logo })}
+                        className={`flex min-w-[106px] snap-center items-center gap-2 rounded-lg border px-3 py-2 text-sm font-black ${
+                          activeVariant.logo === logo
+                            ? 'border-[#00e676] bg-[#00e676]/12 text-white'
+                            : 'border-white/10 bg-white/[0.06] text-white/50'
+                        }`}
+                      >
+                        <span className="h-5 w-5 rounded-md border border-white/20" style={{ backgroundColor: logoSwatches[logo] || '#6b7280' }} />
+                        {logo}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-5 grid grid-cols-[1fr_auto] gap-3">
+                  <button
+                    type="button"
+                    onClick={() => addProductToCart(activeProduct)}
+                    disabled={activeProduct.inventory <= 0}
+                    className="h-12 rounded-lg bg-[#00e676] text-sm font-black text-black disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Add to Cart
+                  </button>
+                  <div className="flex h-12 items-center rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-black text-white/48">
+                    {activeProduct.inventory} left
+                  </div>
+                </div>
+              </div>
+            </motion.section>
+          </>
+        ) : (
+          <div className="rounded-lg border border-white/10 bg-white/[0.055] px-4 py-8 text-center text-sm font-bold text-white/45">
+            No marketplace products match that search.
+          </div>
+        )}
+
+        <section className="mt-4 rounded-lg border border-white/10 bg-[#151817] p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-black text-white">Your Cart ({cartCount})</h2>
+              <p className="text-sm font-bold text-white/42">{formatPoints(cartTotal)} points selected</p>
+            </div>
+            <span className="rounded-lg bg-white px-3 py-2 text-xs font-black text-black">Points Only</span>
+          </div>
+
+          {cartItems.length > 0 ? (
+            <div
+              onPointerDown={(event) => handleSliderPointerDown('cart', event)}
+              onPointerMove={(event) => handleSliderPointerMove('cart', event)}
+              onPointerUp={(event) => handleSliderPointerEnd('cart', event)}
+              onPointerCancel={(event) => handleSliderPointerEnd('cart', event)}
+              onPointerLeave={(event) => handleSliderPointerEnd('cart', event)}
+              onWheel={handleSliderWheel}
+              className={`-mx-1 mt-3 flex gap-3 overflow-x-auto px-1 pb-1 select-none touch-pan-y [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+                draggingSlider === 'cart' ? 'cursor-grabbing snap-none' : 'cursor-grab snap-x'
+              }`}
+            >
+              {cartItems.map((item) => (
+                <div key={item.id} className="min-w-[218px] snap-center rounded-lg bg-white/[0.055] p-3">
+                  <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className="text-xl font-black leading-none text-[#00e676]">{formatPoints(product.pointsPrice)}</p>
-                      <p className="mt-1 text-[11px] font-bold text-white/35">points</p>
+                      <p className="line-clamp-1 text-sm font-black text-white">{item.name}</p>
+                      <p className="mt-1 text-xs font-bold text-white/42">{item.color} / {item.logo}</p>
                     </div>
                     <button
                       type="button"
-                      onClick={() => addProductToCart(product)}
-                      disabled={product.inventory <= 0}
-                      className="rounded-lg bg-[#00e676] px-4 py-2.5 text-sm font-black text-black disabled:cursor-not-allowed disabled:opacity-40"
+                      onClick={() => removeCartItem(item.id)}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/12 text-red-300"
+                      aria-label="Remove item"
                     >
-                      Add
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
-                </div>
-              </motion.article>
-            );
-          })}
-        </section>
 
-        <section className="mt-6 rounded-lg border border-white/10 bg-[#151817] p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-black text-white">Your Cart ({cartCount})</h2>
-              <p className="text-sm font-bold text-white/42">{formatPoints(cartTotal)} points selected</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="rounded-lg bg-white px-3 py-2 text-xs font-black text-black">Points Only</span>
-              <span className="rounded-lg bg-white/[0.08] px-3 py-2 text-xs font-black text-white/25">USDT</span>
-              <span className="rounded-lg bg-white/[0.08] px-3 py-2 text-xs font-black text-white/25">Card</span>
-            </div>
-          </div>
-
-          {cartItems.length === 0 ? (
-            <div className="mt-4 rounded-lg border border-dashed border-white/10 px-4 py-6 text-center text-sm font-bold text-white/42">
-              Add products to redeem them with your earned points.
-            </div>
-          ) : (
-            <div className="mt-4 grid gap-3 lg:grid-cols-2">
-              {cartItems.map((item) => {
-                const product = activeProducts.find((entry) => entry.id === item.productId);
-
-                return (
-                  <div key={item.id} className="rounded-lg bg-white/[0.055] p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-black text-white">{item.name}</p>
-                        <p className="mt-1 text-xs font-bold text-[#8ff0a8]">{formatPoints(item.pointsPrice)} pts each</p>
-                      </div>
+                  <div className="mt-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => removeCartItem(item.id)}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/12 text-red-300"
-                        aria-label="Remove item"
+                        onClick={() => updateCartItem(item.id, { quantity: Math.max(1, item.quantity - 1) })}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10"
+                        aria-label="Decrease quantity"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Minus className="h-4 w-4" />
+                      </button>
+                      <span className="w-7 text-center text-sm font-black text-white">{item.quantity}</span>
+                      <button
+                        type="button"
+                        onClick={() => updateCartItem(item.id, { quantity: item.quantity + 1 })}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10"
+                        aria-label="Increase quantity"
+                      >
+                        <Plus className="h-4 w-4" />
                       </button>
                     </div>
-
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      <select
-                        value={item.color}
-                        onChange={(event) => updateCartItem(item.id, { color: event.target.value })}
-                        className="rounded-lg border border-white/10 bg-[#23272d] px-2 py-2 text-xs font-bold text-white"
-                      >
-                        {(product?.colorVariants || [item.color]).map((color) => (
-                          <option key={color} value={color}>{color}</option>
-                        ))}
-                      </select>
-                      <select
-                        value={item.logo}
-                        onChange={(event) => updateCartItem(item.id, { logo: event.target.value })}
-                        className="rounded-lg border border-white/10 bg-[#23272d] px-2 py-2 text-xs font-bold text-white"
-                      >
-                        {(product?.logoVariants || [item.logo]).map((logo) => (
-                          <option key={logo} value={logo}>{logo}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="mt-3 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => updateCartItem(item.id, { quantity: Math.max(1, item.quantity - 1) })}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10"
-                          aria-label="Decrease quantity"
-                        >
-                          <Minus className="h-4 w-4" />
-                        </button>
-                        <span className="w-7 text-center text-sm font-black text-white">{item.quantity}</span>
-                        <button
-                          type="button"
-                          onClick={() => updateCartItem(item.id, { quantity: item.quantity + 1 })}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10"
-                          aria-label="Increase quantity"
-                        >
-                          <Plus className="h-4 w-4" />
-                        </button>
-                      </div>
-                      <span className="text-sm font-black text-white">{formatPoints(item.pointsPrice * item.quantity)} pts</span>
-                    </div>
+                    <span className="text-sm font-black text-[#8ff0a8]">{formatPoints(item.pointsPrice * item.quantity)}</span>
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
+          ) : (
+            <p className="mt-3 rounded-lg border border-dashed border-white/10 px-4 py-4 text-center text-sm font-bold text-white/42">
+              Add merch to redeem with your earned points.
+            </p>
           )}
 
           {message && (
-            <p className="mt-4 rounded-lg bg-white/[0.055] px-4 py-3 text-sm font-bold text-white/70">{message}</p>
+            <p className="mt-3 rounded-lg bg-white/[0.055] px-4 py-3 text-sm font-bold text-white/70">{message}</p>
           )}
 
           <button
