@@ -85,9 +85,10 @@ function createMarketplaceDraft(): MarketplaceProduct {
     image: '',
     category: 'T-Shirts',
     colorVariants: ['Black', 'White'],
-    logoVariants: ['Classic Logo'],
+    logoVariants: ['Horizontal'],
     inventory: 50,
     featured: true,
+    badge: 'NEW',
     status: 'active',
   };
 }
@@ -629,6 +630,15 @@ export function AdminPanel() {
                 <option value="draft">Draft</option>
               </select>
             </div>
+            <select
+              value={marketplaceDraft.badge || 'NEW'}
+              onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, badge: event.target.value as MarketplaceProduct['badge'] })}
+              className="w-full bg-[#2a2d3e] text-white rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-purple-500"
+            >
+              <option value="NEW">NEW badge</option>
+              <option value="HOT">HOT badge</option>
+              <option value="SALE">SALE badge</option>
+            </select>
             <input
               type="text"
               value={marketplaceDraft.colorVariants.join(', ')}

@@ -14,6 +14,7 @@ export interface MarketplaceProduct {
   logoVariants: string[];
   inventory: number;
   featured?: boolean;
+  badge?: 'NEW' | 'HOT' | 'SALE';
   status: MarketplaceProductStatus;
 }
 
@@ -48,35 +49,104 @@ export const defaultMarketplaceProducts: MarketplaceProduct[] = [
     image: tshirtRewardIcon,
     category: 'T-Shirts',
     colorVariants: ['Black', 'White', 'Charcoal'],
-    logoVariants: ['Classic Logo', 'Wildcard Logo', 'Golden Logo'],
+    logoVariants: ['Horizontal', 'Stacked', 'Message'],
     inventory: 75,
     featured: true,
+    badge: 'NEW',
     status: 'active',
   },
   {
-    id: 'wildcard-tee',
-    name: 'Wildcard T-Shirt',
-    description: 'A limited tee for users who unlock wildcard-style rewards.',
+    id: 'signature-hoodie',
+    name: 'Signature Hoodie',
+    description: 'Heavyweight fleece hoodie with chest logo placement.',
+    pointsPrice: 210,
+    image: tshirtRewardIcon,
+    category: 'Hoodies',
+    colorVariants: ['Black', 'White', 'Slate'],
+    logoVariants: ['Horizontal', 'Stacked', 'Icon Only'],
+    inventory: 45,
+    featured: true,
+    badge: 'HOT',
+    status: 'active',
+  },
+  {
+    id: 'oversized-logo-tee',
+    name: 'Oversized Logo Tee',
+    description: 'Relaxed fit tee with oversized back print.',
     pointsPrice: 150,
     image: tshirtRewardIcon,
     category: 'T-Shirts',
-    colorVariants: ['Black', 'Mint', 'Slate'],
-    logoVariants: ['Wildcard Logo', 'Moneetize Badge'],
-    inventory: 50,
+    colorVariants: ['Black', 'White', 'Slate', 'Mint'],
+    logoVariants: ['Stacked', 'Message', 'Icon Only'],
+    inventory: 60,
     featured: true,
+    badge: 'SALE',
     status: 'active',
   },
   {
-    id: 'team-tee',
-    name: 'Team Builder T-Shirt',
-    description: 'Redeemable merch for growing your pre-launch network.',
-    pointsPrice: 220,
+    id: 'zip-hoodie',
+    name: 'Zip-Up Hoodie',
+    description: 'Full-zip hoodie with dual pocket and sleeve logo options.',
+    pointsPrice: 250,
     image: tshirtRewardIcon,
-    category: 'T-Shirts',
+    category: 'Hoodies',
+    colorVariants: ['Black', 'Charcoal', 'Blue'],
+    logoVariants: ['Horizontal', 'Icon Only'],
+    inventory: 30,
+    featured: true,
+    badge: 'HOT',
+    status: 'active',
+  },
+  {
+    id: 'classic-cap',
+    name: 'Classic Cap',
+    description: 'Low-profile cap optimized for icon-only embroidery.',
+    pointsPrice: 130,
+    image: tshirtRewardIcon,
+    category: 'Headwear',
+    colorVariants: ['Black', 'White', 'Blue'],
+    logoVariants: ['Icon Only', 'Horizontal'],
+    inventory: 80,
+    badge: 'HOT',
+    status: 'active',
+  },
+  {
+    id: 'launch-beanie',
+    name: 'Launch Beanie',
+    description: 'Ribbed beanie with compact embroidered badge.',
+    pointsPrice: 115,
+    image: tshirtRewardIcon,
+    category: 'Headwear',
+    colorVariants: ['Black', 'Charcoal'],
+    logoVariants: ['Icon Only'],
+    inventory: 70,
+    badge: 'SALE',
+    status: 'active',
+  },
+  {
+    id: 'desk-mug',
+    name: 'Desk Mug',
+    description: 'Matte mug with horizontal or message lockup.',
+    pointsPrice: 90,
+    image: tshirtRewardIcon,
+    category: 'Drinkware',
     colorVariants: ['Black', 'White'],
-    logoVariants: ['Team Logo', 'Classic Logo'],
-    inventory: 35,
-    featured: false,
+    logoVariants: ['Horizontal', 'Message'],
+    inventory: 95,
+    badge: 'NEW',
+    status: 'active',
+  },
+  {
+    id: 'thermal-bottle',
+    name: 'Thermal Bottle',
+    description: 'Insulated bottle with vertical logo placement.',
+    pointsPrice: 160,
+    image: tshirtRewardIcon,
+    category: 'Drinkware',
+    colorVariants: ['Black', 'Mint', 'Steel'],
+    logoVariants: ['Stacked', 'Icon Only'],
+    inventory: 55,
+    badge: 'NEW',
     status: 'active',
   },
 ];
@@ -98,9 +168,22 @@ function normalizeProduct(product: MarketplaceProduct): MarketplaceProduct {
     pointsPrice: Number.isFinite(Number(product.pointsPrice)) ? Math.max(0, Math.round(Number(product.pointsPrice))) : 0,
     inventory: Number.isFinite(Number(product.inventory)) ? Math.max(0, Math.round(Number(product.inventory))) : 0,
     colorVariants: product.colorVariants?.length ? product.colorVariants : ['Black'],
-    logoVariants: product.logoVariants?.length ? product.logoVariants : ['Classic Logo'],
+    logoVariants: product.logoVariants?.length ? product.logoVariants : ['Horizontal'],
     status: product.status || 'active',
   };
+}
+
+function mergeDefaultProducts(storedProducts: MarketplaceProduct[] | null) {
+  if (!storedProducts?.length) return defaultMarketplaceProducts;
+
+  const storedById = new Map(storedProducts.map((product) => [product.id, product]));
+  const mergedDefaults = defaultMarketplaceProducts.map((product) => ({
+    ...product,
+    ...storedById.get(product.id),
+  }));
+  const customProducts = storedProducts.filter((product) => !defaultMarketplaceProducts.some((defaultProduct) => defaultProduct.id === product.id));
+
+  return [...mergedDefaults, ...customProducts];
 }
 
 function emitMarketplaceUpdate() {
@@ -110,7 +193,7 @@ function emitMarketplaceUpdate() {
 
 export function loadMarketplaceProducts() {
   const storedProducts = parseProductList(safeGetItem(MARKETPLACE_PRODUCTS_KEY));
-  return (storedProducts?.length ? storedProducts : defaultMarketplaceProducts).map(normalizeProduct);
+  return mergeDefaultProducts(storedProducts).map(normalizeProduct);
 }
 
 export function saveMarketplaceProducts(products: MarketplaceProduct[]) {
