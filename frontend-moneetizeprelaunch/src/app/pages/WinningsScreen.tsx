@@ -150,7 +150,7 @@ function getHistoryRewards(draw: ScratchDrawResult): HistoryRewardIcon[] {
 const coreRedeemableItems: RewardItem[] = [
   { id: 'usdt-balance', label: 'USDT Balance', icon: 'usdt' },
   { id: 'tripto-allocation', label: 'Tripto Allocation', icon: 'tripto' },
-  { id: 'moneetize-shirt', label: 'Moneetize T-Shirt', icon: 'shirt', image: tshirtRewardIcon },
+  { id: 'moneetize-shirt', label: 'Moneetize Merch', icon: 'shirt', image: tshirtRewardIcon },
   { id: 'token-early-access', label: 'Token Early Access', icon: 'wildcard', image: wildcardIcon, isEarlyAccess: true },
 ];
 
@@ -169,7 +169,7 @@ function getRedeemableProducts(history: ScratchDrawResult[]) {
       if (item.type === 'merch') {
         products.set('moneetize-shirt', {
           id: 'moneetize-shirt',
-          label: item.label || 'Moneetize T-Shirt',
+          label: 'Moneetize Merch',
           icon: 'shirt',
           image: tshirtRewardIcon,
         });
@@ -208,6 +208,10 @@ function getRedeemableProducts(history: ScratchDrawResult[]) {
   const coreFill = coreRedeemableItems.filter((item) => !products.has(item.id));
   const fallbackFill = fallbackRedeemableItems.filter((item) => !products.has(item.id) && !coreFill.some(coreItem => coreItem.id === item.id));
   return [...earnedProducts, ...coreFill, ...fallbackFill].slice(0, 8);
+}
+
+function isInteractiveTarget(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest('button, a, input, select, textarea, label'));
 }
 
 function WinningsScreen() {
@@ -351,7 +355,7 @@ function WinningsScreen() {
     }
 
     if (reward.type === 'merch') {
-      return <img src={tshirtRewardIcon} alt="Moneetize T-Shirt" className="h-7 w-7 object-contain" />;
+      return <img src={tshirtRewardIcon} alt="Moneetize Merch" className="h-7 w-7 object-contain" />;
     }
 
     if (reward.type === 'tripto') {
@@ -454,6 +458,7 @@ function WinningsScreen() {
 
   const handleWinningsSliderPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
+    if (isInteractiveTarget(event.target)) return;
 
     const slider = event.currentTarget;
     winningsSliderDragRef.current = {

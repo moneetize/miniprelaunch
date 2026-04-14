@@ -498,9 +498,9 @@ export function MerchMarketplace() {
         <div className="mx-auto grid min-h-[68px] w-full max-w-3xl grid-cols-[48px_minmax(0,1fr)_48px] items-center gap-3 px-4">
           <button
             type="button"
-            onClick={() => navigate(-1)}
+            onClick={() => navigate('/winnings')}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.08] text-white shadow-[0_12px_26px_rgba(0,0,0,0.24)]"
-            aria-label="Go back"
+            aria-label="Back to Winnings"
           >
             <ChevronLeft className="h-5 w-5" />
           </button>
