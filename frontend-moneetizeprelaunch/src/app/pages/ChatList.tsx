@@ -1,16 +1,19 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
-import { ChevronLeft, Edit3, Search, Trash2, Users } from 'lucide-react';
+import { ChevronDown, ChevronLeft, Search, Trash2, Users } from 'lucide-react';
 import { agentChatPreview, teamChatPreview, teamMemberChats, type ChatPreview } from '../utils/chatData';
 import { getSelectedAvatarImage } from '../utils/avatarUtils';
 
 type MessageTab = 'all' | 'members' | 'teams';
 
+const profileCollapseDragConstraints = { top: -18, bottom: 18 } as const;
+
 export function ChatList() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<MessageTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isCollapsing, setIsCollapsing] = useState(false);
   const agentAvatar = getSelectedAvatarImage();
 
   const chats = useMemo(() => {
@@ -36,6 +39,8 @@ export function ChatList() {
 
     navigate(`/chat/user/${chat.id}`, { state: { chat } });
   };
+
+  const collapseToProfile = () => setIsCollapsing(true);
 
   const renderAvatar = (chat: ChatPreview) => {
     if (chat.type === 'agent') {
@@ -78,10 +83,17 @@ export function ChatList() {
   };
 
   return (
-    <div className="absolute inset-0 h-full w-full overflow-y-auto bg-[#07090c] text-white [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+    <motion.div
+      animate={isCollapsing ? { y: '-72%', opacity: 0, scale: 0.96 } : { y: 0, opacity: 1, scale: 1 }}
+      transition={{ duration: 0.28, ease: 'easeInOut' }}
+      onAnimationComplete={() => {
+        if (isCollapsing) navigate('/profile-screen');
+      }}
+      className="absolute inset-0 h-full w-full overflow-y-auto bg-[#07090c] text-white [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+    >
       <div className="pointer-events-none fixed inset-x-0 top-0 h-40 bg-[radial-gradient(circle_at_50%_0%,rgba(42,48,61,0.5),transparent_70%)]" />
 
-      <div className="relative mx-auto min-h-full w-full max-w-md px-4 pb-24 pt-5">
+      <div className="relative mx-auto min-h-full w-full max-w-md px-4 pb-10 pt-5">
         <div className="mb-5 flex h-7 items-center justify-between text-sm text-white">
           <span className="font-semibold">9:41</span>
           <div className="flex items-center gap-2">
@@ -92,6 +104,40 @@ export function ChatList() {
             </div>
           </div>
         </div>
+
+        <header className="mb-5 ml-9 mr-20 grid w-auto grid-cols-[48px_minmax(0,1fr)_48px] items-center">
+          <button
+            type="button"
+            onClick={() => navigate('/profile-screen')}
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/8 text-white transition-colors hover:bg-white/14"
+            aria-label="Back to profile"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+
+          <div className="min-w-0 text-center">
+            <h1 className="text-lg font-black text-white">Messages</h1>
+            <p className="mt-1 text-xs font-bold text-white/42">Agent, team, and members</p>
+          </div>
+
+          <motion.button
+            type="button"
+            drag="y"
+            dragConstraints={profileCollapseDragConstraints}
+            dragElastic={0.25}
+            onDragEnd={(_, info) => {
+              if (Math.abs(info.offset.y) > 14 || Math.abs(info.velocity.y) > 260) {
+                collapseToProfile();
+              }
+            }}
+            onClick={collapseToProfile}
+            whileTap={{ scale: 0.94 }}
+            className="flex h-12 w-12 shrink-0 items-center justify-center justify-self-end rounded-full border border-white/8 bg-white/8 text-white transition-colors hover:bg-white/14"
+            aria-label="Collapse messages to profile"
+          >
+            <ChevronDown className="h-5 w-5" />
+          </motion.button>
+        </header>
 
         <div className="mx-auto mb-6 grid w-[248px] grid-cols-3 rounded-full border border-white/8 bg-[#101215]/95 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_12px_36px_rgba(0,0,0,0.28)]">
           {[
@@ -162,23 +208,6 @@ export function ChatList() {
           ))}
         </div>
       </div>
-
-      <button
-        type="button"
-        onClick={() => navigate('/profile-screen')}
-        className="fixed bottom-8 left-4 flex h-12 w-12 items-center justify-center rounded-full border border-white/8 bg-white/8 text-white backdrop-blur transition-colors hover:bg-white/14"
-        aria-label="Back to profile"
-      >
-        <ChevronLeft className="h-5 w-5" />
-      </button>
-
-      <button
-        type="button"
-        className="fixed bottom-8 right-4 flex h-12 w-12 items-center justify-center rounded-full border border-white/8 bg-white/8 text-white backdrop-blur transition-colors hover:bg-white/14"
-        aria-label="Compose message"
-      >
-        <Edit3 className="h-4 w-4" />
-      </button>
-    </div>
+    </motion.div>
   );
 }
