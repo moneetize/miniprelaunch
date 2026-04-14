@@ -839,7 +839,18 @@ export function ProfileScreen() {
                   <p className="mb-1 text-sm font-bold text-white/46">Networking Points</p>
                   <p className="text-2xl font-black text-white">{displayNetworkingPoints} pts</p>
                 </div>
-                <img src={gemIcon} alt="Gem" className="h-[74px] w-[74px] drop-shadow-[0_0_28px_rgba(134,255,166,0.62)]" />
+                <motion.div
+                  animate={{ y: [0, -6, 0], scale: [1, 1.04, 1] }}
+                  transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
+                  className="relative flex h-[74px] w-[74px] items-center justify-center"
+                >
+                  <motion.span
+                    className="absolute h-[74px] w-[74px] rounded-full bg-emerald-300/24 blur-xl"
+                    animate={{ opacity: [0.38, 0.72, 0.38], scale: [0.86, 1.08, 0.86] }}
+                    transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
+                  />
+                  <img src={gemIcon} alt="Gem" className="relative h-[74px] w-[74px] drop-shadow-[0_0_28px_rgba(134,255,166,0.62)]" />
+                </motion.div>
               </div>
             </div>
 

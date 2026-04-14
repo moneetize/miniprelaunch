@@ -34,9 +34,19 @@ interface TeamMember {
   canRemove?: boolean;
 }
 
+const getUserTeamName = (name: string) => {
+  const firstName = name.trim().split(/\s+/)[0];
+  return firstName ? `${firstName}'s Team` : 'My Team';
+};
+
+const getStoredTeamName = (name: string) => {
+  const storedTeamName = localStorage.getItem('teamName')?.trim();
+  return storedTeamName && storedTeamName !== "John's Team" ? storedTeamName : getUserTeamName(name);
+};
+
 export function TeamView() {
   const navigate = useNavigate();
-  const [teamName, setTeamName] = useState("John's Team");
+  const [teamName, setTeamName] = useState("Jess's Team");
   const [userPoints, setUserPointsState] = useState(10);
   const [userName, setUserName] = useState('Jess Wu');
   const [userHandle, setUserHandle] = useState('@jesswu');
@@ -59,6 +69,7 @@ export function TeamView() {
       setUserHandle(profileSettings.handle);
       setSelectedAvatar(profileSettings.selectedAvatar);
       setUserPhoto(profileSettings.photo);
+      setTeamName(getStoredTeamName(profileSettings.name));
     };
     const refreshPendingInviteMembers = () => {
       setPendingInviteMembers(
@@ -79,7 +90,6 @@ export function TeamView() {
       );
     };
 
-    setTeamName(localStorage.getItem('teamName') || "John's Team");
     setUserPointsState(points);
     applyProfileSettings();
     refreshPendingInviteMembers();
@@ -91,6 +101,9 @@ export function TeamView() {
       }
       if (!event.key || ['sentInvites', 'pendingInvitations', 'pendingTeamInvites'].includes(event.key)) {
         refreshPendingInviteMembers();
+      }
+      if (!event.key || event.key === 'teamName') {
+        applyProfileSettings();
       }
     };
 
@@ -196,6 +209,16 @@ export function TeamView() {
     );
   };
   const teamMembers: TeamMember[] = [
+    {
+      id: 'current-user',
+      name: `${userName} (You)`,
+      handle: userHandle,
+      points: userPoints,
+      debt: 'Your points',
+      avatar: userPhoto || aiAgentImage,
+      status: 'active',
+      isCurrentUser: true,
+    },
     { id: 1, name: 'Russell Westbrook', handle: '@russell', points: 42, debt: 'Debt: $ 8 000', avatar: 'https://images.unsplash.com/photo-1629507208649-70919ca33793?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMG1hbiUyMHBvcnRyYWl0fGVufDF8fHx8MTc3NDA4MzYxOXww&ixlib=rb-4.1.0&q=80&w=1080', status: 'active' },
     { id: 2, name: 'Alex McKein', handle: '@alex', points: 40, debt: 'Debt: $ 8 000', avatar: 'https://images.unsplash.com/photo-1768853972795-2739a9685567?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjB3b21hbiUyMGF0aGxldGUlMjBwb3J0cmFpdHxlbnwxfHx8fDE3NzQxNDA1NDh8MA&ixlib=rb-4.1.0&q=80&w=1080', status: 'active' },
     { id: 3, name: 'Bill Winston', handle: '@bill', points: 35, debt: 'Debt: $ 8 000', avatar: 'https://images.unsplash.com/photo-1758876204244-930299843f07?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjB5b3VuZyUyMG1hbiUyMHNtaWxpbmd8ZW58MXx8fHwxNzc0MTQwNTQ5fDA&ixlib=rb-4.1.0&q=80&w=1080', status: 'active' },
@@ -205,7 +228,7 @@ export function TeamView() {
   const visibleTeamMembers = teamMembers.filter((member) => !removedMemberIds.includes(member.id));
   const sortedTeam = [...visibleTeamMembers].sort((a, b) => b.points - a.points);
   const displayedTeamCount = Math.min(visibleTeamMembers.length, 5);
-  const displayedTeamProgress = 720;
+  const displayedTeamProgress = visibleTeamMembers.reduce((total, member) => total + (member.points || 0), 0);
 
   const renderStatusBar = () => (
     <div className="h-11 flex items-center justify-between px-4 text-white text-sm">
@@ -327,7 +350,18 @@ export function TeamView() {
                   <p className="mb-1 text-base font-bold text-white/50">Team's Progress:</p>
                   <p className="text-2xl font-black text-white">{displayedTeamProgress} pts</p>
                 </div>
-                <img src={gemIcon} alt="Gem" className="h-20 w-20 drop-shadow-[0_0_32px_rgba(134,255,166,0.62)]" />
+                <motion.div
+                  animate={{ y: [0, -6, 0], scale: [1, 1.04, 1] }}
+                  transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
+                  className="relative flex h-20 w-20 items-center justify-center"
+                >
+                  <motion.span
+                    className="absolute h-20 w-20 rounded-full bg-emerald-300/24 blur-xl"
+                    animate={{ opacity: [0.38, 0.72, 0.38], scale: [0.86, 1.08, 0.86] }}
+                    transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
+                  />
+                  <img src={gemIcon} alt="Gem" className="relative h-20 w-20 drop-shadow-[0_0_32px_rgba(134,255,166,0.62)]" />
+                </motion.div>
               </div>
             </div>
 
@@ -340,7 +374,17 @@ export function TeamView() {
                 ].map((podium) => {
                   const [firstName, lastName] = splitName(podium.member?.name);
                   return (
-                    <div key={podium.place} className={`flex flex-col items-center ${podium.lift || ''}`}>
+                    <motion.div
+                      key={podium.place}
+                      animate={{ scale: [1, podium.place === 1 ? 1.025 : 1.018, 1] }}
+                      transition={{
+                        duration: podium.place === 1 ? 2.4 : 2.8,
+                        repeat: Infinity,
+                        ease: 'easeInOut',
+                        delay: podium.place * 0.16,
+                      }}
+                      className={`flex flex-col items-center ${podium.lift || ''}`}
+                    >
                       <svg className={`mb-2 ${podium.crownSize} ${podium.color}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M4 18h16M5 9l4 4 3-7 3 7 4-4v8H5V9z" />
                       </svg>
@@ -357,7 +401,7 @@ export function TeamView() {
                       </p>
                       <p className="text-xs font-bold text-[#8ff0a8]">{podium.member?.points} pts</p>
                       <p className="mt-0.5 text-xs font-bold text-white/40">{podium.member?.debt}</p>
-                    </div>
+                    </motion.div>
                   );
                 })}
               </div>
@@ -368,7 +412,7 @@ export function TeamView() {
                   className="mb-3 flex min-h-[62px] items-center gap-3 rounded-[1rem] border border-white/10 bg-white/[0.08] px-5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
                 >
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center">
-                    <span className="text-base font-black text-white/78">{index + 3}</span>
+                    <span className="text-base font-black text-white/78">{index + 4}</span>
                   </div>
                   <div className="h-11 w-11 shrink-0 overflow-hidden rounded-full bg-white/10">
                     {member.status === 'pending' ? (
