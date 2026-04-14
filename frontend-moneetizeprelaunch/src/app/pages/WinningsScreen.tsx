@@ -3,19 +3,165 @@ import { useNavigate } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
 import { ChevronLeft, MessageCircle, X } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
+import wildcardIcon from 'figma:asset/f632203f248e2d298246c5ffb0789bc0cac99ea5.png';
 import tokenCardImage from 'figma:asset/954d4954fffe47cc32573cbcfb0096fb00164115.png';
 import aiBubble from 'figma:asset/36fff8878cf3ea6d1ef44d3f08bbc2346c733ebc.png';
 import greenMorphicBall from 'figma:asset/8fd559d05db8d67dee13e79dc6418365220fd613.png';
 import tshirtRewardIcon from '../../assets/moneetize-tshirt-reward.png';
 import { getUserPoints, setUserPoints } from '../utils/pointsManager';
 import { getStoredProfileSettings, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT } from '../utils/profileSettings';
+import { safeGetItem } from '../utils/storage';
 import { submitEarlyAccessRequest } from '../services/earlyAccessService';
+import { getStoredUsdtBalance, loadScratchProfile, type ScratchDrawResult } from '../services/scratchService';
 
 interface RewardItem {
   id: string;
   label: string;
   image: string;
   isEarlyAccess?: boolean;
+  isPlaceholder?: boolean;
+}
+
+interface HistoryRewardIcon {
+  id: string;
+  type: 'points' | 'tripto' | 'wildcard' | 'merch' | 'usdt';
+  amount?: number;
+}
+
+function getStoredScratchHistory(): ScratchDrawResult[] {
+  try {
+    const history = safeGetItem('scratchHistory');
+    const parsed = history ? JSON.parse(history) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function getScratchHistoryUsdtTotal(history: ScratchDrawResult[]) {
+  return history.reduce((total, draw) => total + (Number(draw.reward?.usdt) || 0), 0);
+}
+
+function getScratchHistoryTriptoTotal(history: ScratchDrawResult[]) {
+  return history.reduce((total, draw) => total + (Number(draw.reward?.triptoPoints) || 0), 0);
+}
+
+function formatMoney(value: number) {
+  return value.toFixed(2);
+}
+
+function formatTokenAmount(value: number) {
+  return value.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+function formatHistoryDate(timestamp: string) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(date).replace(/\//g, '.');
+}
+
+function formatHistoryTime(timestamp: string) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+
+  return new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
+function getHistoryTitle(draw: ScratchDrawResult) {
+  if (draw.ticket.isGolden) return 'Golden scratch';
+  if (draw.ticket.theme === 'blue') return 'Basic scratch';
+  return 'Wild scratch';
+}
+
+function getHistoryRewards(draw: ScratchDrawResult): HistoryRewardIcon[] {
+  const rewards: HistoryRewardIcon[] = [];
+  const awardedItems = draw.reward.items || [];
+
+  if (awardedItems.some(item => item.type === 'merch')) {
+    rewards.push({ id: `${draw.id}-merch`, type: 'merch' });
+  }
+
+  if (draw.ticket.isGolden || awardedItems.some(item => item.type === 'wildcard')) {
+    rewards.push({ id: `${draw.id}-wildcard`, type: 'wildcard' });
+  }
+
+  if (draw.reward.usdt > 0) {
+    rewards.push({ id: `${draw.id}-usdt`, type: 'usdt', amount: draw.reward.usdt });
+  }
+
+  if (draw.reward.triptoPoints > 0) {
+    rewards.push({ id: `${draw.id}-tripto`, type: 'tripto', amount: draw.reward.triptoPoints });
+  }
+
+  if (draw.reward.moneetizePoints > 0) {
+    rewards.push({ id: `${draw.id}-points`, type: 'points', amount: draw.reward.moneetizePoints });
+  }
+
+  return rewards;
+}
+
+const fallbackRedeemableItems: RewardItem[] = [
+  { id: 'tripto-multiplier', label: 'Tripto Multiplier', image: tokenCardImage, isPlaceholder: true },
+  { id: 'shopping-spree-extender', label: 'Shopping Spree', image: tokenCardImage, isPlaceholder: true },
+  { id: 'team-sync-booster', label: 'Team Booster', image: tokenCardImage, isPlaceholder: true },
+  { id: 'founders-grace', label: "Founder's Grace", image: tokenCardImage, isPlaceholder: true },
+  { id: 'token-early-access', label: 'Token Early Access', image: tokenCardImage, isEarlyAccess: true, isPlaceholder: true },
+];
+
+function getRedeemableProducts(history: ScratchDrawResult[]) {
+  const products = new Map<string, RewardItem>();
+
+  history.forEach((draw) => {
+    draw.reward.items?.forEach((item) => {
+      if (item.type === 'merch') {
+        products.set('moneetize-shirt', {
+          id: 'moneetize-shirt',
+          label: item.label || 'Moneetize T-Shirt',
+          image: tshirtRewardIcon,
+        });
+      }
+
+      if (item.type === 'wildcard') {
+        products.set('wild-card', {
+          id: 'wild-card',
+          label: item.label || draw.reward.wildCard.name || 'Wild Card',
+          image: wildcardIcon,
+        });
+      }
+
+      if (item.type === 'tripto') {
+        products.set('tripto-allocation', {
+          id: 'tripto-allocation',
+          label: item.label || 'Tripto Allocation',
+          image: tokenCardImage,
+        });
+      }
+
+      if (item.type === 'usdt') {
+        products.set('usdt-balance', {
+          id: 'usdt-balance',
+          label: item.label || 'USDT Balance',
+          image: tokenCardImage,
+        });
+      }
+    });
+  });
+
+  const earnedProducts = [...products.values()];
+  if (!earnedProducts.length) return fallbackRedeemableItems;
+
+  const fallbackFill = fallbackRedeemableItems.filter((item) => !products.has(item.id));
+  return [...earnedProducts, ...fallbackFill].slice(0, 8);
 }
 
 function WinningsScreen() {
@@ -24,6 +170,8 @@ function WinningsScreen() {
   const [userName, setUserName] = useState('Jess Wu');
   const [userPhoto, setUserPhoto] = useState('');
   const [selectedAvatar, setSelectedAvatar] = useState('blueAvatar');
+  const [scratchHistory, setScratchHistory] = useState<ScratchDrawResult[]>(() => getStoredScratchHistory());
+  const [usdtBalance, setUsdtBalance] = useState(() => Math.max(getStoredUsdtBalance(), getScratchHistoryUsdtTotal(getStoredScratchHistory())));
   const [showTokenModal, setShowTokenModal] = useState(false);
   const [showRequestForm, setShowRequestForm] = useState(false);
   const [formName, setFormName] = useState('');
@@ -33,8 +181,6 @@ function WinningsScreen() {
   const [requestError, setRequestError] = useState('');
 
   useEffect(() => {
-    const points = getUserPoints();
-
     const applyProfileSettings = () => {
       const profileSettings = getStoredProfileSettings({ fallbackName: 'Jess Wu' });
 
@@ -45,13 +191,40 @@ function WinningsScreen() {
       setUserPhoto(profileSettings.photo);
     };
 
-    setUserPointsState(points);
+    const syncScratchState = () => {
+      const history = getStoredScratchHistory();
+      setScratchHistory(history);
+      setUserPointsState(getUserPoints());
+      setUsdtBalance(Math.max(getStoredUsdtBalance(), getScratchHistoryUsdtTotal(history)));
+    };
+
     applyProfileSettings();
+    syncScratchState();
+
+    void loadScratchProfile()
+      .then((profile) => {
+        if (profile?.balances) {
+          setUserPointsState(profile.balances.points);
+          setUsdtBalance(profile.balances.usdt);
+        }
+
+        if (profile?.history) {
+          setScratchHistory(profile.history);
+          setUsdtBalance((currentBalance) => Math.max(currentBalance, getScratchHistoryUsdtTotal(profile.history || [])));
+        }
+      })
+      .catch((error) => {
+        console.warn('Winnings scratch profile sync skipped:', error);
+      });
 
     const handleProfileSettingsUpdated = () => applyProfileSettings();
     const handleStorageChange = (event: StorageEvent) => {
       if (!event.key || PROFILE_SETTINGS_STORAGE_KEYS.includes(event.key)) {
         applyProfileSettings();
+      }
+
+      if (!event.key || ['userPoints', 'userUsdtBalance', 'scratchHistory'].includes(event.key)) {
+        syncScratchState();
       }
     };
 
@@ -64,18 +237,13 @@ function WinningsScreen() {
     };
   }, []);
 
-  const rewardItems: RewardItem[] = [
-    { id: 'tripto-multiplier', label: 'Tripto\nMultiplier', image: tokenCardImage },
-    { id: 'shopping-spree-extender', label: 'Shopping\nSpree Extender', image: tokenCardImage },
-    { id: 'team-sync-booster', label: 'Team Sync\nBooster', image: tokenCardImage },
-    { id: 'founders-grace', label: "Founder's\nGrace", image: tokenCardImage },
-    { id: 'golden-window-extender', label: 'Golden Window\nExtender', image: tokenCardImage },
-    { id: 'boost-amplifier', label: 'Boost\nAmplifier', image: tokenCardImage },
-    { id: 'token-early-access', label: 'Token Early\nAccess', image: tokenCardImage, isEarlyAccess: true },
-    { id: 'moneetize-shirt', label: 'Moneetize\nT-Shirt', image: tshirtRewardIcon },
-  ];
-
+  const triptoBalance = getScratchHistoryTriptoTotal(scratchHistory);
+  const redeemableItems = getRedeemableProducts(scratchHistory);
+  const visibleScratchHistory = scratchHistory.slice(0, 12);
+  const displayBalance = formatMoney(usdtBalance);
+  const approximateBalance = formatMoney(usdtBalance * 1.09025);
   const aiAgentImage = selectedAvatar === 'greenAvatar' ? greenMorphicBall : aiBubble;
+
   const renderAnimatedAiAvatar = () => {
     const isGreenAgent = selectedAvatar === 'greenAvatar';
 
@@ -109,6 +277,42 @@ function WinningsScreen() {
         >
           <img src={aiAgentImage} alt="AI Agent" className="h-full w-full object-cover opacity-90" />
         </motion.span>
+      </span>
+    );
+  };
+
+  const renderHistoryReward = (reward: HistoryRewardIcon) => {
+    if (reward.type === 'wildcard') {
+      return <img src={wildcardIcon} alt="Wild Card" className="h-7 w-7 rounded-[0.3rem] object-contain" />;
+    }
+
+    if (reward.type === 'merch') {
+      return <img src={tshirtRewardIcon} alt="Moneetize T-Shirt" className="h-7 w-7 object-contain" />;
+    }
+
+    if (reward.type === 'tripto') {
+      return (
+        <span className="flex items-center gap-1 text-xs font-black text-white">
+          + {formatTokenAmount(reward.amount || 0)}
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[radial-gradient(circle_at_35%_30%,#ffffff_0%,#c9c9c3_34%,#6e6f6f_72%,#36393c_100%)] text-[10px] text-[#333] shadow-[inset_0_1px_3px_rgba(255,255,255,0.9),0_0_14px_rgba(255,255,255,0.18)]">
+            T
+          </span>
+        </span>
+      );
+    }
+
+    if (reward.type === 'usdt') {
+      return (
+        <span className="rounded-full bg-emerald-300/12 px-2 py-1 text-[10px] font-black text-emerald-100">
+          ${formatMoney(reward.amount || 0)}
+        </span>
+      );
+    }
+
+    return (
+      <span className="flex items-center gap-1 text-xs font-black text-emerald-200">
+        +{formatTokenAmount(reward.amount || 0)}
+        <img src={gemIcon} alt="Gem" className="h-6 w-6 drop-shadow-[0_0_14px_rgba(134,255,166,0.58)]" />
       </span>
     );
   };
@@ -223,8 +427,8 @@ function WinningsScreen() {
           {[
             { label: 'Network', path: '/profile-screen' },
             { label: 'Team', path: '/team-view' },
-            { label: 'Winnings', path: '/winnings' },
             { label: 'Gameplay', path: '/gameplay' },
+            { label: 'Winnings', path: '/winnings' },
           ].map((tab) => (
             <button
               key={tab.label}
@@ -248,34 +452,111 @@ function WinningsScreen() {
       <div className="mx-auto min-h-full w-full max-w-2xl">
         {renderCompactHeader()}
 
-        <main className="px-8 pb-12 pt-3">
-          <section className="relative overflow-hidden rounded-[1.8rem] border border-white/[0.03] bg-black px-5 py-7 shadow-[0_22px_60px_rgba(0,0,0,0.4)]">
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(134,255,166,0.08),transparent_32%)]" />
-            <div className="relative grid grid-cols-3 gap-x-8 gap-y-8">
-              {rewardItems.map((item, index) => (
-                <motion.button
-                  key={item.id}
-                  type="button"
-                  initial={{ opacity: 0, y: 12, scale: 0.92 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  transition={{ delay: index * 0.04 }}
-                  onClick={() => item.isEarlyAccess && setShowTokenModal(true)}
-                  className="flex min-h-[88px] flex-col items-center justify-start text-center transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-white/40 rounded-xl"
-                >
-                  <img
-                    src={item.image}
-                    alt={item.label.replace(/\n/g, ' ')}
-                    className={`${item.id === 'moneetize-shirt' ? 'h-12 w-12' : 'h-11 w-11'} object-contain drop-shadow-[0_8px_18px_rgba(0,0,0,0.45)]`}
-                  />
-                  <span className="mt-2 whitespace-pre-line text-[12px] font-black leading-tight text-white">
-                    {item.label}
-                  </span>
-                </motion.button>
-              ))}
+        <main className="px-5 pb-28 pt-3">
+          <section className="text-center">
+            <p className="text-[12px] font-bold text-white/46">Balance</p>
+            <div className="mt-1 flex items-end justify-center gap-2">
+              <p className="text-[42px] font-black leading-none text-white">${displayBalance}</p>
+              <span className="pb-1 text-[11px] font-black text-white/70">USDT</span>
+            </div>
+            <p className="mt-3 text-[12px] font-bold text-white/38">= ${approximateBalance}</p>
+            <p className="mt-2 text-[12px] font-black text-red-400">- 1.45 (-5.9%)</p>
+          </section>
+
+          <section className="mt-8 grid grid-cols-2 gap-5">
+            <div className="relative min-h-[142px] overflow-hidden rounded-[1rem] border border-white/8 bg-gradient-to-b from-[#252a2d]/96 to-[#171a1d]/98 px-5 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_18px_50px_rgba(0,0,0,0.34)]">
+              <div className="absolute right-3 top-3 text-[12px] font-black text-[#82f3a5]">+5.9%</div>
+              <div className="flex items-center gap-3">
+                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[radial-gradient(circle_at_35%_30%,#b9ffda_0%,#36d8ac_38%,#0d7f74_100%)] text-lg font-black text-white shadow-[0_0_22px_rgba(77,255,184,0.34)]">
+                  T
+                </span>
+                <span className="text-[14px] font-black text-white">USDT</span>
+              </div>
+              <p className="mt-4 text-[12px] font-bold text-white/48">Balance</p>
+              <p className="mt-1 text-[33px] font-black leading-none text-white">${displayBalance}</p>
+              <p className="mt-3 text-[12px] font-bold text-white/38">= ${formatMoney(Math.max(usdtBalance * 16.05, usdtBalance))}</p>
+            </div>
+
+            <div className="relative min-h-[142px] overflow-hidden rounded-[1rem] border border-white/8 bg-gradient-to-b from-[#25272b]/96 to-[#17191c]/98 px-5 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_18px_50px_rgba(0,0,0,0.34)]">
+              <div className="absolute right-3 top-3 text-[12px] font-black text-red-400">-1.9%</div>
+              <div className="flex items-center gap-3">
+                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[radial-gradient(circle_at_35%_30%,#ffffff_0%,#c9c9c3_34%,#6e6f6f_72%,#36393c_100%)] text-[13px] font-black text-[#303234] shadow-[inset_0_1px_3px_rgba(255,255,255,0.9),0_0_18px_rgba(255,255,255,0.14)]">
+                  T
+                </span>
+                <span className="text-[14px] font-black text-white">TRIPTO</span>
+              </div>
+              <p className="mt-4 text-[12px] font-bold text-white/48">Balance</p>
+              <div className="mt-1 flex items-end gap-2">
+                <p className="text-[33px] font-black leading-none text-white">{formatTokenAmount(triptoBalance)}</p>
+                <span className="pb-1 text-[10px] font-black text-white/44">(Locked)</span>
+              </div>
+              <p className="mt-3 text-[12px] font-bold text-white/38">= ${formatMoney(triptoBalance * 13.9552)}</p>
+            </div>
+          </section>
+
+          <section
+            className="-mx-5 mt-8 flex gap-5 overflow-x-auto px-5 pb-3 select-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            aria-label="Redeemable winnings"
+          >
+            {redeemableItems.map((item, index) => (
+              <motion.button
+                key={item.id}
+                type="button"
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.04 }}
+                onClick={() => item.isEarlyAccess && setShowTokenModal(true)}
+                className="flex h-[96px] min-w-[116px] flex-col items-center justify-center rounded-[1rem] border border-white/8 bg-gradient-to-b from-[#1f2226]/96 to-[#151719]/98 px-3 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_16px_42px_rgba(0,0,0,0.3)] transition-transform hover:scale-[1.02]"
+              >
+                {!item.isPlaceholder && (
+                  <img src={item.image} alt="" className="mb-2 h-8 w-8 object-contain" />
+                )}
+                <span className={`text-[11px] font-black leading-tight ${item.isPlaceholder ? 'text-white/22' : 'text-white'}`}>
+                  {item.isPlaceholder ? 'Redeem' : item.label}
+                </span>
+              </motion.button>
+            ))}
+          </section>
+
+          <section className="mt-16">
+            <h2 className="mb-4 text-[22px] font-black text-white">Pre-game Winnings</h2>
+            <div className="space-y-2">
+              {visibleScratchHistory.length > 0 ? (
+                visibleScratchHistory.map((draw) => (
+                  <div
+                    key={draw.id}
+                    className="flex min-h-[74px] items-center justify-between gap-3 rounded-[1rem] border border-white/10 bg-gradient-to-r from-[#202326]/98 to-[#171a1d]/98 px-5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_12px_34px_rgba(0,0,0,0.24)]"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-[13px] font-black text-white">{getHistoryTitle(draw)}</p>
+                      <p className="mt-1 text-[11px] font-bold text-white/42">
+                        {formatHistoryDate(draw.createdAt)} | {formatHistoryTime(draw.createdAt)}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {getHistoryRewards(draw).map((reward) => (
+                        <span key={reward.id}>{renderHistoryReward(reward)}</span>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-[1rem] border border-white/10 bg-white/[0.05] px-5 py-6 text-center text-sm font-bold text-white/48">
+                  Scratch rewards will appear here after your first win.
+                </div>
+              )}
             </div>
           </section>
         </main>
       </div>
+
+      <button
+        type="button"
+        onClick={() => navigate('/scratch-and-win')}
+        className="fixed bottom-7 left-1/2 z-30 -translate-x-1/2 rounded-full bg-white px-9 py-3.5 text-[14px] font-black text-black shadow-[0_18px_44px_rgba(0,0,0,0.42)] transition-colors hover:bg-gray-100"
+      >
+        Back to Scratch
+      </button>
 
       <AnimatePresence>
         {showTokenModal && (
@@ -307,7 +588,7 @@ function WinningsScreen() {
                   <img src={tokenCardImage} alt="Token Early Access" className="mx-auto mb-8 h-24 w-24 object-contain" />
                   <h2 className="mb-3 text-2xl font-black text-white">Token Early Access</h2>
                   <p className="mx-auto mb-8 max-w-[220px] text-base font-medium leading-snug text-white/55">
-                    Description of what a wild card gives
+                    Request access to redeem this launch reward.
                   </p>
                   <button
                     type="button"
