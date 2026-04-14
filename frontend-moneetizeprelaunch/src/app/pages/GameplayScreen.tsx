@@ -165,7 +165,7 @@ export function GameplayScreen() {
       <div className="flex items-center justify-between px-4 pb-4 pt-2">
         <div className="flex items-center gap-2">
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => navigate('/profile-screen')}
             className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/8 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors hover:bg-white/14"
             aria-label="Go back"
           >
