@@ -374,34 +374,35 @@ export function TeamView() {
                 ].map((podium) => {
                   const [firstName, lastName] = splitName(podium.member?.name);
                   return (
-                    <motion.div
-                      key={podium.place}
-                      animate={{ scale: [1, podium.place === 1 ? 1.025 : 1.018, 1] }}
-                      transition={{
-                        duration: podium.place === 1 ? 2.4 : 2.8,
-                        repeat: Infinity,
-                        ease: 'easeInOut',
-                        delay: podium.place * 0.16,
-                      }}
-                      className={`flex flex-col items-center ${podium.lift || ''}`}
-                    >
+                    <div key={podium.place} className={`flex flex-col items-center ${podium.lift || ''}`}>
                       <svg className={`mb-2 ${podium.crownSize} ${podium.color}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M4 18h16M5 9l4 4 3-7 3 7 4-4v8H5V9z" />
                       </svg>
-                      <div className={`mb-2 overflow-hidden rounded-full border-[3px] ${podium.border} ${podium.avatarSize} bg-gradient-to-br from-purple-500 to-pink-500 shadow-[0_12px_28px_rgba(0,0,0,0.42)]`}>
-                        {podium.member?.avatar && (
-                          <img src={podium.member.avatar} alt={podium.member.name} className="h-full w-full object-cover" />
-                        )}
-                      </div>
-                      <div className={`-mt-5 mb-2 flex ${podium.rankSize} items-center justify-center rounded-full bg-white shadow-[0_7px_18px_rgba(0,0,0,0.42)]`}>
-                        <span className="font-black text-[#151515]">{podium.place}</span>
-                      </div>
+                      <motion.div
+                        animate={{ y: [0, -4, 0], scale: [1, podium.place === 1 ? 1.025 : 1.018, 1] }}
+                        transition={{
+                          duration: podium.place === 1 ? 2.4 : 2.8,
+                          repeat: Infinity,
+                          ease: 'easeInOut',
+                          delay: podium.place * 0.16,
+                        }}
+                        className="flex flex-col items-center"
+                      >
+                        <div className={`mb-2 overflow-hidden rounded-full border-[3px] ${podium.border} ${podium.avatarSize} bg-gradient-to-br from-purple-500 to-pink-500 shadow-[0_12px_28px_rgba(0,0,0,0.42)]`}>
+                          {podium.member?.avatar && (
+                            <img src={podium.member.avatar} alt={podium.member.name} className="h-full w-full object-cover" />
+                          )}
+                        </div>
+                        <div className={`-mt-5 mb-2 flex ${podium.rankSize} items-center justify-center rounded-full bg-white shadow-[0_7px_18px_rgba(0,0,0,0.42)]`}>
+                          <span className="font-black text-[#151515]">{podium.place}</span>
+                        </div>
+                      </motion.div>
                       <p className="mb-1 max-w-[96px] text-center text-sm font-black leading-tight text-white">
                         {firstName}<br />{lastName}
                       </p>
                       <p className="text-xs font-bold text-[#8ff0a8]">{podium.member?.points} pts</p>
                       <p className="mt-0.5 text-xs font-bold text-white/40">{podium.member?.debt}</p>
-                    </motion.div>
+                    </div>
                   );
                 })}
               </div>
