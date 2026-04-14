@@ -74,10 +74,6 @@ function getScratchHistoryUsdtTotal(history: ScratchDrawResult[]) {
   return history.reduce((total, draw) => total + (Number(draw.reward?.usdt) || 0), 0);
 }
 
-function getScratchHistoryPointsTotal(history: ScratchDrawResult[]) {
-  return history.reduce((total, draw) => total + (Number(draw.reward?.moneetizePoints) || 0), 0);
-}
-
 function getScratchHistoryTriptoTotal(history: ScratchDrawResult[]) {
   return history.reduce((total, draw) => total + (Number(draw.reward?.triptoPoints) || 0), 0);
 }
@@ -249,7 +245,7 @@ function WinningsScreen() {
     const syncScratchState = () => {
       const history = getStoredScratchHistory();
       setScratchHistory(history);
-      setUserPointsState(Math.max(getUserPoints(), getScratchHistoryPointsTotal(history)));
+      setUserPointsState(getUserPoints());
       setUsdtBalance(Math.max(getStoredUsdtBalance(), getScratchHistoryUsdtTotal(history)));
       return history;
     };
@@ -261,14 +257,13 @@ function WinningsScreen() {
       .then((profile) => {
         const mergedHistory = mergeScratchHistory(profile?.history || [], getStoredScratchHistory(), initialHistory);
         const mergedHistoryUsdt = getScratchHistoryUsdtTotal(mergedHistory);
-        const mergedHistoryPoints = getScratchHistoryPointsTotal(mergedHistory);
 
         if (mergedHistory.length > 0) {
           setScratchHistory(mergedHistory);
         }
 
         if (profile?.balances) {
-          setUserPointsState(Math.max(profile.balances.points, getUserPoints(), mergedHistoryPoints));
+          setUserPointsState(profile.balances.points);
           setUsdtBalance((currentBalance) => Math.max(
             currentBalance,
             profile.balances.usdt,
@@ -278,6 +273,7 @@ function WinningsScreen() {
           return;
         }
 
+        setUserPointsState(getUserPoints());
         setUsdtBalance((currentBalance) => Math.max(currentBalance, getStoredUsdtBalance(), mergedHistoryUsdt));
       })
       .catch((error) => {
