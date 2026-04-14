@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronLeft, ChevronUp, History, MoreHorizontal, Share2, Settings, UserPlus, Plus, Trash2, Link as LinkIcon, Copy, Check, ChevronRight, User, Mail, Calendar, Heart, Target, Award, TrendingUp, Users, LogOut, X, Shield } from 'lucide-react';
+import { ChevronLeft, ChevronUp, History, MessageCircle, MoreHorizontal, Share2, Settings, UserPlus, Plus, Trash2, Link as LinkIcon, Copy, Check, ChevronRight, User, Mail, Calendar, Heart, Target, Award, TrendingUp, Users, LogOut, X, Shield } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import wildcardIcon from 'figma:asset/f632203f248e2d298246c5ffb0789bc0cac99ea5.png';
 import tshirtRewardIcon from '../../assets/moneetize-tshirt-reward.png';
@@ -10,7 +10,7 @@ import { safeGetItem, safeSetItem } from '../utils/storage';
 import { getSelectedAvatarImage } from '../utils/avatarUtils';
 import { isUserAdmin } from '../services/authService';
 import { getStoredUsdtBalance, loadScratchProfile, type ScratchDrawResult } from '../services/scratchService';
-import { isStoredProfileComplete, PROFILE_SETTINGS_UPDATED_EVENT } from '../utils/profileSettings';
+import { getStoredProfileSettings, isStoredProfileComplete, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT } from '../utils/profileSettings';
 
 interface TeamMember {
   id: string;
@@ -139,23 +139,39 @@ export function ProfileScreen() {
 
     // Check if user is admin
     setIsAdmin(isUserAdmin());
-    setIsProfileComplete(isStoredProfileComplete());
-    const handleProfileSettingsUpdated = () => {
+    const applyProfileSettings = () => {
+      const profileSettings = getStoredProfileSettings({
+        fallbackName: 'Jess Wu',
+        fallbackHandle: '@healthyhabits',
+      });
+
+      setUserName(profileSettings.name);
+      setUserHandle(profileSettings.handle);
+      setUserPhoto(profileSettings.photo);
+      setUserEmail(profileSettings.email);
+      setUserInterests(profileSettings.interests);
+      setInvestmentProfile(profileSettings.investmentProfile || 'Not set');
       setIsProfileComplete(isStoredProfileComplete());
+
+      return profileSettings;
     };
 
-    window.addEventListener(PROFILE_SETTINGS_UPDATED_EVENT, handleProfileSettingsUpdated);
-    
     // Load user data
     const points = getUserPoints();
     setUserPoints(points);
     setBalance(getStoredUsdtBalance());
+    const profileSettings = applyProfileSettings();
 
     void loadScratchProfile()
       .then((profile) => {
         if (!cancelled && profile?.balances) {
           setUserPoints(profile.balances.points);
           setBalance(profile.balances.usdt);
+          setTeamMembers((members) =>
+            members.map((member) =>
+              member.isCurrentUser ? { ...member, points: profile.balances.points } : member
+            )
+          );
         }
         if (!cancelled && profile?.history) {
           setScratchHistory(profile.history);
@@ -164,42 +180,10 @@ export function ProfileScreen() {
       .catch((error) => {
         console.warn('Scratch profile sync skipped:', error);
       });
-    
-    const name = safeGetItem('userName') || 'User';
-    setUserName(name);
-    
-    // Generate handle from name
-    const handle = '@' + name.toLowerCase().replace(/\s+/g, '');
-    setUserHandle(handle);
-    
-    // Get photo from sessionStorage or localStorage
-    const photo = sessionStorage.getItem('userPhoto') || safeGetItem('userPhoto') || '';
-    const selectedAvatar = safeGetItem('selectedAvatar') || '';
-    
-    if (photo) {
-      setUserPhoto(photo);
-    } else if (selectedAvatar) {
-      setUserPhoto(selectedAvatar);
-    } else {
-      // Use avatar util as fallback
-      setUserPhoto(getSelectedAvatarImage());
-    }
-
-    // Load additional settings data
-    const email = localStorage.getItem('user_email') || 'user@example.com';
-    setUserEmail(email);
-
-    // Get user interests
-    const interests = safeGetItem('selectedInterests');
-    const parsedInterests = interests ? JSON.parse(interests) : [];
-    setUserInterests(parsedInterests);
-
-    // Get investment profile
-    const userProfileData = safeGetItem('userProfile');
-    const parsedProfile = userProfileData ? JSON.parse(userProfileData) : {};
-    setInvestmentProfile(parsedProfile.investmentProfile || safeGetItem('investmentProfile') || 'Not set');
 
     // Set member since date
+    const userProfileData = safeGetItem('userProfile');
+    const parsedProfile = userProfileData ? JSON.parse(userProfileData) : {};
     const createdAt = parsedProfile.completedAt || new Date().toISOString();
     setMemberSince(createdAt);
 
@@ -207,12 +191,12 @@ export function ProfileScreen() {
     const mockTeam: TeamMember[] = [
       {
         id: '1',
-        name: name,
+        name: profileSettings.name,
         points: points,
-        avatar: photo || selectedAvatar || getSelectedAvatarImage(),
+        avatar: profileSettings.photo || getSelectedAvatarImage(),
         status: 'active',
         isCurrentUser: true,
-        handle: handle
+        handle: profileSettings.handle
       },
       {
         id: '2',
@@ -240,10 +224,34 @@ export function ProfileScreen() {
     ];
     
     setTeamMembers(mockTeam);
+    const handleProfileSettingsUpdated = () => {
+      const nextProfileSettings = applyProfileSettings();
+      setTeamMembers((members) =>
+        members.map((member) =>
+          member.isCurrentUser
+            ? {
+                ...member,
+                name: nextProfileSettings.name,
+                handle: nextProfileSettings.handle,
+                avatar: nextProfileSettings.photo || getSelectedAvatarImage(),
+              }
+            : member
+        )
+      );
+    };
+    const handleStorageChange = (event: StorageEvent) => {
+      if (!event.key || PROFILE_SETTINGS_STORAGE_KEYS.includes(event.key)) {
+        handleProfileSettingsUpdated();
+      }
+    };
+
+    window.addEventListener(PROFILE_SETTINGS_UPDATED_EVENT, handleProfileSettingsUpdated);
+    window.addEventListener('storage', handleStorageChange);
 
     return () => {
       cancelled = true;
       window.removeEventListener(PROFILE_SETTINGS_UPDATED_EVENT, handleProfileSettingsUpdated);
+      window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
 
@@ -363,8 +371,44 @@ export function ProfileScreen() {
     );
   };
 
+  const displayBalance = balance > 0 ? Math.round(balance) : 345;
+  const displayTeamProgress = Math.max(teamProgress, 720);
+  const activeTeamCount = teamMembers.filter((member) => member.status === 'active').length;
+  const teamGoalCount = 5;
+  const userInitials = userName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'JW';
+
+  const profileStats = [
+    { label: 'Balance', value: `$ ${displayBalance}`, icon: <Copy className="h-3 w-3" /> },
+    { label: 'Following', value: following, icon: <ChevronUp className="h-3 w-3" /> },
+    { label: 'Followers', value: followers, icon: <ChevronUp className="h-3 w-3 rotate-180" /> },
+  ];
+
+  const compactProfileActions = [
+    { label: 'Profile home', icon: <User className="h-3 w-3" /> },
+    { label: 'Rewards', icon: <Award className="h-3 w-3" /> },
+    { label: 'Network', icon: <Users className="h-3 w-3" /> },
+    { label: 'Winnings', icon: <History className="h-3 w-3" /> },
+  ];
+
+  const renderAvatar = (member: Pick<TeamMember, 'name' | 'avatar'>, className: string) => (
+    <div className={`${className} overflow-hidden rounded-full bg-[#33363d]`}>
+      {member.avatar ? (
+        <img src={member.avatar} alt={member.name} className="h-full w-full object-cover" />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-xs font-black text-white/50">
+          {member.name.charAt(0).toUpperCase()}
+        </div>
+      )}
+    </div>
+  );
+
   return (
-    <div className="absolute inset-0 w-full h-full overflow-y-auto bg-[#0a0e1a]">
+    <div className="absolute inset-0 w-full h-full overflow-y-auto bg-[#0a0e1a] text-white [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
       {/* Status Bar */}
       <div className="absolute top-0 left-0 right-0 h-11 flex items-center justify-between px-4 sm:px-6 text-white text-sm z-50">
         <div className="flex items-center gap-2">
@@ -424,169 +468,113 @@ export function ProfileScreen() {
         )}
 
         {/* Profile Card */}
-        <motion.div
+        <motion.section
           layout
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
-          className={`relative mb-6 overflow-hidden rounded-[1.9rem] border border-white/10 bg-gradient-to-b from-[#23262a] via-[#1a1d20] to-[#151719] px-7 pb-8 pt-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_24px_80px_rgba(0,0,0,0.42)] ${
-            showRewardHistory ? 'min-h-[760px]' : 'min-h-[372px]'
-          }`}
+          className="relative mb-5 overflow-hidden rounded-[1.7rem] border border-white/10 bg-gradient-to-b from-[#242629] via-[#1b1d20] to-[#17191c] px-3 pb-2.5 pt-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_80px_rgba(0,0,0,0.42)]"
         >
-          <div className="pointer-events-none absolute -left-20 top-24 h-40 w-40 rounded-full bg-emerald-300/10 blur-3xl" />
-          <div className="pointer-events-none absolute -right-16 top-10 h-36 w-36 rounded-full bg-white/5 blur-3xl" />
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,rgba(255,255,255,0.08),transparent_28%)]" />
+          <div className="pointer-events-none absolute -left-16 top-20 h-36 w-36 rounded-full bg-white/[0.04] blur-3xl" />
 
-          {/* Profile Header */}
-          <div className="relative mb-8 flex items-start justify-center">
+          <div className="relative mx-auto mb-3 flex max-w-[260px] items-start justify-center">
             <button
-              onClick={() => navigate(-1)}
-              className="absolute left-0 top-5 flex h-12 w-12 items-center justify-center rounded-full bg-white/8 text-white ring-1 ring-white/8 transition-colors hover:bg-white/14"
-              aria-label="Go back"
+              type="button"
+              onClick={() => navigate('/chat-list')}
+              className="absolute left-0 top-8 flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/8 text-white/65 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors hover:bg-white/14 hover:text-white"
+              aria-label="Messages"
             >
-              <ChevronLeft className="h-5 w-5" />
+              <MessageCircle className="h-4 w-4" />
             </button>
 
-            <div className="relative">
-              <div className="absolute inset-0 -m-1 rounded-full bg-gradient-to-b from-[#ffd23f] via-[#ff8d25] to-[#ef3d28] p-1 shadow-[0_0_26px_rgba(255,136,22,0.36)]">
-                <div className="h-full w-full rounded-full bg-[#1a1d20]" />
-              </div>
-
-              <div
-                onClick={() => setShowPhotoEditModal(true)}
-                className="relative h-[76px] w-[76px] cursor-pointer overflow-hidden rounded-full border-[3px] border-[#1a1d20] transition-opacity hover:opacity-90"
-              >
+            <button
+              type="button"
+              onClick={() => setShowPhotoEditModal(true)}
+              className="relative flex h-[82px] w-[82px] items-center justify-center rounded-full bg-gradient-to-b from-[#ffd23f] via-[#ff8d25] to-[#ef3d28] p-[3px] shadow-[0_0_24px_rgba(255,145,30,0.36)]"
+              aria-label="Edit profile photo"
+            >
+              <span className="h-full w-full overflow-hidden rounded-full border-[3px] border-[#202124] bg-[#2d3035]">
                 {userPhoto ? (
-                  <img
-                    src={userPhoto}
-                    alt="Profile"
-                    className="w-full h-full object-cover"
-                  />
+                  <img src={userPhoto} alt={userName} className="h-full w-full object-cover" />
                 ) : (
-                  <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-600" />
+                  <span className="flex h-full w-full items-center justify-center text-xl font-black text-white/70">
+                    {userInitials}
+                  </span>
                 )}
-              </div>
-
-            </div>
+              </span>
+              <span className="absolute bottom-0 rounded-full bg-[#7f3b20]/95 px-2.5 py-0.5 text-[10px] font-black text-[#ffd060] shadow-[0_4px_10px_rgba(0,0,0,0.32)]">
+                Rookie
+              </span>
+            </button>
 
             <button
+              type="button"
               onClick={() => navigate('/settings')}
-              className="absolute right-0 top-5 flex h-12 w-12 items-center justify-center rounded-full bg-white text-black transition-colors hover:bg-gray-100"
+              className="absolute right-0 top-8 flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors hover:bg-white/16 hover:text-white"
               aria-label="Profile options"
             >
               <MoreHorizontal className="h-5 w-5" />
             </button>
           </div>
 
-          <div className="mb-4 flex items-center justify-center gap-4">
-            <div className="flex items-center gap-2">
-              <img src={gemIcon} alt="Gem" className="h-7 w-7 drop-shadow-[0_0_18px_rgba(134,255,166,0.62)]" />
-              <span className="text-2xl font-black tracking-tight text-white">{userPoints}</span>
-            </div>
-            <div className="h-5 w-px bg-white/45" />
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[radial-gradient(circle_at_35%_30%,#ffffff_0%,#c9c9c3_34%,#6e6f6f_72%,#36393c_100%)] text-[11px] font-black text-[#333] shadow-[inset_0_1px_3px_rgba(255,255,255,0.9),0_0_18px_rgba(255,255,255,0.18)]">
-                T
-              </div>
-              <span className="text-2xl font-black tracking-tight text-white">{userPoints}</span>
-              <span className="text-sm font-semibold text-white/55">~ ${triptoValue.toFixed(2)}</span>
-            </div>
-          </div>
-
-          <div className="mb-5 text-center">
-            <p className="text-[15px] font-semibold leading-tight text-white/55">Tripto (Locked)</p>
-            <p className="text-[15px] font-semibold leading-tight text-white/55">Unlocks at Marketplace Launch</p>
-          </div>
-
-          <div className="mb-6 flex justify-center">
-            <button
-              onClick={() => navigate('/settings')}
-              className="rounded-full bg-white px-6 py-2.5 text-sm font-bold text-black shadow-[0_8px_24px_rgba(0,0,0,0.24)] transition-colors hover:bg-gray-100"
-            >
-              Complete Profile
-            </button>
-          </div>
-
-          {/* Admin Panel Button - Only visible for admin accounts */}
-          {isAdmin && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.3 }}
-              className="mb-4 flex justify-center"
-            >
+          <div className="relative mb-2 flex items-center justify-center gap-2">
+            {compactProfileActions.map((action) => (
               <button
-                onClick={() => navigate('/admin-panel')}
-                className="flex items-center gap-2 rounded-full border border-blue-300/30 bg-blue-400/10 px-5 py-2 text-white shadow-lg transition-all hover:bg-blue-400/20"
+                key={action.label}
+                type="button"
+                className="flex h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white/75"
+                aria-label={action.label}
               >
-                <Shield className="w-4 h-4" />
-                <span className="text-sm font-semibold">Admin Panel</span>
+                {action.icon}
               </button>
-            </motion.div>
+            ))}
+            <span className="pl-1 text-xs font-black text-white/80">+8</span>
+          </div>
+
+          <div className="relative flex items-center justify-center gap-2">
+            <span className="max-w-[140px] truncate text-sm font-black text-white">{userName}</span>
+            <img src={gemIcon} alt="Gem" className="h-5 w-5 drop-shadow-[0_0_12px_rgba(134,255,166,0.55)]" />
+            <span className="text-sm font-black text-[#8ff0a8]">{userPoints}</span>
+            <span className="flex h-4 w-4 items-center justify-center rounded-full border border-white/20 text-[10px] font-black text-white/55">
+              i
+            </span>
+          </div>
+
+          <div className="relative mt-2 flex justify-center">
+            <span className="max-w-[170px] truncate rounded-full bg-white/8 px-3 py-1 text-xs font-bold text-white/38">
+              {userHandle}
+            </span>
+          </div>
+
+          {isAdmin && (
+            <div className="relative mt-3 flex justify-center">
+              <button
+                type="button"
+                onClick={() => navigate('/admin-panel')}
+                className="flex items-center gap-2 rounded-full border border-blue-300/30 bg-blue-400/10 px-4 py-2 text-xs font-black text-white transition-all hover:bg-blue-400/20"
+              >
+                <Shield className="h-3.5 w-3.5" />
+                Admin Panel
+              </button>
+            </div>
           )}
 
-          <AnimatePresence initial={false}>
-            {showRewardHistory && (
-              <motion.div
-                initial={{ opacity: 0, height: 0, y: -12 }}
-                animate={{ opacity: 1, height: 'auto', y: 0 }}
-                exit={{ opacity: 0, height: 0, y: -12 }}
-                transition={{ duration: 0.28, ease: 'easeOut' }}
-                className="-mx-3 mb-5 space-y-2 overflow-hidden pt-1"
+          <div className="relative mt-4 grid grid-cols-3 gap-1.5">
+            {profileStats.map((stat) => (
+              <button
+                key={stat.label}
+                type="button"
+                className="min-h-[76px] rounded-[1rem] border border-white/12 bg-white/[0.095] px-3 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
               >
-                {visibleScratchHistory.length > 0 ? (
-                  visibleScratchHistory.map((draw, index) => (
-                    <motion.div
-                      key={draw.id}
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: index === 0 || index === visibleScratchHistory.length - 1 ? 0.45 : 1, y: 0 }}
-                      transition={{ delay: index * 0.035 }}
-                      className="flex min-h-[58px] items-center justify-between rounded-[1rem] border border-white/8 bg-white/[0.055] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_10px_24px_rgba(0,0,0,0.22)]"
-                    >
-                      <div>
-                        <p className="text-sm font-extrabold leading-tight text-white">{getHistoryTitle(draw)}</p>
-                        <p className="mt-1 text-xs font-semibold text-white/45">
-                          {formatHistoryDate(draw.createdAt)} <span className="px-1.5 text-white/35">|</span> {formatHistoryTime(draw.createdAt)}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {getHistoryRewards(draw).map((rewardItem) => (
-                          <span key={rewardItem.id} className="flex items-center">
-                            {renderHistoryReward(rewardItem)}
-                          </span>
-                        ))}
-                      </div>
-                    </motion.div>
-                  ))
-                ) : (
-                  <div className="rounded-[1rem] border border-white/8 bg-white/[0.055] px-4 py-6 text-center">
-                    <p className="text-sm font-bold text-white">No reward history yet</p>
-                    <p className="mt-1 text-xs text-white/45">Scratch a ticket to start filling this section.</p>
-                  </div>
-                )}
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <div className="flex justify-center">
-            <button
-              onClick={() => setShowRewardHistory((isOpen) => !isOpen)}
-              className={
-                showRewardHistory
-                  ? 'flex h-10 w-10 items-center justify-center rounded-full border border-white/18 bg-white/9 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors hover:bg-white/14'
-                  : 'flex items-center gap-1.5 rounded-full border border-white/24 bg-white/7 px-5 py-2.5 text-sm font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors hover:bg-white/12'
-              }
-              aria-label={showRewardHistory ? 'Collapse reward history' : 'Open reward history'}
-            >
-              {showRewardHistory ? (
-                <ChevronUp className="h-4 w-4" />
-              ) : (
-                <>
-                  <History className="h-4 w-4" />
-                  History
-                </>
-              )}
-            </button>
+                <span className="mb-1 flex items-center gap-1.5 text-sm font-black text-white">
+                  {stat.value}
+                  <span className="text-white/52">{stat.icon}</span>
+                </span>
+                <span className="text-[11px] font-bold text-white/50">{stat.label}</span>
+              </button>
+            ))}
           </div>
-        </motion.div>
+        </motion.section>
 
           {/* Tab Navigation */}
           <div className="mb-5 grid grid-cols-4 rounded-full border border-white/10 bg-[#101215]/95 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_10px_32px_rgba(0,0,0,0.22)]">
@@ -630,121 +618,113 @@ export function ProfileScreen() {
 
         {/* Your Team's Leaderboard */}
         {activeTab === 'your-team' && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
+          <motion.section
+            initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
+            transition={{ delay: 0.08 }}
+            className="pb-2"
           >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-white text-lg font-bold">Your Team's Leaderboard</h3>
-              <span className="text-gray-400 text-sm">3 / 5</span>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-xl font-black tracking-tight text-white">Your Team's Leaderboard</h3>
+              <span className="text-xs font-black text-white/38">{activeTeamCount} / {teamGoalCount}</span>
             </div>
 
-            {/* Team Progress Card */}
-            <div className="bg-gradient-to-br from-[#2a3d4a] to-[#1a2430] rounded-2xl p-5 mb-4 flex items-center justify-between border border-emerald-500/20">
-              <div>
-                <p className="text-gray-400 text-sm mb-1">Team's Progress:</p>
-                <p className="text-white text-3xl font-bold">{teamProgress} pts</p>
-              </div>
-              <div className="relative w-20 h-20">
-                <img src={gemIcon} alt="Gem" className="w-full h-full object-contain drop-shadow-lg" />
-                <div className="absolute inset-0 bg-emerald-400/20 rounded-full blur-xl" />
+            <div className="relative mb-3 overflow-hidden rounded-[1.35rem] border border-white/10 bg-gradient-to-r from-[#22262b]/98 to-[#171b1f]/98 px-5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_16px_44px_rgba(0,0,0,0.34)]">
+              <div className="absolute right-4 top-1/2 h-24 w-24 -translate-y-1/2 rounded-full bg-emerald-300/16 blur-2xl" />
+              <div className="relative flex items-center justify-between">
+                <div>
+                  <p className="mb-1 text-sm font-black text-white/38">Team's Progress:</p>
+                  <p className="text-2xl font-black text-white">{displayTeamProgress} pts</p>
+                </div>
+                <img src={gemIcon} alt="Gem" className="h-[74px] w-[74px] drop-shadow-[0_0_28px_rgba(134,255,166,0.62)]" />
               </div>
             </div>
 
-            {/* Team Members List */}
-            <div className="space-y-3 mb-4">
-              {teamMembers.map((member, index) => (
-                <motion.div
-                  key={member.id}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.1 * index }}
-                  onClick={() => {
-                    if (!member.isCurrentUser && member.status === 'active') {
-                      navigate('/user-profile', { state: { member } });
-                    }
-                  }}
-                  className={`bg-[#1a1d2e] rounded-2xl p-4 flex items-center gap-4 border border-white/5 ${
-                    !member.isCurrentUser && member.status === 'active' 
-                      ? 'cursor-pointer hover:bg-[#252837] transition-colors' 
-                      : ''
-                  }`}
-                >
-                  {/* Rank */}
-                  <div className="flex-shrink-0 w-6 text-center">
-                    <span className="text-white font-bold">{index + 1}</span>
-                  </div>
+            <div className="overflow-hidden rounded-[1.35rem] border border-white/8 bg-gradient-to-b from-[#1a1b2a]/98 to-[#141521]/98 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_18px_50px_rgba(0,0,0,0.34)]">
+              {teamMembers.map((member, index) => {
+                const canOpenProfile = !member.isCurrentUser && member.status === 'active';
+                const memberDebt =
+                  member.isCurrentUser ? 'Debt: $ 8 000' : member.name === 'John Black' ? 'Debt: $ 2 500' : 'Debt: $ 10 000';
 
-                  {/* Avatar */}
-                  <div className="flex-shrink-0">
+                return (
+                  <motion.div
+                    key={member.id}
+                    initial={{ opacity: 0, x: -14 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.07 * index }}
+                    role={canOpenProfile ? 'button' : undefined}
+                    tabIndex={canOpenProfile ? 0 : undefined}
+                    onClick={() => {
+                      if (canOpenProfile) {
+                        navigate('/user-profile', { state: { member } });
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (canOpenProfile && (event.key === 'Enter' || event.key === ' ')) {
+                        event.preventDefault();
+                        navigate('/user-profile', { state: { member } });
+                      }
+                    }}
+                    className={`flex min-h-[58px] w-full items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                      index < teamMembers.length - 1 ? 'border-b border-white/[0.035]' : ''
+                    } ${canOpenProfile ? 'cursor-pointer hover:bg-white/[0.06]' : ''}`}
+                  >
+                    <span className="w-5 shrink-0 text-center text-sm font-black text-white/72">{index + 1}</span>
                     {member.status === 'pending' ? (
-                      <div className="w-12 h-12 rounded-full bg-gray-700 flex items-center justify-center border-2 border-gray-600">
-                        <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <circle cx="12" cy="12" r="10" strokeWidth="2" />
-                        </svg>
-                      </div>
-                    ) : member.avatar ? (
-                      <img 
-                        src={member.avatar} 
-                        alt={member.name} 
-                        className="w-12 h-12 rounded-full object-cover border-2 border-orange-500"
-                      />
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/8 ring-1 ring-white/10">
+                        <User className="h-4 w-4 text-white/28" />
+                      </span>
                     ) : (
-                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 border-2 border-blue-500" />
+                      renderAvatar(member, 'h-10 w-10 shrink-0')
                     )}
-                  </div>
 
-                  {/* Name */}
-                  <div className="flex-1 min-w-0">
-                    {member.status === 'pending' ? (
-                      <p className="text-gray-400 text-sm truncate">{member.email}</p>
-                    ) : (
-                      <p className="text-white font-medium truncate">
-                        {member.name}
-                        {member.isCurrentUser && <span className="text-gray-400 ml-1">(You)</span>}
-                      </p>
-                    )}
-                  </div>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-black text-white">
+                        {member.status === 'pending' ? member.email : member.name}
+                        {member.isCurrentUser && <span className="font-bold text-white/52"> (You)</span>}
+                      </span>
+                      {member.status === 'active' && (
+                        <span className="mt-0.5 block text-[11px] font-bold text-white/40">{memberDebt}</span>
+                      )}
+                    </span>
 
-                  {/* Points or Status */}
-                  <div className="flex-shrink-0 flex items-center gap-2">
                     {member.status === 'pending' ? (
-                      <span className="text-gray-500 text-sm">Pending...</span>
+                      <span className="shrink-0 text-xs font-bold text-white/46">Pending...</span>
                     ) : (
-                      <div className="flex items-center gap-1">
-                        <span className="text-white font-bold">{member.points}</span>
-                        <img src={gemIcon} alt="Gem" className="w-5 h-5" />
-                      </div>
+                      <span className="flex shrink-0 items-center gap-1">
+                        <span className="text-xs font-black text-[#8ff0a8]">{member.points}</span>
+                        <img src={gemIcon} alt="Gem" className="h-5 w-5 drop-shadow-[0_0_12px_rgba(134,255,166,0.5)]" />
+                      </span>
                     )}
-                    
-                    {/* Delete button (not for current user) */}
-                    {!member.isCurrentUser && (
+
+                    {!member.isCurrentUser && member.status === 'active' && (
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
                           setMemberToDelete(member);
                           setShowDeleteModal(true);
                         }}
-                        className="text-red-500 hover:text-red-400 transition-colors ml-2"
+                        className="ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-red-400/62 transition-colors hover:bg-red-400/10 hover:text-red-300"
+                        aria-label={`Remove ${member.name}`}
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     )}
-                  </div>
-                </motion.div>
-              ))}
-            </div>
+                  </motion.div>
+                );
+              })}
 
-            {/* Send Invite Button */}
-            <button
-              onClick={handleSendInvite}
-              className="w-full bg-[#1a1d2e] text-white py-4 rounded-2xl font-semibold flex items-center justify-between px-5 hover:bg-[#252837] transition-colors border border-white/5"
-            >
-              <span>Send invite</span>
-              <Plus className="w-5 h-5" />
-            </button>
-          </motion.div>
+              <button
+                type="button"
+                onClick={handleSendInvite}
+                className="flex min-h-[60px] w-full items-center justify-between border-t border-dashed border-white/8 px-5 py-3 text-sm font-bold text-white/58 transition-colors hover:bg-white/[0.05] hover:text-white"
+              >
+                <span>Send invite</span>
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+          </motion.section>
         )}
 
         {/* Invited Team Tab */}
@@ -1118,15 +1098,15 @@ export function ProfileScreen() {
           </motion.div>
         )}
 
-        {/* Start App Button */}
+        {/* Back to Scratch Button */}
         <motion.button
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          onClick={() => navigate('/profile-feeds')}
-          className="w-full bg-white text-black py-4 rounded-full font-bold text-base hover:bg-gray-100 transition-colors shadow-xl mt-6"
+          onClick={() => navigate('/scratch-and-win')}
+          className="mx-auto mt-9 flex min-h-[52px] w-[170px] items-center justify-center rounded-full bg-white px-6 text-sm font-black text-black shadow-[0_16px_42px_rgba(0,0,0,0.35)] transition-colors hover:bg-gray-100"
         >
-          Start App
+          Back to Scratch
         </motion.button>
       </div>
 
