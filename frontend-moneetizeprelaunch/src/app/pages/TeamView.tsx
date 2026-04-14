@@ -227,7 +227,6 @@ export function TeamView() {
   ];
   const visibleTeamMembers = teamMembers.filter((member) => !removedMemberIds.includes(member.id));
   const sortedTeam = [...visibleTeamMembers].sort((a, b) => b.points - a.points);
-  const displayedTeamCount = Math.min(visibleTeamMembers.length, 5);
   const displayedTeamProgress = visibleTeamMembers.reduce((total, member) => total + (member.points || 0), 0);
 
   const renderStatusBar = () => (
@@ -338,9 +337,8 @@ export function TeamView() {
 
         <main className="px-4 pb-12 pt-2">
           <div className="space-y-4 pb-4">
-            <div className="flex items-center justify-between px-1">
+            <div className="flex items-center px-1">
               <h2 className="text-2xl font-black text-white">{teamName}</h2>
-              <span className="text-sm font-bold text-white">{displayedTeamCount}/5</span>
             </div>
 
             <div className="relative overflow-hidden rounded-[1.35rem] border border-white/12 bg-gradient-to-r from-[#282b30]/96 to-[#171b1f]/98 px-7 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_16px_44px_rgba(0,0,0,0.34)]">

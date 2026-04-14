@@ -845,8 +845,7 @@ export function ScratchAndWin() {
   const handleRewardsSliderPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
 
-    const slider = rewardsSliderRef.current;
-    if (!slider) return;
+    const slider = event.currentTarget;
 
     rewardsSliderDragRef.current = {
       isDragging: true,
@@ -858,9 +857,9 @@ export function ScratchAndWin() {
   };
 
   const handleRewardsSliderPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const slider = rewardsSliderRef.current;
+    const slider = event.currentTarget;
     const drag = rewardsSliderDragRef.current;
-    if (!slider || !drag.isDragging) return;
+    if (!drag.isDragging) return;
 
     const deltaX = event.clientX - drag.startX;
     if (Math.abs(deltaX) > 2) {
@@ -871,8 +870,8 @@ export function ScratchAndWin() {
   };
 
   const handleRewardsSliderPointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const slider = rewardsSliderRef.current;
-    if (slider?.hasPointerCapture(event.pointerId)) {
+    const slider = event.currentTarget;
+    if (slider.hasPointerCapture(event.pointerId)) {
       slider.releasePointerCapture(event.pointerId);
     }
 
@@ -881,8 +880,8 @@ export function ScratchAndWin() {
   };
 
   const handleRewardsSliderWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
-    const slider = rewardsSliderRef.current;
-    if (!slider || slider.scrollWidth <= slider.clientWidth) return;
+    const slider = event.currentTarget;
+    if (slider.scrollWidth <= slider.clientWidth) return;
 
     const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
     if (delta === 0) return;
@@ -1040,6 +1039,17 @@ export function ScratchAndWin() {
     { id: 'blue', label: 'Blue Ticket', sublabel: 'Common' },
     { id: 'golden', label: 'Golden Ticket', sublabel: 'Very rare' },
   ];
+  const renderScratchLogoLockup = (className = 'mb-6') => (
+    <div className={`${className} flex items-center justify-center gap-2`}>
+      <div className="h-[42px] w-[42px]">
+        <SembolVariants />
+      </div>
+      <div className="text-left">
+        <p className="text-[24px] font-black leading-none text-white">moneetize</p>
+        <p className="text-[12px] font-black leading-none text-[#9bd9cf]">Spend... with benefits</p>
+      </div>
+    </div>
+  );
 
   const getRewardCardWidth = (item: ScratchRewardItem) => {
     if (item.type === 'wildcard') return 'min-w-[172px] w-[172px]';
@@ -1172,15 +1182,7 @@ export function ScratchAndWin() {
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_8%,rgba(132,230,210,0.13),transparent_34%),radial-gradient(circle_at_18%_62%,rgba(82,129,255,0.08),transparent_30%)]" />
 
           <div className="relative z-10 mb-6 flex flex-col items-center">
-            <div className="mb-3 flex items-center gap-2">
-              <div className="h-[42px] w-[42px]">
-                <SembolVariants />
-              </div>
-              <div className="text-left">
-                <p className="text-[24px] font-black leading-none text-white">moneetize</p>
-                <p className="text-[12px] font-black leading-none text-[#9bd9cf]">Spend... with benefits</p>
-              </div>
-            </div>
+            {renderScratchLogoLockup('mb-3')}
             <div className="flex max-w-full items-center gap-2 text-[12px] font-bold text-white/62">
               <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-white/10 text-[10px] font-black text-white">
                 {invitationContext.inviterAvatar && !inviteAvatarFailed ? (
@@ -1407,9 +1409,7 @@ export function ScratchAndWin() {
               transition={{ duration: 0.42 }}
               className="relative w-full max-w-[375px] text-center"
             >
-              <div className="mx-auto mb-6 h-[72px] w-[72px] overflow-hidden rounded-full">
-                <SembolVariants />
-              </div>
+              {renderScratchLogoLockup('mb-6')}
 
               <div
                 className="relative overflow-hidden rounded-[1.55rem] border px-6 pb-8 pt-10"
@@ -1853,9 +1853,7 @@ export function ScratchAndWin() {
               exit={{ scale: 0.94, opacity: 0, y: 18 }}
               className="relative w-full max-w-[375px] overflow-hidden rounded-[1.55rem] border border-[#7ba4b9]/55 bg-gradient-to-b from-[#192026]/96 to-[#0d0f10]/98 px-5 pb-9 pt-7 text-center shadow-2xl"
             >
-              <div className="mx-auto mb-5 h-[52px] w-[52px]">
-                <SembolVariants />
-              </div>
+              {renderScratchLogoLockup('mb-5')}
               <h2 className="text-[22px] font-black text-white">Keep Growing!</h2>
               <p className="mx-auto mt-2 max-w-[270px] text-[13px] font-bold leading-relaxed text-white/50">
                 Only a team of 5 qualifies for the grand prize!
@@ -1911,7 +1909,7 @@ export function ScratchAndWin() {
                 onPointerCancel={handleRewardsSliderPointerEnd}
                 onPointerLeave={handleRewardsSliderPointerEnd}
                 onWheel={handleRewardsSliderWheel}
-                className={`-mx-5 mt-5 flex gap-4 overflow-x-auto px-3 pb-2 select-none touch-pan-y [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+                className={`-mx-5 mt-5 flex gap-4 overflow-x-auto px-5 pb-2 select-none touch-pan-y [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
                   isRewardsSliderDragging ? 'cursor-grabbing snap-none' : 'cursor-grab snap-x'
                 }`}
                 aria-label="Ticket options"
@@ -1924,7 +1922,7 @@ export function ScratchAndWin() {
                     <div
                       key={option.id}
                       aria-current={isSelected ? 'true' : undefined}
-                      className={`relative min-w-[128px] snap-center rounded-[1rem] border px-3 pb-4 pt-3 ${
+                      className={`relative min-w-[156px] snap-center rounded-[1rem] border px-3 pb-4 pt-3 ${
                         isSelected
                           ? 'bg-white/14 shadow-[0_0_18px_rgba(132,230,210,0.2)]'
                           : 'border-white/12 bg-white/8'

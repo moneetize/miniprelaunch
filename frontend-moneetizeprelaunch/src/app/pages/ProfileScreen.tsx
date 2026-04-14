@@ -855,9 +855,8 @@ export function ProfileScreen() {
             </div>
 
             <div>
-              <div className="mb-3 flex items-center justify-between">
+              <div className="mb-3 flex items-center">
                 <h3 className="text-xl font-black tracking-tight text-white">My Network</h3>
-                <span className="text-xs font-black text-white/42">{myNetworkProfiles.length} / 5</span>
               </div>
               <div className="space-y-2 rounded-[1.35rem] bg-[#151624]/80 p-0 shadow-[0_18px_50px_rgba(0,0,0,0.26)]">
                 {myNetworkProfiles.map(renderNetworkProfileRow)}
@@ -866,9 +865,8 @@ export function ProfileScreen() {
 
             {peopleYouMayKnowGroups.map((profiles, groupIndex) => (
               <div key={`people-you-may-know-${groupIndex}`}>
-                <div className="mb-3 flex items-center justify-between">
+                <div className="mb-3 flex items-center">
                   <h3 className="text-xl font-black tracking-tight text-white">People You May Know</h3>
-                  <span className="text-xs font-black text-white/42">{profiles.length} / 5</span>
                 </div>
                 <div className="space-y-2">
                   {profiles.map(renderNetworkProfileRow)}
