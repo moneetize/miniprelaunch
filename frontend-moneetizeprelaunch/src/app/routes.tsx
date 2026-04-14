@@ -14,7 +14,6 @@ import { OnboardingDashboard } from "./pages/OnboardingDashboard";
 import { RewardsPage } from "./pages/RewardsPage";
 import { DiscoveryHub } from "./pages/DiscoveryHub";
 import { OnboardingComplete } from "./pages/OnboardingComplete";
-import { SignupPage } from "./pages/SignupPage";
 import { ActionsPage } from "./pages/ActionsPage";
 import { CheckInPage } from "./pages/CheckInPage";
 import { QuizPage } from "./pages/QuizPage";
@@ -57,6 +56,7 @@ export const router = createBrowserRouter([
       { index: true, Component: AccountCreation },
       { path: "welcome", Component: WelcomeScreen },
       { path: "account-creation", Component: AccountCreation },
+      { path: "sign-up", Component: AccountCreation },
       { path: "login", Component: LoginScreen },
       { path: "auth/callback", Component: AuthCallback },
       { path: "forgot-password", Component: ForgotPassword },
@@ -71,7 +71,7 @@ export const router = createBrowserRouter([
       { path: "rewards", Component: RewardsPage },
       { path: "discovery", Component: DiscoveryHub },
       { path: "onboarding-complete", Component: OnboardingComplete },
-      { path: "signup", Component: SignupPage },
+      { path: "signup", Component: AccountCreation },
       { path: "actions", Component: ActionsPage },
       { path: "check-in", Component: CheckInPage },
       { path: "quiz", Component: QuizPage },

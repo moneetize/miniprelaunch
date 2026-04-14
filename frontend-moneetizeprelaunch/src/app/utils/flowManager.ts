@@ -30,7 +30,7 @@ export function isScratchTeaserPending() {
 export function getScratchTeaserAuthRoute() {
   return safeGetItem(SCRATCH_TEASER_AUTH_INTENT_KEY) === 'login'
     ? '/login'
-    : '/account-creation';
+    : '/sign-up';
 }
 
 export function getPostAuthDestination() {
