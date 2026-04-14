@@ -1,4 +1,11 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
+} from 'react';
 import { useNavigate } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
 import { ChevronLeft, MessageCircle, X } from 'lucide-react';
@@ -32,14 +39,41 @@ function getStoredScratchHistory(): ScratchDrawResult[] {
   try {
     const history = safeGetItem('scratchHistory');
     const parsed = history ? JSON.parse(history) : [];
-    return Array.isArray(parsed) ? parsed : [];
+    if (Array.isArray(parsed) && parsed.length) return parsed;
+  } catch {
+    // Keep reading the latest scratch reward below for older local sessions.
+  }
+
+  try {
+    const latestReward = safeGetItem('lastScratchReward');
+    const parsedLatestReward = latestReward ? JSON.parse(latestReward) : null;
+    return parsedLatestReward?.id ? [parsedLatestReward] : [];
   } catch {
     return [];
   }
 }
 
+function mergeScratchHistory(...sources: ScratchDrawResult[][]) {
+  const merged = new Map<string, ScratchDrawResult>();
+
+  sources.flat().forEach((draw) => {
+    if (!draw?.id || merged.has(draw.id)) return;
+    merged.set(draw.id, draw);
+  });
+
+  return [...merged.values()].sort((first, second) => {
+    const firstTime = new Date(first.createdAt).getTime() || 0;
+    const secondTime = new Date(second.createdAt).getTime() || 0;
+    return secondTime - firstTime;
+  });
+}
+
 function getScratchHistoryUsdtTotal(history: ScratchDrawResult[]) {
   return history.reduce((total, draw) => total + (Number(draw.reward?.usdt) || 0), 0);
+}
+
+function getScratchHistoryPointsTotal(history: ScratchDrawResult[]) {
+  return history.reduce((total, draw) => total + (Number(draw.reward?.moneetizePoints) || 0), 0);
 }
 
 function getScratchHistoryTriptoTotal(history: ScratchDrawResult[]) {
@@ -166,6 +200,11 @@ function getRedeemableProducts(history: ScratchDrawResult[]) {
 
 function WinningsScreen() {
   const navigate = useNavigate();
+  const winningsSliderDragRef = useRef({
+    isDragging: false,
+    startX: 0,
+    scrollLeft: 0,
+  });
   const [userPoints, setUserPointsState] = useState(0);
   const [userName, setUserName] = useState('Jess Wu');
   const [userPhoto, setUserPhoto] = useState('');
@@ -179,6 +218,7 @@ function WinningsScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [requestMessage, setRequestMessage] = useState('');
   const [requestError, setRequestError] = useState('');
+  const [isWinningsSliderDragging, setIsWinningsSliderDragging] = useState(false);
 
   useEffect(() => {
     const applyProfileSettings = () => {
@@ -194,24 +234,36 @@ function WinningsScreen() {
     const syncScratchState = () => {
       const history = getStoredScratchHistory();
       setScratchHistory(history);
-      setUserPointsState(getUserPoints());
+      setUserPointsState(Math.max(getUserPoints(), getScratchHistoryPointsTotal(history)));
       setUsdtBalance(Math.max(getStoredUsdtBalance(), getScratchHistoryUsdtTotal(history)));
+      return history;
     };
 
     applyProfileSettings();
-    syncScratchState();
+    const initialHistory = syncScratchState();
 
     void loadScratchProfile()
       .then((profile) => {
-        if (profile?.balances) {
-          setUserPointsState(profile.balances.points);
-          setUsdtBalance(profile.balances.usdt);
+        const mergedHistory = mergeScratchHistory(profile?.history || [], getStoredScratchHistory(), initialHistory);
+        const mergedHistoryUsdt = getScratchHistoryUsdtTotal(mergedHistory);
+        const mergedHistoryPoints = getScratchHistoryPointsTotal(mergedHistory);
+
+        if (mergedHistory.length > 0) {
+          setScratchHistory(mergedHistory);
         }
 
-        if (profile?.history) {
-          setScratchHistory(profile.history);
-          setUsdtBalance((currentBalance) => Math.max(currentBalance, getScratchHistoryUsdtTotal(profile.history || [])));
+        if (profile?.balances) {
+          setUserPointsState(Math.max(profile.balances.points, getUserPoints(), mergedHistoryPoints));
+          setUsdtBalance((currentBalance) => Math.max(
+            currentBalance,
+            profile.balances.usdt,
+            getStoredUsdtBalance(),
+            mergedHistoryUsdt
+          ));
+          return;
         }
+
+        setUsdtBalance((currentBalance) => Math.max(currentBalance, getStoredUsdtBalance(), mergedHistoryUsdt));
       })
       .catch((error) => {
         console.warn('Winnings scratch profile sync skipped:', error);
@@ -351,6 +403,54 @@ function WinningsScreen() {
     }
   };
 
+  const handleWinningsSliderPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+
+    const slider = event.currentTarget;
+    winningsSliderDragRef.current = {
+      isDragging: true,
+      startX: event.clientX,
+      scrollLeft: slider.scrollLeft,
+    };
+
+    setIsWinningsSliderDragging(true);
+    slider.setPointerCapture(event.pointerId);
+  };
+
+  const handleWinningsSliderPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const slider = event.currentTarget;
+    const drag = winningsSliderDragRef.current;
+    if (!drag.isDragging) return;
+
+    const deltaX = event.clientX - drag.startX;
+    if (Math.abs(deltaX) > 2) {
+      event.preventDefault();
+    }
+
+    slider.scrollLeft = drag.scrollLeft - deltaX;
+  };
+
+  const handleWinningsSliderPointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const slider = event.currentTarget;
+    if (slider.hasPointerCapture(event.pointerId)) {
+      slider.releasePointerCapture(event.pointerId);
+    }
+
+    winningsSliderDragRef.current.isDragging = false;
+    setIsWinningsSliderDragging(false);
+  };
+
+  const handleWinningsSliderWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    const slider = event.currentTarget;
+    if (slider.scrollWidth <= slider.clientWidth) return;
+
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (delta === 0) return;
+
+    event.preventDefault();
+    slider.scrollLeft += delta;
+  };
+
   const renderStatusBar = () => (
     <div className="h-11 flex items-center justify-between px-4 text-white text-sm">
       <div className="flex items-center gap-2">
@@ -427,8 +527,8 @@ function WinningsScreen() {
           {[
             { label: 'Network', path: '/profile-screen' },
             { label: 'Team', path: '/team-view' },
-            { label: 'Gameplay', path: '/gameplay' },
             { label: 'Winnings', path: '/winnings' },
+            { label: 'Gameplay', path: '/gameplay' },
           ].map((tab) => (
             <button
               key={tab.label}
@@ -495,7 +595,15 @@ function WinningsScreen() {
           </section>
 
           <section
-            className="-mx-5 mt-8 flex gap-5 overflow-x-auto px-5 pb-3 select-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            onPointerDown={handleWinningsSliderPointerDown}
+            onPointerMove={handleWinningsSliderPointerMove}
+            onPointerUp={handleWinningsSliderPointerEnd}
+            onPointerCancel={handleWinningsSliderPointerEnd}
+            onPointerLeave={handleWinningsSliderPointerEnd}
+            onWheel={handleWinningsSliderWheel}
+            className={`-mx-5 mt-8 flex gap-5 overflow-x-auto px-5 pb-3 select-none touch-pan-y [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+              isWinningsSliderDragging ? 'cursor-grabbing snap-none' : 'cursor-grab snap-x'
+            }`}
             aria-label="Redeemable winnings"
           >
             {redeemableItems.map((item, index) => (
@@ -506,7 +614,7 @@ function WinningsScreen() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.04 }}
                 onClick={() => item.isEarlyAccess && setShowTokenModal(true)}
-                className="flex h-[96px] min-w-[116px] flex-col items-center justify-center rounded-[1rem] border border-white/8 bg-gradient-to-b from-[#1f2226]/96 to-[#151719]/98 px-3 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_16px_42px_rgba(0,0,0,0.3)] transition-transform hover:scale-[1.02]"
+                className="flex h-[96px] min-w-[116px] snap-center flex-col items-center justify-center rounded-[1rem] border border-white/8 bg-gradient-to-b from-[#1f2226]/96 to-[#151719]/98 px-3 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_16px_42px_rgba(0,0,0,0.3)] transition-transform hover:scale-[1.02]"
               >
                 {!item.isPlaceholder && (
                   <img src={item.image} alt="" className="mb-2 h-8 w-8 object-contain" />
@@ -549,14 +657,6 @@ function WinningsScreen() {
           </section>
         </main>
       </div>
-
-      <button
-        type="button"
-        onClick={() => navigate('/scratch-and-win')}
-        className="fixed bottom-7 left-1/2 z-30 -translate-x-1/2 rounded-full bg-white px-9 py-3.5 text-[14px] font-black text-black shadow-[0_18px_44px_rgba(0,0,0,0.42)] transition-colors hover:bg-gray-100"
-      >
-        Back to Scratch
-      </button>
 
       <AnimatePresence>
         {showTokenModal && (

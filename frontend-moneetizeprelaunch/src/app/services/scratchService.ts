@@ -207,10 +207,33 @@ function getStoredScratchHistory(): ScratchDrawResult[] {
   try {
     const history = safeGetItem(SCRATCH_HISTORY_KEY);
     const parsed = history ? JSON.parse(history) : [];
-    return Array.isArray(parsed) ? parsed : [];
+    if (Array.isArray(parsed) && parsed.length) return parsed;
+  } catch {
+    // Fall back to the last reward below for sessions created before history existed.
+  }
+
+  try {
+    const lastReward = safeGetItem(LAST_SCRATCH_REWARD_KEY);
+    const parsedLastReward = lastReward ? JSON.parse(lastReward) : null;
+    return parsedLastReward?.id ? [parsedLastReward] : [];
   } catch {
     return [];
   }
+}
+
+function mergeScratchHistory(...sources: ScratchDrawResult[][]) {
+  const merged = new Map<string, ScratchDrawResult>();
+
+  sources.flat().forEach((draw) => {
+    if (!draw?.id || merged.has(draw.id)) return;
+    merged.set(draw.id, draw);
+  });
+
+  return [...merged.values()].sort((first, second) => {
+    const firstTime = new Date(first.createdAt).getTime() || 0;
+    const secondTime = new Date(second.createdAt).getTime() || 0;
+    return secondTime - firstTime;
+  });
 }
 
 function persistScratchDraw(draw: ScratchDrawResult) {
@@ -253,7 +276,9 @@ export async function loadScratchProfile(): Promise<ScratchProfileResponse['data
   persistBalances(result.data?.balances);
 
   if (result.data?.history) {
-    safeSetItem(SCRATCH_HISTORY_KEY, JSON.stringify(result.data.history));
+    const mergedHistory = mergeScratchHistory(result.data.history, getStoredScratchHistory());
+    result.data.history = mergedHistory;
+    safeSetItem(SCRATCH_HISTORY_KEY, JSON.stringify(mergedHistory));
   }
 
   return result.data;
