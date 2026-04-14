@@ -1039,7 +1039,7 @@ export function SettingsScreen() {
             })}
           </div>
 
-          <div className="relative mx-auto h-[470px] max-w-[320px]">
+          <div className="relative mx-auto h-[545px] max-w-[320px]">
             {interestBubbleLayout.map((bubble, index) => {
               const category = interestCategories.find((item) => item.id === bubble.id);
               if (!category) return null;
@@ -1090,7 +1090,7 @@ export function SettingsScreen() {
               notifyProfileSettingsUpdated();
               setCurrentView('main');
             }}
-            className="mt-5 w-full rounded-full bg-white px-6 py-3.5 text-sm font-black text-black shadow-[0_16px_38px_rgba(0,0,0,0.34)] transition-colors hover:bg-gray-100"
+            className="mt-6 w-full rounded-full bg-white px-6 py-3.5 text-sm font-black text-black shadow-[0_16px_38px_rgba(0,0,0,0.34)] transition-colors hover:bg-gray-100"
           >
             Save Changes
           </button>
