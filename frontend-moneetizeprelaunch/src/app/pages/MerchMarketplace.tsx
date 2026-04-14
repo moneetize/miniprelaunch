@@ -141,6 +141,10 @@ function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+function isInteractiveTarget(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest('button, a, input, select, textarea, label'));
+}
+
 export function MerchMarketplace() {
   const navigate = useNavigate();
   const [profileSettings, setProfileSettings] = useState(() => getStoredProfileSettings({ fallbackName: 'Jess Wu' }));
@@ -225,9 +229,16 @@ export function MerchMarketplace() {
   const activeVariant = activeProduct ? getSelectedVariant(activeProduct) : null;
   const activeImage = activeProduct && activeVariant ? getProductImage(activeProduct, activeVariant) : '';
   const availableLogos = activeProduct && activeVariant ? getAvailableLogos(activeProduct, activeVariant.color) : [];
+  const findUnavailableCartProduct = () => products.find((product) => {
+    const cartQuantity = cartItems
+      .filter((item) => item.productId === product.id)
+      .reduce((total, item) => total + item.quantity, 0);
+    return cartQuantity > product.inventory;
+  });
 
   const handleSliderPointerDown = (key: SliderKey, event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
+    if (isInteractiveTarget(event.target)) return;
 
     const slider = event.currentTarget;
     sliderDragRef.current[key] = {
@@ -297,11 +308,42 @@ export function MerchMarketplace() {
       return;
     }
 
+    const cartQuantityForProduct = cartItems
+      .filter((item) => item.productId === product.id)
+      .reduce((total, item) => total + item.quantity, 0);
+
+    if (cartQuantityForProduct >= product.inventory) {
+      setMessage(`${product.name} only has ${product.inventory} left in inventory.`);
+      return;
+    }
+
     setCartItems((items) => [createCartItem(product, getSelectedVariant(product)), ...items]);
     setMessage(`${product.name} added to your cart.`);
   };
 
   const updateCartItem = (itemId: string, updates: Partial<CartItem>) => {
+    const currentItem = cartItems.find((item) => item.id === itemId);
+    if (!currentItem) return;
+
+    if (typeof updates.quantity === 'number') {
+      const product = products.find((entry) => entry.id === currentItem.productId);
+      const maxInventory = product?.inventory ?? updates.quantity;
+      const otherProductQuantity = cartItems
+        .filter((item) => item.productId === currentItem.productId && item.id !== itemId)
+        .reduce((total, item) => total + item.quantity, 0);
+      const maxAllowedQuantity = Math.max(1, maxInventory - otherProductQuantity);
+      const nextQuantity = Math.max(1, Math.min(Math.round(updates.quantity), maxAllowedQuantity));
+
+      if (updates.quantity > nextQuantity) {
+        setMessage(`${currentItem.name} only has ${maxInventory} left in inventory.`);
+      }
+
+      setCartItems((items) => items.map((item) => (
+        item.id === itemId ? { ...item, ...updates, quantity: nextQuantity } : item
+      )));
+      return;
+    }
+
     setCartItems((items) => items.map((item) => (item.id === itemId ? { ...item, ...updates } : item)));
   };
 
@@ -317,6 +359,12 @@ export function MerchMarketplace() {
 
     const currentPoints = getUserPoints();
     setUserPoints(currentPoints);
+
+    const unavailableProduct = findUnavailableCartProduct();
+    if (unavailableProduct) {
+      setMessage(`${unavailableProduct.name} does not have enough inventory for this cart.`);
+      return;
+    }
 
     if (currentPoints < cartTotal) {
       setMessage(`You need ${formatPoints(cartTotal - currentPoints)} more points to checkout.`);
@@ -346,12 +394,9 @@ export function MerchMarketplace() {
       return;
     }
 
-    const unavailableItem = cartItems.find((item) => {
-      const product = products.find((entry) => entry.id === item.productId);
-      return product && product.inventory < item.quantity;
-    });
-    if (unavailableItem) {
-      setMessage(`${unavailableItem.name} does not have enough inventory for that quantity.`);
+    const unavailableProduct = findUnavailableCartProduct();
+    if (unavailableProduct) {
+      setMessage(`${unavailableProduct.name} does not have enough inventory for this cart.`);
       return;
     }
 

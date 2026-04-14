@@ -272,6 +272,19 @@ export function AdminPanel() {
     }
   };
 
+  const handleMarketplaceInventoryChange = (productId: string, nextInventory: number) => {
+    const normalizedInventory = Math.max(0, Math.round(Number(nextInventory) || 0));
+    const updatedProducts = marketplaceProducts.map((product) => (
+      product.id === productId ? { ...product, inventory: normalizedInventory } : product
+    ));
+
+    setMarketplaceProducts(saveMarketplaceProducts(updatedProducts));
+
+    if (editingMarketplaceId === productId) {
+      setMarketplaceDraft((current) => ({ ...current, inventory: normalizedInventory }));
+    }
+  };
+
   const handleLogout = () => {
     logoutUser();
     setIsAdmin(false);
@@ -632,7 +645,7 @@ export function AdminPanel() {
                 />
               </label>
               <label className="block">
-                <span className="mb-1 block text-xs font-black text-white/42">Inventory</span>
+                <span className="mb-1 block text-xs font-black text-white/42">Inventory Amount</span>
                 <input
                   type="number"
                   min={0}
@@ -737,7 +750,10 @@ export function AdminPanel() {
           </div>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {marketplaceProducts.map((product) => (
+            {marketplaceProducts.map((product) => {
+              const isOutOfStock = product.inventory <= 0;
+
+              return (
               <div key={product.id} className="rounded-lg border border-white/10 bg-white/[0.055] p-3">
                 <div className="flex gap-3">
                   <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-lg bg-black/18">
@@ -765,13 +781,47 @@ export function AdminPanel() {
 
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   <span className="rounded-md bg-white/8 px-2 py-1 text-[10px] font-black text-white/45">{product.category}</span>
-                  <span className="rounded-md bg-white/8 px-2 py-1 text-[10px] font-black text-white/45">{product.inventory} left</span>
+                  <span className={`rounded-md px-2 py-1 text-[10px] font-black ${
+                    isOutOfStock ? 'bg-red-500/15 text-red-300' : 'bg-white/8 text-white/45'
+                  }`}>
+                    {isOutOfStock ? 'Out of Stock' : `${product.inventory} left`}
+                  </span>
                   {product.colorVariants.slice(0, 2).map((color) => (
                     <span key={color} className="rounded-md bg-white/8 px-2 py-1 text-[10px] font-black text-white/45">{color}</span>
                   ))}
                   {product.logoVariants.slice(0, 2).map((logo) => (
                     <span key={logo} className="rounded-md bg-white/8 px-2 py-1 text-[10px] font-black text-white/45">{logo}</span>
                   ))}
+                </div>
+
+                <div className="mt-3">
+                  <p className="mb-1 text-[10px] font-black uppercase text-white/35">Inventory Amount</p>
+                  <div className="grid grid-cols-[38px_1fr_38px] gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleMarketplaceInventoryChange(product.id, product.inventory - 1)}
+                      className="h-9 rounded-lg border border-white/10 bg-white/[0.08] text-sm font-black text-white"
+                      aria-label={`Decrease ${product.name} inventory`}
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      min={0}
+                      value={product.inventory}
+                      onChange={(event) => handleMarketplaceInventoryChange(product.id, Number(event.target.value))}
+                      className="h-9 rounded-lg border border-white/10 bg-black/18 px-3 text-center text-sm font-black text-white outline-none focus:border-[#8ff0a8]"
+                      aria-label={`${product.name} inventory amount`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleMarketplaceInventoryChange(product.id, product.inventory + 1)}
+                      className="h-9 rounded-lg border border-white/10 bg-white/[0.08] text-sm font-black text-white"
+                      aria-label={`Increase ${product.name} inventory`}
+                    >
+                      +
+                    </button>
+                  </div>
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-2">
@@ -791,7 +841,8 @@ export function AdminPanel() {
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
