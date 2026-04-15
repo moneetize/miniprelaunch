@@ -270,6 +270,8 @@ export function SettingsScreen() {
   const [tempHandle, setTempHandle] = useState('');
   const [profileSaveMessage, setProfileSaveMessage] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [handleSuggestions, setHandleSuggestions] = useState<string[]>([]);
+  const [isCheckingHandle, setIsCheckingHandle] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -378,27 +380,125 @@ export function SettingsScreen() {
     return cleaned ? `@${cleaned}` : '';
   };
 
+  const getHandleStem = (value: string) => (
+    value
+      .trim()
+      .replace(/^@+/, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, '')
+      .slice(0, 22)
+  );
+
+  const isCurrentUserProfile = (profile: { id?: string; name?: string; handle?: string }) => {
+    const currentUserId = safeGetItem('user_id') || '';
+    const currentEmail = safeGetItem('user_email') || '';
+    const currentName = (userName || safeGetItem('userName') || '').trim().toLowerCase();
+    const currentHandle = (safeGetItem('userHandle') || userHandle || '').trim().toLowerCase();
+    const profileId = `${profile.id || ''}`.trim().toLowerCase();
+    const profileName = `${profile.name || ''}`.trim().toLowerCase();
+    const profileHandle = `${profile.handle || ''}`.trim().toLowerCase();
+
+    return Boolean(
+      (currentUserId && profileId === currentUserId.toLowerCase()) ||
+      (currentEmail && profileId === currentEmail.toLowerCase()) ||
+      (currentHandle && profileHandle === currentHandle && currentName && profileName === currentName)
+    );
+  };
+
+  const getAvailableHandleSuggestions = (
+    requestedHandle: string,
+    profiles: Array<{ id?: string; name?: string; handle?: string }>,
+  ) => {
+    const normalizedRequested = formatHandleInput(requestedHandle);
+    const takenHandles = new Set(
+      profiles
+        .filter((profile) => !isCurrentUserProfile(profile))
+        .map((profile) => formatHandleInput(profile.handle || '').toLowerCase())
+        .filter(Boolean),
+    );
+
+    const seedStems = [
+      getHandleStem(normalizedRequested),
+      getHandleStem(userName),
+      getHandleStem(userEmail.split('@')[0] || ''),
+      'moneetize',
+    ].filter(Boolean);
+    const uniqueStems = [...new Set(seedStems)];
+    const suffixes = ['pre', 'team', 'wins', 'app', 'club', 'official'];
+    const suggestions: string[] = [];
+
+    const addCandidate = (candidateStem: string) => {
+      const candidate = formatHandleInput(candidateStem);
+      if (
+        candidate &&
+        candidate !== normalizedRequested.toLowerCase() &&
+        !takenHandles.has(candidate.toLowerCase()) &&
+        !suggestions.includes(candidate)
+      ) {
+        suggestions.push(candidate);
+      }
+    };
+
+    uniqueStems.forEach((stem) => {
+      suffixes.forEach((suffix) => addCandidate(`${stem}${suffix}`));
+      for (let index = 2; index <= 25; index += 1) {
+        addCandidate(`${stem}${index}`);
+      }
+    });
+
+    for (let index = 26; suggestions.length < 3 && index < 200; index += 1) {
+      addCandidate(`moneetize${index}`);
+    }
+
+    return suggestions.slice(0, 3);
+  };
+
+  const showHandleUnavailable = async (handle: string, message?: string) => {
+    const normalizedHandle = formatHandleInput(handle);
+    const profiles = await loadRecommendedFriends().catch(() => []);
+    const suggestions = getAvailableHandleSuggestions(normalizedHandle, profiles);
+
+    setHandleSuggestions(suggestions);
+    setProfileSaveMessage(
+      message ||
+      `${normalizedHandle} is not available. Choose one of these available profile names.`
+    );
+  };
+
   const ensureHandleAvailable = async (handle: string) => {
     const normalizedHandle = formatHandleInput(handle);
     if (!normalizedHandle) {
       setProfileSaveMessage('Choose a profile handle before saving.');
+      setHandleSuggestions([]);
       return false;
     }
 
-    const currentUserId = safeGetItem('user_id') || safeGetItem('user_email') || '';
-    const profiles = await loadRecommendedFriends();
-    const duplicate = profiles.find((profile) => (
-      profile.id !== currentUserId &&
-      profile.handle.trim().toLowerCase() === normalizedHandle.toLowerCase()
-    ));
+    setIsCheckingHandle(true);
 
-    if (duplicate) {
-      setProfileSaveMessage(`${normalizedHandle} is already in use. Choose another handle.`);
+    try {
+      const profiles = await loadRecommendedFriends();
+      const duplicate = profiles.find((profile) => (
+        !isCurrentUserProfile(profile) &&
+        profile.handle.trim().toLowerCase() === normalizedHandle.toLowerCase()
+      ));
+
+      if (duplicate) {
+        const suggestions = getAvailableHandleSuggestions(normalizedHandle, profiles);
+        setHandleSuggestions(suggestions);
+        setProfileSaveMessage(`${normalizedHandle} is already in use. Choose one of these available profile names.`);
+        return false;
+      }
+
+      setHandleSuggestions([]);
+      setProfileSaveMessage('');
+      return true;
+    } catch (error) {
+      console.warn('Profile handle availability check skipped:', error);
+      setProfileSaveMessage('We could not check that profile name yet. Please try again.');
       return false;
+    } finally {
+      setIsCheckingHandle(false);
     }
-
-    setProfileSaveMessage('');
-    return true;
   };
 
   const handleSaveName = () => {
@@ -413,20 +513,35 @@ export function SettingsScreen() {
     }
   };
 
-  const handleSaveHandle = async () => {
-    if (tempHandle.trim()) {
-      const formattedHandle = formatHandleInput(tempHandle);
-      const isAvailable = await ensureHandleAvailable(formattedHandle);
-      if (!isAvailable) return;
+  const saveHandleValue = async (value: string) => {
+    const formattedHandle = formatHandleInput(value);
+    if (!formattedHandle) {
+      setProfileSaveMessage('Choose a profile handle before saving.');
+      return;
+    }
 
+    const isAvailable = await ensureHandleAvailable(formattedHandle);
+    if (!isAvailable) return;
+
+    try {
+      await saveRemoteProfileSettings({ handle: formattedHandle });
       setUserHandle(formattedHandle);
+      setTempHandle(formattedHandle);
       safeSetItem('userHandle', formattedHandle);
       notifyProfileSettingsUpdated();
-      void saveRemoteProfileSettings({ handle: formattedHandle }).catch((error) => {
-        console.warn('Remote profile handle sync skipped:', error);
-        setProfileSaveMessage(error instanceof Error ? error.message : 'Unable to save this handle.');
-      });
+      setHandleSuggestions([]);
+      setProfileSaveMessage('');
       setEditingHandle(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save this handle.';
+      console.warn('Remote profile handle sync skipped:', error);
+      await showHandleUnavailable(formattedHandle, message);
+    }
+  };
+
+  const handleSaveHandle = async () => {
+    if (tempHandle.trim()) {
+      await saveHandleValue(tempHandle);
     }
   };
 
@@ -474,7 +589,12 @@ export function SettingsScreen() {
       syncCurrentUserNetworkProfile();
     } catch (error) {
       console.warn('Remote profile settings save skipped:', error);
-      setProfileSaveMessage(error instanceof Error ? error.message : 'Unable to save profile settings.');
+      const message = error instanceof Error ? error.message : 'Unable to save profile settings.';
+      if (message.toLowerCase().includes('handle') || message.toLowerCase().includes('profile name')) {
+        await showHandleUnavailable(formattedHandle, message);
+      } else {
+        setProfileSaveMessage(message);
+      }
       setIsSavingProfile(false);
       return;
     }
@@ -1536,13 +1656,44 @@ export function SettingsScreen() {
                 <input
                   type="text"
                   value={tempHandle.startsWith('@') ? tempHandle.slice(1) : tempHandle}
-                  onChange={(e) => setTempHandle(e.target.value)}
+                  onChange={(e) => {
+                    setTempHandle(e.target.value);
+                    setHandleSuggestions([]);
+                    setProfileSaveMessage('');
+                  }}
                   onKeyPress={(e) => e.key === 'Enter' && void handleSaveHandle()}
                   placeholder="username"
                   className="flex-1 bg-transparent text-white outline-none placeholder:text-gray-500"
                   autoFocus
                 />
               </div>
+
+              {profileSaveMessage && (
+                <p className="mb-3 rounded-2xl border border-red-300/18 bg-red-400/[0.08] px-4 py-3 text-center text-[12px] font-bold leading-snug text-red-100/88">
+                  {profileSaveMessage}
+                </p>
+              )}
+
+              {handleSuggestions.length > 0 && (
+                <div className="mb-5">
+                  <p className="mb-2 text-center text-[11px] font-bold uppercase tracking-[0.08em] text-white/42">
+                    Available now
+                  </p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {handleSuggestions.map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        onClick={() => void saveHandleValue(suggestion)}
+                        disabled={isCheckingHandle}
+                        className="rounded-full border border-[#83e6d2]/30 bg-[#83e6d2]/12 px-3.5 py-2 text-[12px] font-black text-[#bffcf1] transition-colors hover:bg-[#83e6d2]/20 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="flex gap-3">
                 <button
@@ -1553,10 +1704,10 @@ export function SettingsScreen() {
                 </button>
                 <button
                   onClick={() => void handleSaveHandle()}
-                  disabled={!tempHandle.trim()}
+                  disabled={!tempHandle.trim() || isCheckingHandle}
                   className="flex-1 bg-white text-black py-3 rounded-full font-bold hover:bg-gray-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Save
+                  {isCheckingHandle ? 'Checking...' : 'Save'}
                 </button>
               </div>
             </motion.div>
