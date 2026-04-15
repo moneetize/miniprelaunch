@@ -7,11 +7,11 @@ import wildcardIcon from 'figma:asset/f632203f248e2d298246c5ffb0789bc0cac99ea5.p
 import tshirtRewardIcon from '../../assets/moneetize-tshirt-reward.png';
 import { getUserPoints, POINTS_UPDATED_EVENT } from '../utils/pointsManager';
 import { safeGetItem, safeSetItem } from '../utils/storage';
-import { getSelectedAvatarImage } from '../utils/avatarUtils';
 import { isUserAdmin } from '../services/authService';
 import { getStoredUsdtBalance, loadScratchProfile, type ScratchDrawResult } from '../services/scratchService';
-import { loadRecommendedFriends, type RecommendedFriendProfile } from '../services/networkService';
-import { getStoredProfileSettings, isStoredProfileComplete, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT } from '../utils/profileSettings';
+import { LOCAL_NETWORK_PROFILES_UPDATED_EVENT, loadNetworkFollowStates, loadRecommendedFriends, saveNetworkFollowState, syncCurrentUserNetworkProfile, type RecommendedFriendProfile } from '../services/networkService';
+import { getStoredProfileSettings, isStoredProfileComplete, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT, writeStoredProfileSettings } from '../utils/profileSettings';
+import { hydrateRemoteProfileSettings } from '../services/profilePersistenceService';
 
 interface TeamMember {
   id: string;
@@ -210,6 +210,29 @@ export function ProfileScreen() {
     setBalance(Math.max(getStoredUsdtBalance(), getScratchHistoryUsdtTotal(storedScratchHistory)));
     const profileSettings = applyProfileSettings();
 
+    void hydrateRemoteProfileSettings()
+      .then((settings) => {
+        if (!settings || cancelled) return;
+        writeStoredProfileSettings(settings);
+        const nextProfileSettings = applyProfileSettings();
+        syncCurrentUserNetworkProfile();
+        setTeamMembers((members) =>
+          members.map((member) =>
+            member.isCurrentUser
+              ? {
+                  ...member,
+                  name: nextProfileSettings.name,
+                  handle: nextProfileSettings.handle,
+                  avatar: nextProfileSettings.photo,
+                }
+              : member
+          )
+        );
+      })
+      .catch((error) => {
+        console.warn('Remote profile settings sync skipped:', error);
+      });
+
     void loadScratchProfile()
       .then((profile) => {
         if (!cancelled && profile?.balances) {
@@ -241,6 +264,22 @@ export function ProfileScreen() {
         console.warn('Network profile sync skipped:', error);
       });
 
+    void loadNetworkFollowStates()
+      .then((states) => {
+        if (!cancelled) {
+          const nextStates = {
+            ...defaultNetworkFollowStates,
+            ...getStoredNetworkFollowStates(),
+            ...states,
+          };
+          safeSetItem(NETWORK_FOLLOW_STATES_KEY, JSON.stringify(nextStates));
+          setNetworkFollowStates(nextStates);
+        }
+      })
+      .catch((error) => {
+        console.warn('Network follows sync skipped:', error);
+      });
+
     // Set member since date
     const userProfileData = safeGetItem('userProfile');
     const parsedProfile = userProfileData ? JSON.parse(userProfileData) : {};
@@ -253,7 +292,7 @@ export function ProfileScreen() {
         id: '1',
         name: profileSettings.name,
         points: points,
-        avatar: profileSettings.photo || getSelectedAvatarImage(),
+        avatar: profileSettings.photo,
         status: 'active',
         isCurrentUser: true,
         handle: profileSettings.handle
@@ -287,6 +326,7 @@ export function ProfileScreen() {
     const syncPointBalance = () => {
       const latestPoints = getUserPoints();
       setUserPoints(latestPoints);
+      syncCurrentUserNetworkProfile();
       setTeamMembers((members) =>
         members.map((member) =>
           member.isCurrentUser ? { ...member, points: latestPoints } : member
@@ -295,6 +335,7 @@ export function ProfileScreen() {
     };
     const handleProfileSettingsUpdated = () => {
       const nextProfileSettings = applyProfileSettings();
+      syncCurrentUserNetworkProfile();
       setTeamMembers((members) =>
         members.map((member) =>
           member.isCurrentUser
@@ -302,7 +343,7 @@ export function ProfileScreen() {
                 ...member,
                 name: nextProfileSettings.name,
                 handle: nextProfileSettings.handle,
-                avatar: nextProfileSettings.photo || getSelectedAvatarImage(),
+                avatar: nextProfileSettings.photo,
               }
             : member
         )
@@ -323,15 +364,28 @@ export function ProfileScreen() {
         });
       }
     };
+    const syncNetworkProfiles = () => {
+      void loadRecommendedFriends()
+        .then((profiles) => {
+          if (!cancelled) {
+            setRecommendedFriends(profiles);
+          }
+        })
+        .catch((error) => {
+          console.warn('Network profile sync skipped:', error);
+        });
+    };
 
     window.addEventListener(PROFILE_SETTINGS_UPDATED_EVENT, handleProfileSettingsUpdated);
     window.addEventListener(POINTS_UPDATED_EVENT, syncPointBalance);
+    window.addEventListener(LOCAL_NETWORK_PROFILES_UPDATED_EVENT, syncNetworkProfiles);
     window.addEventListener('storage', handleStorageChange);
 
     return () => {
       cancelled = true;
       window.removeEventListener(PROFILE_SETTINGS_UPDATED_EVENT, handleProfileSettingsUpdated);
       window.removeEventListener(POINTS_UPDATED_EVENT, syncPointBalance);
+      window.removeEventListener(LOCAL_NETWORK_PROFILES_UPDATED_EVENT, syncNetworkProfiles);
       window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
@@ -418,7 +472,7 @@ export function ProfileScreen() {
     }
 
     if (reward.type === 'merch') {
-      return <img src={tshirtRewardIcon} alt="Moneetize T-Shirt" className="h-6 w-6 object-contain" />;
+      return <img src={tshirtRewardIcon} alt="Moneetize Merch" className="h-6 w-6 object-contain" />;
     }
 
     if (reward.type === 'tripto') {
@@ -531,22 +585,39 @@ export function ProfileScreen() {
     handle: profile.handle,
     initialRank: fallbackNetworkProfiles.length + index + 2,
     initiallyFollowing: false,
-    followsMe: index % 2 === 0,
+    followsMe: profile.followsMe ?? index % 2 === 0,
   }));
   const currentUserNetworkProfile: NetworkProfile = {
     id: 'current-user',
     name: `${userName || 'Jess Wu'} (Me)`,
-    avatar: userPhoto || getSelectedAvatarImage(),
+    avatar: userPhoto,
     handle: userHandle,
     initialRank: 1,
     initiallyFollowing: false,
     followsMe: false,
     isCurrentUser: true,
   };
-  const candidateNetworkProfiles = [
-    ...fallbackNetworkProfiles,
-    ...(loadedNetworkProfiles.length > 0 ? loadedNetworkProfiles : []),
-  ];
+  const currentUserId = safeGetItem('user_id') || safeGetItem('user_email') || 'current-user';
+  const networkProfilesByKey = new Map<string, NetworkProfile>();
+  [...fallbackNetworkProfiles, ...loadedNetworkProfiles].forEach((profile) => {
+    const profileName = profile.name.replace(/\s+\(Me\)$/i, '');
+    const profileKey = `${profile.id || profileName}`.toLowerCase();
+
+    if (
+      profile.id === currentUserId ||
+      profile.id === 'current-user' ||
+      profileName === userName ||
+      networkProfilesByKey.has(profileKey)
+    ) {
+      return;
+    }
+
+    networkProfilesByKey.set(profileKey, {
+      ...profile,
+      initialRank: networkProfilesByKey.size + 2,
+    });
+  });
+  const candidateNetworkProfiles = [...networkProfilesByKey.values()];
 
   const isNetworkProfileFollowing = (profile: NetworkProfile) =>
     !profile.isCurrentUser && (networkFollowStates[profile.id] ?? profile.initiallyFollowing);
@@ -575,6 +646,21 @@ export function ProfileScreen() {
       safeSetItem(NETWORK_FOLLOW_STATES_KEY, JSON.stringify(nextStates));
       return nextStates;
     });
+
+    void saveNetworkFollowState(profile.id, !isFollowing)
+      .then((remoteStates) => {
+        setNetworkFollowStates((states) => {
+          const nextStates = {
+            ...states,
+            ...remoteStates,
+          };
+          safeSetItem(NETWORK_FOLLOW_STATES_KEY, JSON.stringify(nextStates));
+          return nextStates;
+        });
+      })
+      .catch((error) => {
+        console.warn('Network follow save skipped:', error);
+      });
   };
 
   const profileStats = [
@@ -671,7 +757,7 @@ export function ProfileScreen() {
                 </div>
                 <div className="mt-2 flex items-center gap-1.5">
                   <img src={gemIcon} alt="Gem" className="h-4 w-4" />
-                  <span className="text-[11px] font-black text-emerald-300">+397</span>
+                  <span className="text-[11px] font-black text-emerald-300">{userPoints.toLocaleString('en-US')} pts</span>
                 </div>
               </div>
               <button

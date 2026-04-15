@@ -47,7 +47,7 @@ export function UserProfileView() {
     { id: '5', name: 'Golden Window Extender', icon: '📦', type: 'extender' },
     { id: '6', name: 'Boost Amplifier', icon: '📦', type: 'booster' },
     { id: '7', name: 'Token Early Access', icon: '📦', type: 'booster' },
-    { id: '8', name: 'Moneetize T-Shirt', icon: '👕', type: 'merchandise' },
+    { id: '8', name: 'Moneetize Merch', icon: '👕', type: 'merchandise' },
   ];
 
   const handleConnect = () => {

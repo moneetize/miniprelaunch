@@ -76,6 +76,10 @@ const getParticipationProgress = (level: number) => participationProgressByLevel
 
 const getParticipationLabel = (level: number) => participationLabelByLevel[level] ?? 'Coordinator';
 
+const normalizeRewardItemLabel = (item: ScratchRewardItem): ScratchRewardItem => (
+  item.type === 'merch' ? { ...item, label: 'Moneetize Merch' } : item
+);
+
 const formatGoldenRemaining = (remaining?: { hours?: number; minutes?: number; seconds?: number }) => {
   const hours = remaining?.hours ?? 0;
   const minutes = remaining?.minutes ?? 0;
@@ -194,7 +198,7 @@ const createTeaserReward = ({
     items.splice(1, 0, {
       id: `${ticketId}-moneetize-shirt`,
       type: 'merch',
-      label: 'Moneetize T-Shirt',
+      label: 'Moneetize Merch',
       description: 'Launch team merch reward',
       icon: 'shirt',
     });
@@ -1027,7 +1031,7 @@ export function ScratchAndWin() {
       icon: 'tripto',
     },
   ];
-  const activationRewards = reward.items?.length ? reward.items : fallbackRewardItems;
+  const activationRewards = (reward.items?.length ? reward.items : fallbackRewardItems).map(normalizeRewardItemLabel);
   const hasMerchandiseReward = activationRewards.some(item => item.type === 'merch');
   const teamNetworkMembers = Math.min(SCRATCH_TEAM_MEMBERS + 1, SCRATCH_TEAM_TARGET);
   const teamNetworkProgress = Math.round((teamNetworkMembers / SCRATCH_TEAM_TARGET) * 100);
@@ -1953,14 +1957,7 @@ export function ScratchAndWin() {
                 })}
               </div>
 
-              <div className="mt-7 flex flex-col items-center gap-6">
-                <button
-                  type="button"
-                  onClick={handleViewProfile}
-                  className="rounded-full bg-white px-10 py-3.5 text-[14px] font-black text-black shadow-xl transition-colors hover:bg-gray-100"
-                >
-                  Skip for Now
-                </button>
+              <div className="mt-7 flex justify-center">
                 <button
                   type="button"
                   onClick={handleViewProfile}

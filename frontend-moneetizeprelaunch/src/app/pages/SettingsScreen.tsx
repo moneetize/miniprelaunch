@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -37,7 +37,10 @@ import {
   Car
 } from 'lucide-react';
 import { safeGetItem, safeSetItem } from '../utils/storage';
-import { getStoredProfileSettings, markProfileCompleted, notifyProfileSettingsUpdated, resolveProfilePhoto } from '../utils/profileSettings';
+import { clearProfilePhoto, getStoredProfileSettings, markProfileCompleted, notifyProfileSettingsUpdated, saveProfilePhoto, writeStoredProfileSettings, type StoredProfileSettings } from '../utils/profileSettings';
+import { syncCurrentUserNetworkProfile } from '../services/networkService';
+import { updateUserProfile } from '../services/authService';
+import { hydrateRemoteProfileSettings, saveRemoteProfileSettings } from '../services/profilePersistenceService';
 
 // Import AI agent avatars - the original two plus generated variants in the settings selector.
 import aiBubble from 'figma:asset/36fff8878cf3ea6d1ef44d3f08bbc2346c733ebc.png';
@@ -198,8 +201,53 @@ const interestBubbleLayout = [
   { id: 'car', left: '69%', top: '88%', size: 94, opacity: 0.2 },
 ] as const;
 
+function getInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'ME';
+}
+
+function resizeProfilePhoto(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onerror = () => reject(new Error('Unable to read this photo.'));
+    reader.onload = () => {
+      const image = new Image();
+
+      image.onerror = () => reject(new Error('Unable to load this photo.'));
+      image.onload = () => {
+        const maxSize = 640;
+        const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+        const width = Math.max(1, Math.round(image.width * scale));
+        const height = Math.max(1, Math.round(image.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const context = canvas.getContext('2d');
+        if (!context) {
+          reject(new Error('Unable to process this photo.'));
+          return;
+        }
+
+        context.drawImage(image, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+
+      image.src = `${reader.result || ''}`;
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
 export function SettingsScreen() {
   const navigate = useNavigate();
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const [currentView, setCurrentView] = useState<'main' | 'agent' | 'interests' | 'password'>('main');
   const [userPhoto, setUserPhoto] = useState<string>('');
   const [userName, setUserName] = useState('');
@@ -222,34 +270,57 @@ export function SettingsScreen() {
   const [tempHandle, setTempHandle] = useState('');
 
   useEffect(() => {
-    // Load user data
-    const profileSettings = getStoredProfileSettings({
+    let cancelled = false;
+
+    const applyProfileSettings = (profileSettings: StoredProfileSettings) => {
+      if (cancelled) return;
+
+      setUserName(profileSettings.name);
+      setTempName(profileSettings.name);
+      setUserHandle(profileSettings.handle);
+      setTempHandle(profileSettings.handle);
+      setUserEmail(profileSettings.email);
+      setUserPhoto(profileSettings.photo);
+      setSelectedInterests(profileSettings.interests);
+      setSelectedInvestment(profileSettings.investmentProfile || 'income');
+      setTags(profileSettings.tags);
+      setAgentName(profileSettings.agentName);
+
+      const savedAvatarId = profileSettings.selectedAvatar || 'blueAvatar';
+      const avatarIndex = aiAgentAvatars.findIndex(avatar => avatar.id === savedAvatarId);
+      if (avatarIndex !== -1) {
+        setSelectedAgent(avatarIndex);
+      }
+    };
+
+    const loadStoredSettings = () => getStoredProfileSettings({
       fallbackName: 'Jess Wu',
       fallbackHandle: '@healthyhabits',
       fallbackEmail: 'user@gmail.com',
     });
 
-    setUserName(profileSettings.name);
-    setTempName(profileSettings.name);
-    setUserHandle(profileSettings.handle);
-    setTempHandle(profileSettings.handle);
-    setUserEmail(profileSettings.email);
-    setUserPhoto(profileSettings.photo);
-    setSelectedInterests(profileSettings.interests);
-    setSelectedInvestment(profileSettings.investmentProfile || 'income');
-    setTags(profileSettings.tags);
-    setAgentName(profileSettings.agentName);
+    // Load user data
+    applyProfileSettings(loadStoredSettings());
     
     // Determine auth method
     const method = localStorage.getItem('authMethod') || 'email';
     setAuthMethod(method);
 
-    // Load selected AI agent avatar from registration
-    const savedAvatarId = profileSettings.selectedAvatar || 'blueAvatar';
-    const avatarIndex = aiAgentAvatars.findIndex(avatar => avatar.id === savedAvatarId);
-    if (avatarIndex !== -1) {
-      setSelectedAgent(avatarIndex);
-    }
+    void hydrateRemoteProfileSettings()
+      .then((settings) => {
+        if (!settings || cancelled) return;
+        writeStoredProfileSettings(settings);
+        applyProfileSettings(loadStoredSettings());
+        notifyProfileSettingsUpdated();
+        syncCurrentUserNetworkProfile();
+      })
+      .catch((error) => {
+        console.warn('Remote profile settings sync skipped:', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const saveInvestmentProfile = (investmentProfile: string) => {
@@ -261,12 +332,18 @@ export function SettingsScreen() {
     safeSetItem('userProfile', JSON.stringify(parsedProfile));
     safeSetItem('investmentProfile', investmentProfile);
     notifyProfileSettingsUpdated();
+    void saveRemoteProfileSettings({ investmentProfile }).catch((error) => {
+      console.warn('Remote investment profile sync skipped:', error);
+    });
   };
 
   const saveTags = (nextTags: string[]) => {
     setTags(nextTags);
     safeSetItem('profileTags', JSON.stringify(nextTags));
     notifyProfileSettingsUpdated();
+    void saveRemoteProfileSettings({ tags: nextTags }).catch((error) => {
+      console.warn('Remote profile tags sync skipped:', error);
+    });
   };
 
   const toggleInterest = (interestId: string) => {
@@ -302,6 +379,9 @@ export function SettingsScreen() {
       setUserName(tempName.trim());
       safeSetItem('userName', tempName.trim());
       notifyProfileSettingsUpdated();
+      void saveRemoteProfileSettings({ name: tempName.trim() }).catch((error) => {
+        console.warn('Remote profile name sync skipped:', error);
+      });
       setEditingName(false);
     }
   };
@@ -313,6 +393,9 @@ export function SettingsScreen() {
       setUserHandle(formattedHandle);
       safeSetItem('userHandle', formattedHandle);
       notifyProfileSettingsUpdated();
+      void saveRemoteProfileSettings({ handle: formattedHandle }).catch((error) => {
+        console.warn('Remote profile handle sync skipped:', error);
+      });
       setEditingHandle(false);
     }
   };
@@ -324,7 +407,7 @@ export function SettingsScreen() {
     setEditingHandle(false);
   };
 
-  const handleSaveProfile = () => {
+  const handleSaveProfile = async () => {
     if (userName.trim()) {
       safeSetItem('userName', userName.trim());
     }
@@ -343,7 +426,68 @@ export function SettingsScreen() {
     safeSetItem('agentName', agentName);
     markProfileCompleted();
     notifyProfileSettingsUpdated();
-    navigate('/profile-screen');
+    syncCurrentUserNetworkProfile();
+
+    try {
+      await saveRemoteProfileSettings({
+        name: userName.trim(),
+        handle: userHandle.startsWith('@') ? userHandle : `@${userHandle}`,
+        email: userEmail.trim(),
+        interests: selectedInterests,
+        investmentProfile: selectedInvestment,
+        tags,
+        agentName,
+        profileComplete: true,
+      });
+    } catch (error) {
+      console.warn('Remote profile settings save skipped:', error);
+    }
+
+    if (safeGetItem('access_token')) {
+      try {
+        await updateUserProfile({ name: userName.trim() });
+      } catch (error) {
+        console.warn('Supabase profile name sync skipped:', error);
+      }
+    }
+
+    const nextPath = sessionStorage.getItem('moneetizeProfileCompletionReturnPath') || '/profile-screen';
+    sessionStorage.removeItem('moneetizeProfileCompletionReturnPath');
+    navigate(nextPath.startsWith('/') ? nextPath : '/profile-screen');
+  };
+
+  const handleChooseProfilePhoto = () => {
+    photoInputRef.current?.click();
+  };
+
+  const handleProfilePhotoChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const photo = await resizeProfilePhoto(file);
+      setUserPhoto(photo);
+      saveProfilePhoto(photo);
+      notifyProfileSettingsUpdated();
+      syncCurrentUserNetworkProfile();
+      void saveRemoteProfileSettings({ photo }).catch((error) => {
+        console.warn('Remote profile photo sync skipped:', error);
+      });
+    } catch (error) {
+      console.error('Profile photo update failed:', error);
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const handleRemoveProfilePhoto = () => {
+    setUserPhoto('');
+    clearProfilePhoto();
+    notifyProfileSettingsUpdated();
+    syncCurrentUserNetworkProfile();
+    void saveRemoteProfileSettings({ photo: '' }).catch((error) => {
+      console.warn('Remote profile photo removal sync skipped:', error);
+    });
   };
 
   const renderAgentVisual = (avatar = aiAgentAvatars[selectedAgent]) => {
@@ -412,8 +556,14 @@ export function SettingsScreen() {
   };
 
   const renderUserAvatar = (sizeClass = 'h-20 w-20', ringClass = 'border-white/80') => (
-    <div className={`${sizeClass} overflow-hidden rounded-full border-2 ${ringClass} bg-gradient-to-br from-purple-500 to-pink-500 shadow-[0_0_24px_rgba(255,255,255,0.18)]`}>
-      {userPhoto && <img src={userPhoto} alt={userName} className="h-full w-full object-cover" />}
+    <div className={`${sizeClass} overflow-hidden rounded-full border-2 ${ringClass} bg-[#2d3035] shadow-[0_0_24px_rgba(255,255,255,0.18)]`}>
+      {userPhoto ? (
+        <img src={userPhoto} alt={userName} className="h-full w-full object-cover" />
+      ) : (
+        <span className="flex h-full w-full items-center justify-center text-sm font-black text-white/70">
+          {getInitials(userName)}
+        </span>
+      )}
     </div>
   );
 
@@ -700,12 +850,38 @@ export function SettingsScreen() {
             </button>
 
             <div className="relative">
-              <div className="h-[68px] w-[68px] overflow-hidden rounded-full border-2 border-orange-400/80 bg-gradient-to-br from-purple-500 to-pink-500 shadow-[0_0_20px_rgba(255,136,22,0.28)]">
-                {userPhoto && <img src={userPhoto} alt={userName} className="h-full w-full object-cover" />}
-              </div>
-              <button className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-white text-black shadow-lg">
+              <button
+                type="button"
+                onClick={handleChooseProfilePhoto}
+                className="h-[68px] w-[68px] overflow-hidden rounded-full border-2 border-orange-400/80 bg-[#2d3035] shadow-[0_0_20px_rgba(255,136,22,0.28)]"
+                aria-label="Change profile photo"
+              >
+                {userPhoto ? (
+                  <img src={userPhoto} alt={userName} className="h-full w-full object-cover" />
+                ) : (
+                  <span className="flex h-full w-full items-center justify-center text-lg font-black text-white/70">
+                    {getInitials(userName)}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={handleChooseProfilePhoto}
+                className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-white text-black shadow-lg"
+                aria-label="Upload profile photo"
+              >
                 <Edit3 className="h-3 w-3" />
               </button>
+              {userPhoto && (
+                <button
+                  type="button"
+                  onClick={handleRemoveProfilePhoto}
+                  className="absolute -left-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-[#df555a] text-white shadow-lg"
+                  aria-label="Remove profile photo"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
             </div>
 
             <button
@@ -951,9 +1127,6 @@ export function SettingsScreen() {
                 onClick={() => {
                   setSelectedAgent(idx);
                   safeSetItem('selectedAvatar', avatar.id);
-                  if (!sessionStorage.getItem('userPhoto') && !safeGetItem('userPhoto')) {
-                    setUserPhoto(resolveProfilePhoto('', avatar.id));
-                  }
                   notifyProfileSettingsUpdated();
                 }}
                 className="relative h-[70px] w-[70px] rounded-full transition-transform hover:scale-105"
@@ -1088,6 +1261,9 @@ export function SettingsScreen() {
             onClick={() => {
               safeSetItem('selectedInterests', JSON.stringify(selectedInterests));
               notifyProfileSettingsUpdated();
+              void saveRemoteProfileSettings({ interests: selectedInterests }).catch((error) => {
+                console.warn('Remote interests sync skipped:', error);
+              });
               setCurrentView('main');
             }}
             className="mt-6 w-full rounded-full bg-white px-6 py-3.5 text-sm font-black text-black shadow-[0_16px_38px_rgba(0,0,0,0.34)] transition-colors hover:bg-gray-100"
@@ -1191,6 +1367,13 @@ export function SettingsScreen() {
 
   return (
     <div className="absolute inset-0 w-full h-full overflow-y-auto bg-black">
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleProfilePhotoChange}
+        className="hidden"
+      />
       {/* Status Bar */}
       <div className="absolute top-0 left-0 right-0 h-11 flex items-center justify-between px-4 text-white text-sm z-50">
         <div className="flex items-center gap-2">

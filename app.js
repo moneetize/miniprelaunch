@@ -280,7 +280,7 @@ function createRewardItems(ticket) {
     items.splice(1, 0, {
       id: `${ticket.id}-moneetize-shirt`,
       type: "merch",
-      label: "Moneetize T-Shirt",
+      label: "Moneetize Merch",
       description: "Launch team merch reward",
       icon: "shirt",
     });
@@ -580,7 +580,6 @@ function renderTeamScreen() {
         <span>${escapeHtml(draw.ticket.tier)}</span>
         <strong>${formatUsdt(draw.reward.usdt)} + ${draw.reward.score} pts</strong>
       </div>
-      <button class="secondary-cta" type="button" data-action="skip-team">Skip for Now</button>
       <button class="primary-cta" type="button" data-action="view-profile">View Profile</button>
     </section>
   `, "centered");
@@ -1090,7 +1089,6 @@ app.addEventListener("click", (event) => {
       saveState();
       render();
       break;
-    case "skip-team":
     case "view-profile":
       state.step = "profile";
       saveState();

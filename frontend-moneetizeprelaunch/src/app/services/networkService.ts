@@ -1,4 +1,6 @@
 import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { getUserPoints } from '../utils/pointsManager';
+import { safeGetItem, safeSetItem } from '../utils/storage';
 
 export interface RecommendedFriendProfile {
   id: string;
@@ -10,6 +12,7 @@ export interface RecommendedFriendProfile {
   followers: number;
   following: number;
   points: number;
+  followsMe?: boolean;
 }
 
 type RecommendedFriendsResponse = {
@@ -21,7 +24,17 @@ type RecommendedFriendsResponse = {
   error?: string;
 };
 
+type NetworkFollowStatesResponse = {
+  success?: boolean;
+  data?: {
+    states?: Record<string, boolean>;
+  };
+  error?: string;
+};
+
 const NETWORK_API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-7a79873f/network`;
+const LOCAL_NETWORK_PROFILES_KEY = 'moneetizeRegisteredProfiles';
+export const LOCAL_NETWORK_PROFILES_UPDATED_EVENT = 'moneetize-local-network-profiles-updated';
 
 const defaultRecommendedFriends: RecommendedFriendProfile[] = [
   {
@@ -82,8 +95,10 @@ const defaultRecommendedFriends: RecommendedFriendProfile[] = [
 ];
 
 function authHeaders() {
+  const accessToken = safeGetItem('access_token');
+
   return {
-    Authorization: `Bearer ${publicAnonKey}`,
+    Authorization: `Bearer ${accessToken || publicAnonKey}`,
     apikey: publicAnonKey,
     'Content-Type': 'application/json',
   };
@@ -98,9 +113,113 @@ export function getDefaultRecommendedFriends(): RecommendedFriendProfile[] {
   return defaultRecommendedFriends;
 }
 
-export async function loadRecommendedFriends(): Promise<RecommendedFriendProfile[]> {
+function parseProfileList(value: string | null) {
+  if (!value) return [];
+
   try {
-    const response = await fetch(`${NETWORK_API_URL}/recommended-friends`, {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed as RecommendedFriendProfile[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function formatHandle(name: string) {
+  const cleaned = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return cleaned ? `@${cleaned}` : '@moneetize';
+}
+
+function normalizeNetworkProfile(profile: Partial<RecommendedFriendProfile> & { id?: string; email?: string }, index: number): RecommendedFriendProfile | null {
+  const id = profile.id || profile.email || '';
+  const emailName = profile.email?.split('@')[0]?.replace(/[._-]+/g, ' ').trim() || '';
+  const name = profile.name || emailName || 'Moneetize Member';
+
+  if (!id) return null;
+
+  return {
+    id,
+    name,
+    handle: profile.handle || formatHandle(name),
+    bio: profile.bio || 'Moneetize prelaunch member',
+    avatar: profile.avatar || '',
+    interests: Array.isArray(profile.interests) ? profile.interests : [],
+    followers: Number.isFinite(Number(profile.followers)) ? Number(profile.followers) : 0,
+    following: Number.isFinite(Number(profile.following)) ? Number(profile.following) : 0,
+    points: Number.isFinite(Number(profile.points)) ? Number(profile.points) : Math.max(0, 10 + (index * 5)),
+  };
+}
+
+function mergeProfiles(...profileGroups: RecommendedFriendProfile[][]) {
+  const merged = new Map<string, RecommendedFriendProfile>();
+
+  profileGroups.flat().forEach((profile, index) => {
+    const normalized = normalizeNetworkProfile(profile, index);
+    if (normalized) merged.set(normalized.id, normalized);
+  });
+
+  return [...merged.values()];
+}
+
+export function loadLocalNetworkProfiles() {
+  return parseProfileList(safeGetItem(LOCAL_NETWORK_PROFILES_KEY))
+    .map((profile, index) => normalizeNetworkProfile(profile, index))
+    .filter((profile): profile is RecommendedFriendProfile => Boolean(profile));
+}
+
+export function saveLocalNetworkProfile(profile: Partial<RecommendedFriendProfile> & { id: string; email?: string }) {
+  const existingProfiles = loadLocalNetworkProfiles();
+  const normalizedProfile = normalizeNetworkProfile(profile, existingProfiles.length);
+
+  if (!normalizedProfile) return existingProfiles;
+
+  const nextProfiles = [
+    normalizedProfile,
+    ...existingProfiles.filter((entry) => entry.id !== normalizedProfile.id),
+  ].slice(0, 100);
+
+  safeSetItem(LOCAL_NETWORK_PROFILES_KEY, JSON.stringify(nextProfiles));
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(LOCAL_NETWORK_PROFILES_UPDATED_EVENT));
+  }
+
+  return nextProfiles;
+}
+
+export function syncCurrentUserNetworkProfile() {
+  const id = safeGetItem('user_id') || safeGetItem('user_email') || '';
+  if (!id) return loadLocalNetworkProfiles();
+
+  const name = safeGetItem('userName') || safeGetItem('user_email')?.split('@')[0] || 'Moneetize Member';
+  const avatar = sessionStorage.getItem('userPhoto') || safeGetItem('userPhoto') || '';
+  const interests = (() => {
+    try {
+      const parsed = JSON.parse(safeGetItem('selectedInterests') || '[]');
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+    } catch {
+      return [];
+    }
+  })();
+
+  return saveLocalNetworkProfile({
+    id,
+    name,
+    handle: safeGetItem('userHandle') || formatHandle(name),
+    avatar,
+    interests,
+    followers: 0,
+    following: 0,
+    points: getUserPoints(),
+  });
+}
+
+export async function loadRecommendedFriends(): Promise<RecommendedFriendProfile[]> {
+  const currentUserId = safeGetItem('user_id') || '';
+  const localProfiles = loadLocalNetworkProfiles().filter((profile) => profile.id !== currentUserId);
+  const currentUserQuery = currentUserId ? `?current_user_id=${encodeURIComponent(currentUserId)}` : '';
+
+  try {
+    const response = await fetch(`${NETWORK_API_URL}/profiles${currentUserQuery}`, {
       method: 'GET',
       headers: authHeaders(),
     });
@@ -108,12 +227,56 @@ export async function loadRecommendedFriends(): Promise<RecommendedFriendProfile
     const result = await readJson<RecommendedFriendsResponse>(response);
 
     if (!response.ok || !result.success) {
-      throw new Error(result.error || 'Failed to load recommended friends.');
+      throw new Error(result.error || 'Failed to load network profiles.');
     }
 
-    return result.data?.profiles?.length ? result.data.profiles : defaultRecommendedFriends;
+    const databaseProfiles = (result.data?.profiles || []).filter((profile) => profile.id !== currentUserId);
+    return mergeProfiles(databaseProfiles, localProfiles, defaultRecommendedFriends);
   } catch (error) {
-    console.warn('Recommended friends fallback loaded:', error);
-    return defaultRecommendedFriends;
+    console.warn('Database network profiles unavailable:', error);
+    return mergeProfiles(localProfiles, defaultRecommendedFriends);
   }
+}
+
+export async function loadNetworkFollowStates(): Promise<Record<string, boolean>> {
+  if (!safeGetItem('access_token')) return {};
+
+  try {
+    const response = await fetch(`${NETWORK_API_URL}/follows`, {
+      method: 'GET',
+      headers: authHeaders(),
+    });
+
+    const result = await readJson<NetworkFollowStatesResponse>(response);
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Failed to load network follows.');
+    }
+
+    return result.data?.states || {};
+  } catch (error) {
+    console.warn('Database network follows unavailable:', error);
+    return {};
+  }
+}
+
+export async function saveNetworkFollowState(
+  targetProfileId: string,
+  following: boolean,
+): Promise<Record<string, boolean>> {
+  if (!safeGetItem('access_token')) return { [targetProfileId]: following };
+
+  const response = await fetch(`${NETWORK_API_URL}/follows`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify({ targetProfileId, following }),
+  });
+
+  const result = await readJson<NetworkFollowStatesResponse>(response);
+
+  if (!response.ok || !result.success) {
+    throw new Error(result.error || 'Failed to save network follow state.');
+  }
+
+  return result.data?.states || { [targetProfileId]: following };
 }

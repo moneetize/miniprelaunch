@@ -31,6 +31,8 @@ const DEFAULT_USER_POINTS = 10;
 const DEFAULT_USER_USDT = 0;
 const SCRATCH_HISTORY_LIMIT = 50;
 const RECOMMENDED_FRIENDS_KEY = 'network:recommended_friends';
+const PROFILE_SETTINGS_PREFIX = 'profile_settings:';
+const NETWORK_FOLLOWS_PREFIX = 'network_follows:';
 const EARLY_ACCESS_REQUESTS_KEY = 'early_access_requests';
 const EMAIL_QUEUE_KEY = 'email_notifications';
 const MARKETPLACE_ORDERS_KEY = 'marketplace_orders';
@@ -374,6 +376,54 @@ const getUserDisplayName = (user: any, fallbackName = '') => (
   'Moneetize User'
 );
 
+const formatUserHandle = (name: string) => {
+  const cleanedName = `${name || ''}`.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return cleanedName ? `@${cleanedName}` : '@moneetize';
+};
+
+const normalizeStringArray = (value: unknown, fallback: string[] = []) => (
+  Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string').slice(0, 25)
+    : fallback
+);
+
+const normalizeProfileSettings = (settings: any, user: any = {}) => {
+  const source = settings && typeof settings === 'object' ? settings : {};
+  const name = `${source.name || getUserDisplayName(user)}`.trim() || 'Moneetize User';
+  const handle = `${source.handle || formatUserHandle(name)}`.trim();
+  const completedAt = typeof source.completedAt === 'string'
+    ? source.completedAt
+    : source.profileComplete === true
+      ? new Date().toISOString()
+      : '';
+
+  return {
+    name,
+    handle: handle.startsWith('@') ? handle : `@${handle}`,
+    email: `${source.email || user?.email || ''}`.trim().toLowerCase(),
+    photo: `${source.photo || ''}`.trim(),
+    selectedAvatar: `${source.selectedAvatar || 'blueAvatar'}`.trim(),
+    interests: normalizeStringArray(source.interests),
+    investmentProfile: `${source.investmentProfile || ''}`.trim(),
+    tags: normalizeStringArray(source.tags),
+    agentName: `${source.agentName || 'My AI Agent'}`.trim(),
+    profileComplete: source.profileComplete === true,
+    completedAt,
+    updatedAt: new Date().toISOString(),
+  };
+};
+
+const normalizeFollowStates = (value: unknown) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as any).states || value
+    : {};
+
+  return Object.entries(source as Record<string, unknown>).reduce((states, [profileId, following]) => {
+    if (profileId) states[profileId] = following === true;
+    return states;
+  }, {} as Record<string, boolean>);
+};
+
 const queueEmailNotification = async (email: Record<string, unknown>) => {
   const queuedNotifications = parseStoredJsonArray(await kv.get(EMAIL_QUEUE_KEY));
   const notification = {
@@ -488,7 +538,7 @@ const createScratchRewardItems = (ticket: typeof scratchTickets[number]) => {
     rewardItems.splice(1, 0, {
       id: `${ticket.id}-moneetize-shirt`,
       type: 'merch',
-      label: 'Moneetize T-Shirt',
+      label: 'Moneetize Merch',
       description: 'Launch team merch reward',
       icon: 'shirt',
     });
@@ -597,6 +647,48 @@ app.post("/make-server-7a79873f/auth/update-profile", async (c) => {
   } catch (error) {
     console.error('Update profile endpoint error:', error);
     return c.json({ success: false, error: 'Failed to update profile' }, 500);
+  }
+});
+
+// Persisted profile settings routes
+app.get("/make-server-7a79873f/profile/settings", async (c) => {
+  try {
+    const currentUser = await verifyCurrentUser(c);
+    if ('response' in currentUser) return currentUser.response;
+
+    const storedSettings = await kv.get(`${PROFILE_SETTINGS_PREFIX}${currentUser.user.id}`);
+
+    return c.json({
+      success: true,
+      data: {
+        settings: storedSettings ? normalizeProfileSettings(storedSettings, currentUser.user) : null,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Profile settings load endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to load profile settings' }, 500);
+  }
+});
+
+app.put("/make-server-7a79873f/profile/settings", async (c) => {
+  try {
+    const currentUser = await verifyCurrentUser(c);
+    if ('response' in currentUser) return currentUser.response;
+
+    const body = await c.req.json();
+    const settings = normalizeProfileSettings(body?.settings || body, currentUser.user);
+
+    await kv.set(`${PROFILE_SETTINGS_PREFIX}${currentUser.user.id}`, settings);
+
+    return c.json({
+      success: true,
+      data: {
+        settings,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Profile settings save endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to save profile settings' }, 500);
   }
 });
 
@@ -729,6 +821,114 @@ app.get("/make-server-7a79873f/network/recommended-friends", async (c) => {
   } catch (error) {
     console.error('Recommended friends endpoint error:', error);
     return c.json({ success: false, error: 'Failed to load recommended friends' }, 500);
+  }
+});
+
+app.get("/make-server-7a79873f/network/profiles", async (c) => {
+  try {
+    const currentUserId = c.req.query('current_user_id') || '';
+    const result = await auth.listAllUsers();
+    if (!result.success || !result.data?.users) {
+      return c.json({ success: false, error: result.error || 'Failed to load network profiles' }, result.status || 500);
+    }
+
+    const allFollowRecords = await kv.getByPrefix(NETWORK_FOLLOWS_PREFIX);
+
+    const profiles = await Promise.all(
+      result.data.users
+        .filter((user: any) => user.id !== currentUserId)
+        .map(async (user: any, index: number) => {
+          const [storedPoints, storedSettings, storedFollowRecord] = await Promise.all([
+            kv.get(`user_points:${user.id}`),
+            kv.get(`${PROFILE_SETTINGS_PREFIX}${user.id}`),
+            kv.get(`${NETWORK_FOLLOWS_PREFIX}${user.id}`),
+          ]);
+          const settings = normalizeProfileSettings(storedSettings || {}, user);
+          const userFollowStates = normalizeFollowStates(storedFollowRecord);
+          const followers = allFollowRecords.filter((record) => normalizeFollowStates(record)[user.id]).length;
+          const followsMe = currentUserId ? Boolean(userFollowStates[currentUserId]) : false;
+
+          return {
+            id: user.id,
+            name: settings.name,
+            handle: settings.handle || formatUserHandle(settings.name || `member${index + 1}`),
+            bio: 'Moneetize prelaunch member',
+            avatar: settings.photo || '',
+            interests: settings.interests || [],
+            followers,
+            following: Object.values(userFollowStates).filter(Boolean).length,
+            followsMe,
+            points: parseStoredNumber(storedPoints, DEFAULT_USER_POINTS),
+          };
+        }),
+    );
+
+    return c.json({
+      success: true,
+      data: {
+        profiles,
+        total: profiles.length,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Network profiles endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to load network profiles' }, 500);
+  }
+});
+
+app.get("/make-server-7a79873f/network/follows", async (c) => {
+  try {
+    const currentUser = await verifyCurrentUser(c);
+    if ('response' in currentUser) return currentUser.response;
+
+    const storedFollowRecord = await kv.get(`${NETWORK_FOLLOWS_PREFIX}${currentUser.user.id}`);
+
+    return c.json({
+      success: true,
+      data: {
+        states: normalizeFollowStates(storedFollowRecord),
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Network follows load endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to load network follows' }, 500);
+  }
+});
+
+app.put("/make-server-7a79873f/network/follows", async (c) => {
+  try {
+    const currentUser = await verifyCurrentUser(c);
+    if ('response' in currentUser) return currentUser.response;
+
+    const body = await c.req.json();
+    const targetProfileId = `${body?.targetProfileId || ''}`.trim();
+
+    if (!targetProfileId) {
+      return c.json({ success: false, error: 'Target profile id is required' }, 400);
+    }
+
+    const followKey = `${NETWORK_FOLLOWS_PREFIX}${currentUser.user.id}`;
+    const currentStates = normalizeFollowStates(await kv.get(followKey));
+    const nextStates = {
+      ...currentStates,
+      [targetProfileId]: body?.following === true,
+    };
+
+    await kv.set(followKey, {
+      userId: currentUser.user.id,
+      states: nextStates,
+      updatedAt: new Date().toISOString(),
+    });
+
+    return c.json({
+      success: true,
+      data: {
+        states: nextStates,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Network follows save endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to save network follow' }, 500);
   }
 });
 

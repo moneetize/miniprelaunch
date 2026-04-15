@@ -2,6 +2,8 @@ import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { safeSetItem, safeGetItem } from '../utils/storage';
 import { initializeUserPoints } from '../utils/pointsManager';
 import { markProfileIncomplete } from '../utils/profileSettings';
+import { saveLocalNetworkProfile } from './networkService';
+import { hydrateRemoteProfileSettings } from './profilePersistenceService';
 import { getOAuthRedirectTo, supabase, type SocialAuthProvider } from './supabaseClient';
 import type { Session, User } from '@supabase/supabase-js';
 
@@ -77,6 +79,32 @@ type SupabaseUserResult = {
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-7a79873f/auth`;
 const SUPABASE_AUTH_URL = `https://${projectId}.supabase.co/auth/v1`;
+const USER_SCOPED_STORAGE_KEYS = [
+  'userPhoto',
+  'userPhotoOwnerId',
+  'selectedAvatar',
+  'userHandle',
+  'selectedInterests',
+  'investmentProfile',
+  'profileTags',
+  'agentName',
+  'userProfile',
+  'moneetizeProfileComplete',
+  'userPoints',
+  'pointsHistory',
+  'scratchHistory',
+  'lastScratchReward',
+  'scratchTeaserReward',
+  'userUsdtBalance',
+  'networkFollowStates',
+  'pendingInvitations',
+  'pendingTeamInvites',
+  'sentInvites',
+  'userConnections',
+  'myGroups',
+  'networkGroups',
+  'moneetizeMarketplaceCart',
+];
 
 function authHeaders(token = publicAnonKey) {
   return {
@@ -144,6 +172,38 @@ function normalizeUser(
   };
 }
 
+function clearUserScopedLocalState() {
+  try {
+    USER_SCOPED_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
+    sessionStorage.removeItem('userPhoto');
+  } catch (error) {
+    console.warn('Unable to clear previous local user state:', error);
+  }
+}
+
+function shouldClearPreviousUser(nextUser: UserData) {
+  const previousUserId = safeGetItem('user_id');
+  const previousEmail = safeGetItem('user_email');
+
+  return Boolean(
+    (previousUserId && previousUserId !== nextUser.id) ||
+    (previousEmail && previousEmail.toLowerCase() !== nextUser.email.toLowerCase()),
+  );
+}
+
+function rememberNetworkProfile(user: UserData) {
+  saveLocalNetworkProfile({
+    id: user.id,
+    name: user.name,
+    handle: `@${user.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '') || 'moneetize'}`,
+    avatar: '',
+    interests: [],
+    followers: 0,
+    following: 0,
+    points: user.points || parseInt(safeGetItem('userPoints') || '10', 10),
+  });
+}
+
 function persistUserProfile(
   user?: BackendAuthResult['data']['user'] | SupabaseUserResult,
   fallbackEmail = '',
@@ -155,6 +215,7 @@ function persistUserProfile(
   safeSetItem('userName', normalizedUser.name);
   safeSetItem('user_id', normalizedUser.id);
   setAdminStatus(Boolean(normalizedUser.isAdmin));
+  rememberNetworkProfile(normalizedUser);
 
   return normalizedUser;
 }
@@ -169,7 +230,13 @@ function persistAuthSession(
     throw new Error('Auth response did not include an access token.');
   }
 
-  const normalizedUser = persistUserProfile(user, fallbackEmail, fallbackName);
+  const normalizedUser = normalizeUser(user, fallbackEmail, fallbackName);
+
+  if (shouldClearPreviousUser(normalizedUser)) {
+    clearUserScopedLocalState();
+  }
+
+  persistUserProfile(user, fallbackEmail, fallbackName);
 
   safeSetItem('access_token', session.access_token);
   if (session.refresh_token) {
@@ -193,7 +260,14 @@ function toSupabaseUserResult(user: User): SupabaseUserResult {
 }
 
 function persistSupabaseSession(session: Session) {
-  const normalizedUser = persistUserProfile(toSupabaseUserResult(session.user));
+  const supabaseUser = toSupabaseUserResult(session.user);
+  const normalizedUser = normalizeUser(supabaseUser);
+
+  if (shouldClearPreviousUser(normalizedUser)) {
+    clearUserScopedLocalState();
+  }
+
+  persistUserProfile(supabaseUser);
 
   safeSetItem('access_token', session.access_token);
   safeSetItem('refresh_token', session.refresh_token);
@@ -444,6 +518,7 @@ export async function registerUser(
       };
     }
 
+    clearUserScopedLocalState();
     const user = persistAuthSession(result.data?.user, result.data?.session, requestBody.email, requestBody.name);
     const syncedUser = await syncSupabaseUserFromAccessToken(result.data?.session?.access_token);
     markProfileIncomplete();
@@ -514,6 +589,9 @@ export async function loginUser(
 
     const user = persistAuthSession(result.data?.user, result.data?.session, requestBody.email);
     const syncedUser = await syncSupabaseUserFromAccessToken(result.data?.session?.access_token);
+    await hydrateRemoteProfileSettings().catch((error) => {
+      console.warn('Remote profile settings hydration skipped after login:', error);
+    });
 
     console.log('Login successful');
     return toAuthResponse(syncedUser || user, result.data?.session);

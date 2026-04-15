@@ -14,7 +14,8 @@ import {
   type MarketplaceProduct,
 } from '../services/marketplaceService';
 import { getUserPoints, POINTS_UPDATED_EVENT, subtractUserPoints } from '../utils/pointsManager';
-import { getStoredProfileSettings, PROFILE_SETTINGS_UPDATED_EVENT, type StoredProfileSettings } from '../utils/profileSettings';
+import { getStoredProfileSettings, isStoredProfileComplete, PROFILE_SETTINGS_UPDATED_EVENT, type StoredProfileSettings } from '../utils/profileSettings';
+import { safeGetItem, safeSetItem } from '../utils/storage';
 
 type CartItem = MarketplaceOrderItem;
 type SliderKey = 'products' | 'colors' | 'logos' | 'cart';
@@ -41,6 +42,8 @@ interface CheckoutFormState {
   postalCode: string;
   country: string;
 }
+
+const MARKETPLACE_CART_KEY = 'moneetizeMarketplaceCart';
 
 const colorSwatches: Record<string, string> = {
   Black: '#08090a',
@@ -145,12 +148,23 @@ function isInteractiveTarget(target: EventTarget | null) {
   return target instanceof Element && Boolean(target.closest('button, a, input, select, textarea, label'));
 }
 
+function loadStoredCartItems(): CartItem[] {
+  try {
+    const storedCart = safeGetItem(MARKETPLACE_CART_KEY);
+    const parsedCart = storedCart ? JSON.parse(storedCart) : [];
+    return Array.isArray(parsedCart) ? parsedCart : [];
+  } catch {
+    return [];
+  }
+}
+
 export function MerchMarketplace() {
   const navigate = useNavigate();
   const [profileSettings, setProfileSettings] = useState(() => getStoredProfileSettings({ fallbackName: 'Jess Wu' }));
   const [products, setProducts] = useState<MarketplaceProduct[]>(() => loadMarketplaceProducts());
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [cartItems, setCartItems] = useState<CartItem[]>(() => loadStoredCartItems());
   const [userPoints, setUserPoints] = useState(() => getUserPoints());
+  const [isProfileComplete, setIsProfileComplete] = useState(() => isStoredProfileComplete());
   const [selectedVariants, setSelectedVariants] = useState<Record<string, SelectedVariant>>({});
   const [selectedProductId, setSelectedProductId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -193,10 +207,11 @@ export function MerchMarketplace() {
     const syncProfile = () => {
       const nextProfile = getStoredProfileSettings({ fallbackName: 'Jess Wu' });
       setProfileSettings(nextProfile);
+      setIsProfileComplete(isStoredProfileComplete());
       setCheckoutForm((current) => ({
         ...current,
-        name: current.name || nextProfile.name,
-        email: current.email || nextProfile.email,
+        name: nextProfile.name || current.name,
+        email: nextProfile.email || current.email,
       }));
     };
 
@@ -208,6 +223,10 @@ export function MerchMarketplace() {
       window.removeEventListener('storage', syncProfile);
     };
   }, []);
+
+  useEffect(() => {
+    safeSetItem(MARKETPLACE_CART_KEY, JSON.stringify(cartItems));
+  }, [cartItems]);
 
   const activeProducts = useMemo(() => products.filter((product) => product.status === 'active'), [products]);
   const filteredProducts = useMemo(() => {
@@ -368,6 +387,14 @@ export function MerchMarketplace() {
       return;
     }
 
+    if (!isStoredProfileComplete()) {
+      setIsProfileComplete(false);
+      sessionStorage.setItem('moneetizeProfileCompletionReturnPath', '/marketplace');
+      setMessage('Complete your profile settings before checking out.');
+      navigate('/settings');
+      return;
+    }
+
     const currentPoints = getUserPoints();
     setUserPoints(currentPoints);
 
@@ -396,6 +423,15 @@ export function MerchMarketplace() {
 
   const placeOrder = async () => {
     if (isSubmittingOrder) return;
+
+    if (!isStoredProfileComplete()) {
+      setIsProfileComplete(false);
+      sessionStorage.setItem('moneetizeProfileCompletionReturnPath', '/marketplace');
+      setIsCheckoutOpen(false);
+      setMessage('Complete your profile settings before placing this order.');
+      navigate('/settings');
+      return;
+    }
 
     const currentPoints = getUserPoints();
     setUserPoints(currentPoints);
@@ -600,17 +636,17 @@ export function MerchMarketplace() {
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     onClick={() => setSelectedProductId(product.id)}
-                    className={`min-w-[132px] snap-center rounded-lg border p-2 text-left transition-colors ${
+                    className={`flex min-h-[178px] min-w-[132px] snap-center flex-col rounded-lg border p-2 text-left transition-colors ${
                       isSelected
                         ? 'border-[#8ff0a8] bg-[#8ff0a8]/10'
                         : 'border-white/10 bg-white/[0.055]'
                     }`}
                   >
-                    <span className="flex aspect-square items-center justify-center rounded-lg bg-white/[0.04]">
+                    <span className="flex h-[112px] w-full shrink-0 items-center justify-center rounded-lg bg-white/[0.04]">
                       <img src={productImage} alt={product.name} className="h-full w-full rounded-lg object-contain" />
                     </span>
                     <span className="mt-2 block line-clamp-1 text-sm font-black text-white">{product.name}</span>
-                    <span className="text-xs font-black text-[#8ff0a8]">{formatPoints(product.pointsPrice)} pts</span>
+                    <span className="mt-auto pt-1 text-xs font-black text-[#8ff0a8]">{formatPoints(product.pointsPrice)} pts</span>
                   </motion.button>
                 );
               })}
@@ -806,6 +842,12 @@ export function MerchMarketplace() {
 
           {message && (
             <p className="mt-3 rounded-lg bg-white/[0.055] px-4 py-3 text-sm font-bold text-white/70">{message}</p>
+          )}
+
+          {!isProfileComplete && cartItems.length > 0 && (
+            <p className="mt-3 rounded-lg border border-[#8ff0a8]/25 bg-[#8ff0a8]/10 px-4 py-3 text-sm font-bold text-[#caffe0]">
+              Checkout unlocks after you save your profile settings.
+            </p>
           )}
 
           {latestOrder && (
