@@ -3,10 +3,10 @@ import { useNavigate } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
 import { ChevronLeft, MessageCircle } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
-import aiBubble from 'figma:asset/36fff8878cf3ea6d1ef44d3f08bbc2346c733ebc.png';
-import greenMorphicBall from 'figma:asset/8fd559d05db8d67dee13e79dc6418365220fd613.png';
 import { getUserPoints, POINTS_UPDATED_EVENT } from '../utils/pointsManager';
 import { getStoredProfileSettings, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT } from '../utils/profileSettings';
+import { getAgentAvatarTone, getSelectedAvatarImage } from '../utils/avatarUtils';
+import { hydrateRemoteProfileSettings } from '../services/profilePersistenceService';
 import { getQuestStats, getQuests, initializeQuests, type Quest } from '../utils/questManager';
 import {
   ContentCreationModal,
@@ -41,6 +41,13 @@ export function GameplayScreen() {
     };
 
     applyProfileSettings();
+    void hydrateRemoteProfileSettings()
+      .then((settings) => {
+        if (settings) applyProfileSettings();
+      })
+      .catch((error) => {
+        console.warn('Remote gameplay profile hydration skipped:', error);
+      });
 
     const syncPointBalance = () => setUserPointsState(getUserPoints());
     const handleQuestCompleteEvent = () => {
@@ -70,18 +77,13 @@ export function GameplayScreen() {
     };
   }, []);
 
-  const aiAgentImage = selectedAvatar === 'greenAvatar' ? greenMorphicBall : aiBubble;
+  const aiAgentImage = getSelectedAvatarImage(selectedAvatar);
+  const aiAgentTone = getAgentAvatarTone(selectedAvatar);
   const renderAnimatedAiAvatar = () => {
-    const isGreenAgent = selectedAvatar === 'greenAvatar';
-
     return (
       <span className="relative block h-12 w-12">
         <motion.span
-          className={`absolute inset-0 rounded-full bg-gradient-to-br ${
-            isGreenAgent
-              ? 'from-green-400 via-emerald-500 to-lime-400'
-              : 'from-purple-400 via-blue-500 to-cyan-400'
-          } blur-lg opacity-40`}
+          className={`absolute inset-0 rounded-full bg-gradient-to-br ${aiAgentTone.gradientClass} blur-lg opacity-40`}
           animate={{ opacity: [0.3, 0.5, 0.3] }}
           transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
         />
@@ -94,15 +96,13 @@ export function GameplayScreen() {
             rotate: { duration: 20, repeat: Infinity, ease: 'linear' },
             scale: { duration: 3, repeat: Infinity, ease: 'easeInOut' },
           }}
-          className={`relative block h-12 w-12 overflow-hidden rounded-full border-2 ${
-            isGreenAgent ? 'border-emerald-400 hover:border-emerald-300' : 'border-purple-500 hover:border-purple-400'
-          } transition-colors`}
+          className={`relative block h-12 w-12 overflow-hidden rounded-full border-2 ${aiAgentTone.borderClass} transition-colors`}
           style={{
             maskImage: 'radial-gradient(circle at center, black 40%, transparent 90%)',
             WebkitMaskImage: 'radial-gradient(circle at center, black 40%, transparent 90%)',
           }}
         >
-          <img src={aiAgentImage} alt="AI Agent" className="h-full w-full object-cover opacity-90" />
+          <img src={aiAgentImage} alt="AI Agent" className={`h-full w-full object-cover opacity-90 ${aiAgentTone.imageClass}`} />
         </motion.span>
       </span>
     );

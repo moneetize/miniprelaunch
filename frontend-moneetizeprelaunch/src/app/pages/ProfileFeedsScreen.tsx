@@ -40,14 +40,14 @@ import {
 import { QuestToast } from '../components/QuestToast';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import levelToken from 'figma:asset/deed11003559fbb0587b8eda69aec64d766851f5.png';
-import aiBubble from 'figma:asset/36fff8878cf3ea6d1ef44d3f08bbc2346c733ebc.png';
-import greenMorphicBall from 'figma:asset/8fd559d05db8d67dee13e79dc6418365220fd613.png';
 import networkImage from 'figma:asset/a6df038d85b40a458dd7a92387ec7182f8ab913f.png';
 import svgPaths from '../../imports/svg-vs14lwuhcw';
 import GemBadge from '../../imports/Frame2147225422';
 import { isUserAdmin } from '../services/authService';
 import { loadProductCatalog, type Product } from '../services/productService';
 import { PROFILE_FEED_FALLBACK_PRODUCTS } from '../data/portfolioProducts';
+import { getAgentAvatarTone, getSelectedAvatarImage } from '../utils/avatarUtils';
+import { hydrateRemoteProfileSettings } from '../services/profilePersistenceService';
 
 interface Post {
   id: string;
@@ -140,6 +140,16 @@ export function ProfileFeedsScreen() {
     };
 
     const loadedProfileSettings = applyStoredProfileSettings();
+
+    void hydrateRemoteProfileSettings()
+      .then((settings) => {
+        if (!settings) return;
+        const profileSettings = applyStoredProfileSettings();
+        loadProducts(profileSettings.interests, profileSettings.investmentProfile);
+      })
+      .catch((error) => {
+        console.warn('Remote profile settings hydration skipped:', error);
+      });
 
     // Set balance from points
     setBalance(points);
@@ -350,18 +360,13 @@ export function ProfileFeedsScreen() {
     setPosts(generatedPosts);
   };
 
-  const aiAgentImage = selectedAvatar === 'greenAvatar' ? greenMorphicBall : aiBubble;
+  const aiAgentImage = getSelectedAvatarImage(selectedAvatar);
+  const aiAgentTone = getAgentAvatarTone(selectedAvatar);
   const renderAnimatedAiAvatar = (sizeClass = 'h-12 w-12', imageClass = 'h-full w-full') => {
-    const isGreenAgent = selectedAvatar === 'greenAvatar';
-
     return (
       <span className={`relative block ${sizeClass}`}>
         <motion.span
-          className={`absolute inset-0 rounded-full bg-gradient-to-br ${
-            isGreenAgent
-              ? 'from-green-400 via-emerald-500 to-lime-400'
-              : 'from-purple-400 via-blue-500 to-cyan-400'
-          } blur-lg opacity-40`}
+          className={`absolute inset-0 rounded-full bg-gradient-to-br ${aiAgentTone.gradientClass} blur-lg opacity-40`}
           animate={{ opacity: [0.3, 0.5, 0.3] }}
           transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
         />
@@ -374,15 +379,13 @@ export function ProfileFeedsScreen() {
             rotate: { duration: 20, repeat: Infinity, ease: 'linear' },
             scale: { duration: 3, repeat: Infinity, ease: 'easeInOut' },
           }}
-          className={`relative block overflow-hidden rounded-full border-2 ${
-            isGreenAgent ? 'border-emerald-400 hover:border-emerald-300' : 'border-purple-500 hover:border-purple-400'
-          } transition-colors ${sizeClass}`}
+          className={`relative block overflow-hidden rounded-full border-2 ${aiAgentTone.borderClass} transition-colors ${sizeClass}`}
           style={{
             maskImage: 'radial-gradient(circle at center, black 40%, transparent 90%)',
             WebkitMaskImage: 'radial-gradient(circle at center, black 40%, transparent 90%)',
           }}
         >
-          <img src={aiAgentImage} alt="AI Agent" className={`${imageClass} object-cover opacity-90`} />
+          <img src={aiAgentImage} alt="AI Agent" className={`${imageClass} object-cover opacity-90 ${aiAgentTone.imageClass}`} />
         </motion.span>
       </span>
     );

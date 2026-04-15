@@ -599,7 +599,7 @@ export function ProfileScreen() {
   };
   const currentUserId = safeGetItem('user_id') || safeGetItem('user_email') || 'current-user';
   const networkProfilesByKey = new Map<string, NetworkProfile>();
-  [...fallbackNetworkProfiles, ...loadedNetworkProfiles].forEach((profile) => {
+  [...loadedNetworkProfiles, ...fallbackNetworkProfiles].forEach((profile) => {
     const profileName = profile.name.replace(/\s+\(Me\)$/i, '');
     const profileKey = `${profile.id || profileName}`.toLowerCase();
 
@@ -625,7 +625,7 @@ export function ProfileScreen() {
   const myNetworkProfiles = [
     currentUserNetworkProfile,
     ...candidateNetworkProfiles.filter((profile) => isNetworkProfileFollowing(profile)),
-  ].slice(0, 5);
+  ];
   const peopleYouMayKnowProfiles = candidateNetworkProfiles.filter((profile) => !isNetworkProfileFollowing(profile));
   const peopleYouMayKnowGroups = Array.from(
     { length: Math.ceil(peopleYouMayKnowProfiles.length / 3) },

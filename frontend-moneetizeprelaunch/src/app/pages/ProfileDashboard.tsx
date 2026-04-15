@@ -6,6 +6,8 @@ import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import { getUserPoints, POINTS_UPDATED_EVENT } from '../utils/pointsManager';
 import { safeGetItem } from '../utils/storage';
 import { getUserProfile, logoutUser } from '../services/authService';
+import { getSelectedAvatarImage } from '../utils/avatarUtils';
+import { hydrateRemoteProfileSettings } from '../services/profilePersistenceService';
 
 interface UserProfile {
   id: string;
@@ -39,6 +41,9 @@ export function ProfileDashboard() {
         }
 
         const profileResult = await getUserProfile();
+        await hydrateRemoteProfileSettings().catch((syncError) => {
+          console.warn('Remote profile settings hydration skipped:', syncError);
+        });
 
         if (!profileResult.success || !profileResult.data?.user) {
           throw new Error(profileResult.error || 'Failed to fetch profile');
@@ -56,7 +61,7 @@ export function ProfileDashboard() {
         if (livePhoto) {
           setUserPhoto(livePhoto);
         } else if (liveSelectedAvatar) {
-          setUserPhoto(liveSelectedAvatar);
+          setUserPhoto(getSelectedAvatarImage(liveSelectedAvatar));
         }
 
         const livePoints = getUserPoints();

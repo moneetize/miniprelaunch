@@ -408,6 +408,8 @@ export function SettingsScreen() {
   };
 
   const handleSaveProfile = async () => {
+    const selectedAvatarId = aiAgentAvatars[selectedAgent]?.id || 'blueAvatar';
+
     if (userName.trim()) {
       safeSetItem('userName', userName.trim());
     }
@@ -424,6 +426,7 @@ export function SettingsScreen() {
     safeSetItem('investmentProfile', selectedInvestment);
     safeSetItem('profileTags', JSON.stringify(tags));
     safeSetItem('agentName', agentName);
+    safeSetItem('selectedAvatar', selectedAvatarId);
     markProfileCompleted();
     notifyProfileSettingsUpdated();
     syncCurrentUserNetworkProfile();
@@ -437,6 +440,8 @@ export function SettingsScreen() {
         investmentProfile: selectedInvestment,
         tags,
         agentName,
+        selectedAvatar: selectedAvatarId,
+        photo: userPhoto,
         profileComplete: true,
       });
     } catch (error) {
@@ -1128,6 +1133,9 @@ export function SettingsScreen() {
                   setSelectedAgent(idx);
                   safeSetItem('selectedAvatar', avatar.id);
                   notifyProfileSettingsUpdated();
+                  void saveRemoteProfileSettings({ selectedAvatar: avatar.id }).catch((error) => {
+                    console.warn('Remote AI avatar sync skipped:', error);
+                  });
                 }}
                 className="relative h-[70px] w-[70px] rounded-full transition-transform hover:scale-105"
                 aria-pressed={isSelected}

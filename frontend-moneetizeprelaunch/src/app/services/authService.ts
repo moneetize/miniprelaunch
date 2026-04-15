@@ -184,10 +184,12 @@ function clearUserScopedLocalState() {
 function shouldClearPreviousUser(nextUser: UserData) {
   const previousUserId = safeGetItem('user_id');
   const previousEmail = safeGetItem('user_email');
+  const hasUserScopedState = USER_SCOPED_STORAGE_KEYS.some((key) => Boolean(safeGetItem(key)));
 
   return Boolean(
     (previousUserId && previousUserId !== nextUser.id) ||
-    (previousEmail && previousEmail.toLowerCase() !== nextUser.email.toLowerCase()),
+    (previousEmail && previousEmail.toLowerCase() !== nextUser.email.toLowerCase()) ||
+    (!previousUserId && !previousEmail && hasUserScopedState),
   );
 }
 
@@ -713,6 +715,7 @@ export async function updateUserProfile(updates: { name?: string }): Promise<Aut
 export function logoutUser(): void {
   console.log('Logging out user');
 
+  clearUserScopedLocalState();
   localStorage.removeItem('access_token');
   localStorage.removeItem('refresh_token');
   localStorage.removeItem('user_email');

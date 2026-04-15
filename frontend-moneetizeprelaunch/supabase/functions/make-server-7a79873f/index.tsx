@@ -590,6 +590,17 @@ app.post("/make-server-7a79873f/auth/signup", async (c) => {
     const body = await c.req.json();
     console.log('Signup endpoint - received body:', JSON.stringify(body));
     const result = await auth.signup(body);
+
+    if (result.success && result.data?.user?.id) {
+      const settings = normalizeProfileSettings({
+        name: body?.name || result.data.user.name,
+        email: body?.email || result.data.user.email,
+        profileComplete: false,
+      }, result.data.user);
+
+      await kv.set(`${PROFILE_SETTINGS_PREFIX}${result.data.user.id}`, settings);
+    }
+
     return c.json(result, result.status);
   } catch (error) {
     console.error('Signup endpoint error - failed to parse body:', error);
@@ -678,7 +689,10 @@ app.put("/make-server-7a79873f/profile/settings", async (c) => {
     const body = await c.req.json();
     const settings = normalizeProfileSettings(body?.settings || body, currentUser.user);
 
-    await kv.set(`${PROFILE_SETTINGS_PREFIX}${currentUser.user.id}`, settings);
+    await Promise.all([
+      kv.set(`${PROFILE_SETTINGS_PREFIX}${currentUser.user.id}`, settings),
+      auth.updateProfile(c.req.header('Authorization')?.split(' ')[1] || '', { name: settings.name }),
+    ]);
 
     return c.json({
       success: true,
