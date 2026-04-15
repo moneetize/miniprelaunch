@@ -39,16 +39,16 @@ const PRODUCTS_API_URL = `https://${projectId}.supabase.co/functions/v1/make-ser
 
 function authHeaders(requireAdmin = false) {
   const accessToken = safeGetItem('access_token');
-  const token = requireAdmin ? accessToken : publicAnonKey;
 
   if (requireAdmin && !accessToken) {
     throw new Error('Please log in with an admin account before saving products.');
   }
 
   return {
-    Authorization: `Bearer ${token}`,
+    Authorization: `Bearer ${publicAnonKey}`,
     apikey: publicAnonKey,
     'Content-Type': 'application/json',
+    ...(requireAdmin && accessToken ? { 'x-user-token': accessToken } : {}),
   };
 }
 

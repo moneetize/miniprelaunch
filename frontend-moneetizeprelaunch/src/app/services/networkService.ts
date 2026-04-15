@@ -98,9 +98,10 @@ function authHeaders() {
   const accessToken = safeGetItem('access_token');
 
   return {
-    Authorization: `Bearer ${accessToken || publicAnonKey}`,
+    Authorization: `Bearer ${publicAnonKey}`,
     apikey: publicAnonKey,
     'Content-Type': 'application/json',
+    ...(accessToken ? { 'x-user-token': accessToken } : {}),
   };
 }
 

@@ -25,9 +25,10 @@ function authHeaders() {
   const accessToken = getAccessToken();
 
   return {
-    Authorization: `Bearer ${accessToken || publicAnonKey}`,
+    Authorization: `Bearer ${publicAnonKey}`,
     apikey: publicAnonKey,
     'Content-Type': 'application/json',
+    ...(accessToken ? { 'x-user-token': accessToken } : {}),
   };
 }
 

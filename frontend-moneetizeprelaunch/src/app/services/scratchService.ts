@@ -151,9 +151,10 @@ async function authHeaders(forceRefresh = false) {
   const accessToken = await getAccessToken(forceRefresh);
 
   return {
-    Authorization: `Bearer ${accessToken}`,
+    Authorization: `Bearer ${publicAnonKey}`,
     apikey: publicAnonKey,
     'Content-Type': 'application/json',
+    'x-user-token': accessToken,
   };
 }
 

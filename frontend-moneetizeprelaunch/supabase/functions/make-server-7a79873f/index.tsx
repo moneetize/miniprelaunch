@@ -14,7 +14,7 @@ app.use(
   "/*",
   cors({
     origin: "*",
-    allowHeaders: ["Content-Type", "Authorization", "apikey", "x-client-info"],
+    allowHeaders: ["Content-Type", "Authorization", "apikey", "x-client-info", "x-user-token"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     exposeHeaders: ["Content-Length"],
     maxAge: 600,
@@ -280,12 +280,22 @@ const scratchTickets = [
   },
 ] as const;
 
-const verifyCurrentUser = async (c: any) => {
+const getUserAccessToken = (c: any) => {
+  const directToken = c.req.header('x-user-token') || c.req.header('X-User-Token');
+  if (directToken) return `${directToken}`.replace(/^Bearer\s+/i, '').trim();
+
   const authHeader = c.req.header('Authorization');
-  const accessToken = authHeader?.split(' ')[1];
+  const bearerToken = authHeader?.split(' ')[1] || '';
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
+
+  return bearerToken && bearerToken !== anonKey ? bearerToken : '';
+};
+
+const verifyCurrentUser = async (c: any) => {
+  const accessToken = getUserAccessToken(c);
 
   if (!accessToken) {
-    return { response: c.json({ success: false, error: 'Authorization header required' }, 401) };
+    return { response: c.json({ success: false, error: 'User token required' }, 401) };
   }
 
   const user = await auth.verifyToken(accessToken);
@@ -675,11 +685,10 @@ const isAdminMetadata = (metadata?: Record<string, unknown>) => {
 };
 
 const requireAdmin = async (c: any) => {
-  const authHeader = c.req.header('Authorization');
-  const accessToken = authHeader?.split(' ')[1];
+  const accessToken = getUserAccessToken(c);
 
   if (!accessToken) {
-    return { response: c.json({ success: false, error: 'Authorization header required' }, 401) };
+    return { response: c.json({ success: false, error: 'User token required' }, 401) };
   }
 
   const user = await auth.verifyToken(accessToken);
@@ -733,13 +742,12 @@ app.post("/make-server-7a79873f/auth/login", async (c) => {
 
 app.get("/make-server-7a79873f/auth/profile", async (c) => {
   try {
-    const authHeader = c.req.header('Authorization');
-    const accessToken = authHeader?.split(' ')[1];
+    const accessToken = getUserAccessToken(c);
     
-    console.log('Profile endpoint - has auth header:', !!authHeader, 'has token:', !!accessToken);
+    console.log('Profile endpoint - has token:', !!accessToken);
     
     if (!accessToken) {
-      return c.json({ success: false, error: 'Authorization header required' }, 401);
+      return c.json({ success: false, error: 'User token required' }, 401);
     }
     
     const result = await auth.getProfile(accessToken);
@@ -752,13 +760,12 @@ app.get("/make-server-7a79873f/auth/profile", async (c) => {
 
 app.post("/make-server-7a79873f/auth/update-profile", async (c) => {
   try {
-    const authHeader = c.req.header('Authorization');
-    const accessToken = authHeader?.split(' ')[1];
+    const accessToken = getUserAccessToken(c);
     
-    console.log('Update profile endpoint - has auth header:', !!authHeader, 'has token:', !!accessToken);
+    console.log('Update profile endpoint - has token:', !!accessToken);
     
     if (!accessToken) {
-      return c.json({ success: false, error: 'Authorization header required' }, 401);
+      return c.json({ success: false, error: 'User token required' }, 401);
     }
     
     const body = await c.req.json();
@@ -821,7 +828,7 @@ app.put("/make-server-7a79873f/profile/settings", async (c) => {
 
     await Promise.all([
       kv.set(`${PROFILE_SETTINGS_PREFIX}${currentUser.user.id}`, settings),
-      auth.updateProfile(c.req.header('Authorization')?.split(' ')[1] || '', { name: settings.name }),
+      auth.updateProfile(getUserAccessToken(c), { name: settings.name }),
     ]);
 
     return c.json({
@@ -1751,13 +1758,12 @@ app.post("/make-server-7a79873f/admin/delete-by-email", async (c) => {
 // Invites Routes
 app.post("/make-server-7a79873f/invites/send", async (c) => {
   try {
-    const authHeader = c.req.header('Authorization');
-    const accessToken = authHeader?.split(' ')[1];
+    const accessToken = getUserAccessToken(c);
     
-    console.log('Send invites endpoint - has auth header:', !!authHeader, 'has token:', !!accessToken);
+    console.log('Send invites endpoint - has token:', !!accessToken);
     
     if (!accessToken) {
-      return c.json({ success: false, error: 'Authorization header required' }, 401);
+      return c.json({ success: false, error: 'User token required' }, 401);
     }
     
     // Verify user is authenticated

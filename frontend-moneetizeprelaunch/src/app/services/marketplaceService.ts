@@ -457,9 +457,10 @@ export async function submitMarketplaceOrder(order: MarketplaceOrder) {
     const response = await fetch(`${MARKETPLACE_API_URL}/marketplace/order`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${publicAnonKey}`,
         apikey: publicAnonKey,
         'Content-Type': 'application/json',
+        'x-user-token': accessToken,
       },
       body: JSON.stringify(queuedOrder),
     });
@@ -486,9 +487,10 @@ export async function loadMarketplaceOrdersFromServer() {
     const response = await fetch(`${MARKETPLACE_API_URL}/admin/marketplace-orders`, {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${publicAnonKey}`,
         apikey: publicAnonKey,
         'Content-Type': 'application/json',
+        'x-user-token': accessToken,
       },
     });
     const result = await readJson<MarketplaceOrderResponse>(response);

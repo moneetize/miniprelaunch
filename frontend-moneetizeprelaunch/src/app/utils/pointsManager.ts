@@ -249,9 +249,10 @@ async function syncPointsToSupabase(
     const response = await fetch(`${POINTS_API_URL}/adjust`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${publicAnonKey}`,
         apikey: publicAnonKey,
         'Content-Type': 'application/json',
+        'x-user-token': accessToken,
       },
       body: JSON.stringify({
         amount: pointsChanged,
