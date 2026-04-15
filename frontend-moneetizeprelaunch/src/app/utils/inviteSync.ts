@@ -1,6 +1,7 @@
 import { getInviteInitials } from './invitationLinks';
 import { safeGetItem, safeSetItem } from './storage';
 
+export const INVITE_POINTS_PER_RECIPIENT = 20;
 export const SENT_INVITES_STORAGE_KEY = 'sentInvites';
 export const PENDING_INVITATIONS_STORAGE_KEY = 'pendingInvitations';
 export const PENDING_TEAM_INVITES_STORAGE_KEY = 'pendingTeamInvites';
@@ -177,7 +178,7 @@ const normalizeLegacyRecord = (record: any, fallbackType: InviteDeliveryType): I
     inviteUrl: typeof record?.inviteUrl === 'string' ? record.inviteUrl : '',
     sentAt,
     invitedAt: typeof record?.invitedAt === 'string' ? record.invitedAt : sentAt,
-    points: typeof record?.points === 'number' ? record.points : 5,
+    points: typeof record?.points === 'number' ? record.points : INVITE_POINTS_PER_RECIPIENT,
     status: record?.status === 'accepted' || record?.status === 'dismissed' ? record.status : 'pending',
     source: record?.source === 'team-invites' ? 'team-invites' : record?.source === 'imported' ? 'imported' : 'share-invites',
     initials: typeof record?.initials === 'string' ? record.initials : getInviteInitials(name),
@@ -201,7 +202,7 @@ const createInviteRecord = (contact: string, type: InviteDeliveryType, inviteUrl
     inviteUrl,
     sentAt,
     invitedAt: sentAt,
-    points: 5,
+    points: INVITE_POINTS_PER_RECIPIENT,
     status: 'pending',
     source: 'share-invites',
     initials: getInviteInitials(name),

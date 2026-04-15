@@ -1,66 +1,90 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import { ChevronLeft, Headphones, Send } from 'lucide-react';
 import { getSelectedAvatarImage } from '../utils/avatarUtils';
+import { agentChatPreview } from '../utils/chatData';
+import {
+  createCurrentUserMessage,
+  getThreadId,
+  loadThreadMessages,
+  saveLocalThreadMessages,
+  sendAgentChatMessage,
+  type ChatMessage,
+} from '../services/chatService';
 
-interface AgentMessage {
-  id: string;
-  content: string;
-  timestamp: string;
+type AgentButton = { label: string; response: string };
+type AgentUiMessage = ChatMessage & {
   isAlert?: boolean;
-  buttons?: { label: string; response: string }[];
-}
+  buttons?: AgentButton[];
+};
 
-const initialAgentMessages: AgentMessage[] = [
-  {
-    id: 'boost-income',
-    content: 'Triple Your Earnings: Invest $15 & Boost Income by 300%!',
-    timestamp: '10:00 AM',
-    buttons: [{ label: 'Boost Your Income', response: 'Boost income options queued for review.' }],
-  },
-  {
-    id: 'action-needed',
-    content: 'A product in your portfolio, is now outside your investment range. We recommend selling to stay aligned with your profile.',
-    timestamp: '10:00 AM',
-    isAlert: true,
-    buttons: [
-      { label: 'Keep', response: 'Got it. I will keep it in your portfolio watchlist.' },
-      { label: 'Sell', response: 'I marked this for a sell review.' },
-    ],
-  },
-];
+const createInitialAgentMessages = (): AgentUiMessage[] => {
+  const createdAt = new Date().toISOString();
+
+  return [
+    {
+      id: 'boost-income',
+      senderId: 'agent',
+      senderName: 'Your Agent',
+      content: 'Triple Your Earnings: Invest $15 & Boost Income by 300%!',
+      timestamp: '10:00 AM',
+      createdAt,
+      role: 'agent',
+      buttons: [{ label: 'Boost Your Income', response: 'Help me think through safer ways to boost income.' }],
+    },
+    {
+      id: 'action-needed',
+      senderId: 'agent',
+      senderName: 'Your Agent',
+      content: 'A product in your portfolio is now outside your investment range. We recommend reviewing it against your goals before making a decision.',
+      timestamp: '10:00 AM',
+      createdAt,
+      role: 'agent',
+      isAlert: true,
+      buttons: [
+        { label: 'Keep', response: 'Help me evaluate whether keeping this still fits my risk profile.' },
+        { label: 'Sell', response: 'Help me understand what to consider before selling.' },
+      ],
+    },
+  ];
+};
 
 export function AgentChat() {
   const navigate = useNavigate();
-  const [messages, setMessages] = useState(initialAgentMessages);
+  const threadId = useMemo(() => getThreadId(agentChatPreview), []);
+  const [messages, setMessages] = useState<AgentUiMessage[]>(() => createInitialAgentMessages());
   const [inputValue, setInputValue] = useState('');
+  const [isThinking, setIsThinking] = useState(false);
   const agentAvatar = getSelectedAvatarImage();
 
-  const addAgentResponse = (content: string) => {
-    setMessages((current) => [
-      ...current,
-      {
-        id: `agent-${Date.now()}`,
-        content,
-        timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-      },
-    ]);
-  };
+  useEffect(() => {
+    let cancelled = false;
+    const fallbackMessages = createInitialAgentMessages();
 
-  const handleSend = () => {
-    const trimmedMessage = inputValue.trim();
-    if (!trimmedMessage) return;
+    void loadThreadMessages(threadId, fallbackMessages).then((threadMessages) => {
+      if (!cancelled) setMessages(threadMessages as AgentUiMessage[]);
+    });
 
-    setMessages((current) => [
-      ...current,
-      {
-        id: `user-${Date.now()}`,
-        content: trimmedMessage,
-        timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-      },
-    ]);
+    return () => {
+      cancelled = true;
+    };
+  }, [threadId]);
+
+  const handleSend = async (overrideMessage?: string) => {
+    const trimmedMessage = (overrideMessage || inputValue).trim();
+    if (!trimmedMessage || isThinking) return;
+
+    const userMessage = createCurrentUserMessage(trimmedMessage);
+    const nextMessages = [...messages, userMessage] as AgentUiMessage[];
+    setMessages(nextMessages);
+    saveLocalThreadMessages(threadId, nextMessages);
     setInputValue('');
+    setIsThinking(true);
+
+    const responseMessages = await sendAgentChatMessage(threadId, nextMessages, trimmedMessage);
+    setMessages(responseMessages as AgentUiMessage[]);
+    setIsThinking(false);
   };
 
   return (
@@ -90,6 +114,7 @@ export function AgentChat() {
 
         <div className="text-center">
           <h1 className="text-lg font-black text-white">Your Agent</h1>
+          <p className="mt-1 text-[11px] font-bold text-white/42">Education only, not financial advice</p>
         </div>
 
         <span className="relative block h-12 w-12 justify-self-end">
@@ -116,51 +141,69 @@ export function AgentChat() {
         <p className="mb-4 text-center text-xs font-bold text-white/42">Today</p>
 
         <div className="space-y-5">
-          {messages.map((message) => (
-            <motion.article
-              key={message.id}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="ml-auto mr-auto max-w-[390px]"
-            >
-              <div className="rounded-[1.2rem] bg-[#25272b] px-4 py-4 text-sm font-bold leading-relaxed text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_12px_34px_rgba(0,0,0,0.34)]">
-                <p>
-                  {message.isAlert && <span className="text-[#df555a]">Action Needed! </span>}
-                  {message.content}
-                </p>
+          {messages.map((message) => {
+            const isUserMessage = message.role === 'user' || message.senderId === localStorage.getItem('user_id');
 
-                <div className="mt-5 h-40 rounded-[0.7rem] bg-[#3a3d40]" />
+            return (
+              <motion.article
+                key={message.id}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`max-w-[390px] ${isUserMessage ? 'ml-auto' : 'ml-auto mr-auto'}`}
+              >
+                <div
+                  className={`rounded-[1.2rem] px-4 py-4 text-sm font-bold leading-relaxed text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_12px_34px_rgba(0,0,0,0.34)] ${
+                    isUserMessage ? 'rounded-br-[0.35rem] bg-[#1d3930]' : 'bg-[#25272b]'
+                  }`}
+                >
+                  <p>
+                    {message.isAlert && <span className="text-[#df555a]">Action Needed! </span>}
+                    {message.content}
+                  </p>
 
-                {message.buttons && (
-                  <div className={`mt-3 grid gap-2 ${message.buttons.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                    {message.buttons.map((button) => (
-                      <button
-                        key={button.label}
-                        type="button"
-                        onClick={() => addAgentResponse(button.response)}
-                        className="rounded-full bg-white px-4 py-3 text-xs font-black text-black shadow-[0_10px_22px_rgba(255,255,255,0.12)] transition-colors hover:bg-gray-100"
-                      >
-                        {button.label}
-                      </button>
-                    ))}
+                  {!isUserMessage && <div className="mt-5 h-40 rounded-[0.7rem] bg-[#3a3d40]" />}
+
+                  {message.buttons && (
+                    <div className={`mt-3 grid gap-2 ${message.buttons.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                      {message.buttons.map((button) => (
+                        <button
+                          key={button.label}
+                          type="button"
+                          onClick={() => void handleSend(button.response)}
+                          className="rounded-full bg-white px-4 py-3 text-xs font-black text-black shadow-[0_10px_22px_rgba(255,255,255,0.12)] transition-colors hover:bg-gray-100"
+                        >
+                          {button.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <p className="mt-2 text-right text-xs font-bold text-white/36">{message.timestamp}</p>
+
+                {message.isAlert && (
+                  <div className="mt-3 flex justify-center">
+                    <button
+                      type="button"
+                      className="flex items-center justify-center gap-2 rounded-full bg-white px-8 py-3.5 text-sm font-black text-black shadow-[0_16px_38px_rgba(0,0,0,0.34)] transition-colors hover:bg-gray-100"
+                    >
+                      Contact support
+                      <Headphones className="h-4 w-4" />
+                    </button>
                   </div>
                 )}
-              </div>
-              <p className="mt-2 text-right text-xs font-bold text-white/36">{message.timestamp}</p>
+              </motion.article>
+            );
+          })}
 
-              {message.isAlert && (
-                <div className="mt-3 flex justify-center">
-                  <button
-                    type="button"
-                    className="flex items-center justify-center gap-2 rounded-full bg-white px-8 py-3.5 text-sm font-black text-black shadow-[0_16px_38px_rgba(0,0,0,0.34)] transition-colors hover:bg-gray-100"
-                  >
-                    Contact support
-                    <Headphones className="h-4 w-4" />
-                  </button>
-                </div>
-              )}
+          {isThinking && (
+            <motion.article
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mx-auto max-w-[390px] rounded-[1.2rem] bg-[#25272b] px-4 py-4 text-sm font-bold text-white/62"
+            >
+              Your agent is thinking...
             </motion.article>
-          ))}
+          )}
         </div>
       </main>
 
@@ -169,16 +212,16 @@ export function AgentChat() {
           <input
             value={inputValue}
             onChange={(event) => setInputValue(event.target.value)}
-            onKeyDown={(event) => event.key === 'Enter' && handleSend()}
-            placeholder="Type a message..."
+            onKeyDown={(event) => event.key === 'Enter' && void handleSend()}
+            placeholder="Ask about goals, risk, markets..."
             className="min-w-0 flex-1 bg-transparent text-sm font-bold text-white outline-none placeholder:text-white/42"
           />
         </label>
         <button
           type="button"
-          onClick={handleSend}
+          onClick={() => void handleSend()}
           className="flex h-14 w-14 items-center justify-center rounded-full bg-white text-black transition-colors hover:bg-gray-100 disabled:opacity-50"
-          disabled={!inputValue.trim()}
+          disabled={!inputValue.trim() || isThinking}
           aria-label="Send message"
         >
           <Send className="h-5 w-5" />

@@ -1,4 +1,5 @@
 import { safeGetItem, safeSetItem } from './storage';
+import { projectId, publicAnonKey } from '/utils/supabase/info';
 
 /**
  * Points Manager - Handles user points with localStorage fallback and Supabase sync.
@@ -10,6 +11,7 @@ const USER_POINTS_KEY = 'userPoints';
 const POINTS_HISTORY_KEY = 'pointsHistory';
 const SCRATCH_HISTORY_KEY = 'scratchHistory';
 const LAST_SCRATCH_REWARD_KEY = 'lastScratchReward';
+const POINTS_API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-7a79873f/points`;
 
 export const POINTS_UPDATED_EVENT = 'moneetize-points-updated';
 
@@ -132,7 +134,7 @@ export async function addUserPoints(
     });
     emitPointsUpdate();
 
-    if (supabaseConnected) {
+    if (supabaseConnected || safeGetItem('access_token')) {
       await syncPointsToSupabase(newTotal, points, source);
     }
 
@@ -240,7 +242,37 @@ async function syncPointsToSupabase(
   pointsChanged: number,
   source: string
 ): Promise<void> {
+  const accessToken = safeGetItem('access_token');
+  if (!accessToken || pointsChanged <= 0) return;
+
   try {
+    const response = await fetch(`${POINTS_API_URL}/adjust`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: publicAnonKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        amount: pointsChanged,
+        source,
+        expectedLocalTotal: newTotal,
+      }),
+    });
+
+    const text = await response.text();
+    const result = text ? JSON.parse(text) : {};
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Remote points sync failed.');
+    }
+
+    const remotePoints = Number(result.data?.points);
+    if (Number.isFinite(remotePoints) && remotePoints > newTotal) {
+      safeSetItem(USER_POINTS_KEY, Math.round(remotePoints).toString());
+      emitPointsUpdate();
+    }
+
     console.log(`Synced ${newTotal} points to Supabase database (${source}, delta ${pointsChanged})`);
   } catch (error) {
     console.error('Error syncing to Supabase:', error);

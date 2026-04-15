@@ -62,7 +62,6 @@ export function TeamView() {
     const applyProfileSettings = () => {
       const profileSettings = getStoredProfileSettings({
         fallbackName: 'Jess Wu',
-        fallbackHandle: '@jesswu',
       });
 
       setUserName(profileSettings.name);

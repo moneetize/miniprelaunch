@@ -38,8 +38,8 @@ import {
 } from 'lucide-react';
 import { safeGetItem, safeSetItem } from '../utils/storage';
 import { clearProfilePhoto, getStoredProfileSettings, markProfileCompleted, notifyProfileSettingsUpdated, saveProfilePhoto, writeStoredProfileSettings, type StoredProfileSettings } from '../utils/profileSettings';
-import { syncCurrentUserNetworkProfile } from '../services/networkService';
-import { updateUserProfile } from '../services/authService';
+import { loadRecommendedFriends, syncCurrentUserNetworkProfile } from '../services/networkService';
+import { logoutUser, updateUserProfile } from '../services/authService';
 import { hydrateRemoteProfileSettings, saveRemoteProfileSettings } from '../services/profilePersistenceService';
 
 // Import AI agent avatars - the original two plus generated variants in the settings selector.
@@ -268,6 +268,8 @@ export function SettingsScreen() {
   const [authMethod, setAuthMethod] = useState<string>(''); // 'email', 'google', 'apple', 'facebook'
   const [tempName, setTempName] = useState('');
   const [tempHandle, setTempHandle] = useState('');
+  const [profileSaveMessage, setProfileSaveMessage] = useState('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -295,7 +297,6 @@ export function SettingsScreen() {
 
     const loadStoredSettings = () => getStoredProfileSettings({
       fallbackName: 'Jess Wu',
-      fallbackHandle: '@healthyhabits',
       fallbackEmail: 'user@gmail.com',
     });
 
@@ -368,10 +369,36 @@ export function SettingsScreen() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    localStorage.removeItem('user_email');
+    logoutUser();
     navigate('/login');
+  };
+
+  const formatHandleInput = (value: string) => {
+    const cleaned = value.trim().replace(/^@+/, '').toLowerCase().replace(/[^a-z0-9_]+/g, '');
+    return cleaned ? `@${cleaned}` : '';
+  };
+
+  const ensureHandleAvailable = async (handle: string) => {
+    const normalizedHandle = formatHandleInput(handle);
+    if (!normalizedHandle) {
+      setProfileSaveMessage('Choose a profile handle before saving.');
+      return false;
+    }
+
+    const currentUserId = safeGetItem('user_id') || safeGetItem('user_email') || '';
+    const profiles = await loadRecommendedFriends();
+    const duplicate = profiles.find((profile) => (
+      profile.id !== currentUserId &&
+      profile.handle.trim().toLowerCase() === normalizedHandle.toLowerCase()
+    ));
+
+    if (duplicate) {
+      setProfileSaveMessage(`${normalizedHandle} is already in use. Choose another handle.`);
+      return false;
+    }
+
+    setProfileSaveMessage('');
+    return true;
   };
 
   const handleSaveName = () => {
@@ -386,15 +413,18 @@ export function SettingsScreen() {
     }
   };
 
-  const handleSaveHandle = () => {
+  const handleSaveHandle = async () => {
     if (tempHandle.trim()) {
-      // Ensure handle starts with @
-      const formattedHandle = tempHandle.startsWith('@') ? tempHandle : `@${tempHandle}`;
+      const formattedHandle = formatHandleInput(tempHandle);
+      const isAvailable = await ensureHandleAvailable(formattedHandle);
+      if (!isAvailable) return;
+
       setUserHandle(formattedHandle);
       safeSetItem('userHandle', formattedHandle);
       notifyProfileSettingsUpdated();
       void saveRemoteProfileSettings({ handle: formattedHandle }).catch((error) => {
         console.warn('Remote profile handle sync skipped:', error);
+        setProfileSaveMessage(error instanceof Error ? error.message : 'Unable to save this handle.');
       });
       setEditingHandle(false);
     }
@@ -408,44 +438,45 @@ export function SettingsScreen() {
   };
 
   const handleSaveProfile = async () => {
+    if (isSavingProfile) return;
+
+    setProfileSaveMessage('');
     const selectedAvatarId = aiAgentAvatars[selectedAgent]?.id || 'blueAvatar';
+    const formattedHandle = formatHandleInput(userHandle || userName);
+    const isHandleAvailable = await ensureHandleAvailable(formattedHandle);
+    if (!isHandleAvailable) return;
 
-    if (userName.trim()) {
-      safeSetItem('userName', userName.trim());
+    if (!safeGetItem('access_token')) {
+      setProfileSaveMessage('Please log in again before saving your profile.');
+      return;
     }
 
-    if (userHandle.trim()) {
-      safeSetItem('userHandle', userHandle.startsWith('@') ? userHandle : `@${userHandle}`);
-    }
-
-    if (userEmail.trim()) {
-      safeSetItem('user_email', userEmail.trim());
-    }
-
-    safeSetItem('selectedInterests', JSON.stringify(selectedInterests));
-    safeSetItem('investmentProfile', selectedInvestment);
-    safeSetItem('profileTags', JSON.stringify(tags));
-    safeSetItem('agentName', agentName);
-    safeSetItem('selectedAvatar', selectedAvatarId);
-    markProfileCompleted();
-    notifyProfileSettingsUpdated();
-    syncCurrentUserNetworkProfile();
+    const nextSettings = {
+      name: userName.trim() || 'Moneetize User',
+      handle: formattedHandle,
+      email: userEmail.trim(),
+      interests: selectedInterests,
+      investmentProfile: selectedInvestment,
+      tags,
+      agentName,
+      selectedAvatar: selectedAvatarId,
+      photo: userPhoto,
+      profileComplete: true,
+      completedAt: new Date().toISOString(),
+    };
 
     try {
-      await saveRemoteProfileSettings({
-        name: userName.trim(),
-        handle: userHandle.startsWith('@') ? userHandle : `@${userHandle}`,
-        email: userEmail.trim(),
-        interests: selectedInterests,
-        investmentProfile: selectedInvestment,
-        tags,
-        agentName,
-        selectedAvatar: selectedAvatarId,
-        photo: userPhoto,
-        profileComplete: true,
-      });
+      setIsSavingProfile(true);
+      const savedSettings = await saveRemoteProfileSettings(nextSettings);
+      writeStoredProfileSettings(savedSettings || nextSettings);
+      markProfileCompleted();
+      notifyProfileSettingsUpdated();
+      syncCurrentUserNetworkProfile();
     } catch (error) {
       console.warn('Remote profile settings save skipped:', error);
+      setProfileSaveMessage(error instanceof Error ? error.message : 'Unable to save profile settings.');
+      setIsSavingProfile(false);
+      return;
     }
 
     if (safeGetItem('access_token')) {
@@ -459,6 +490,7 @@ export function SettingsScreen() {
     const nextPath = sessionStorage.getItem('moneetizeProfileCompletionReturnPath') || '/profile-screen';
     sessionStorage.removeItem('moneetizeProfileCompletionReturnPath');
     navigate(nextPath.startsWith('/') ? nextPath : '/profile-screen');
+    setIsSavingProfile(false);
   };
 
   const handleChooseProfilePhoto = () => {
@@ -842,7 +874,7 @@ export function SettingsScreen() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="pb-4"
+        className="pb-28"
       >
         <section className="min-h-[calc(100vh-3rem)] overflow-hidden rounded-[1.55rem] border border-white/8 bg-gradient-to-b from-[#1c1f22] via-[#17191c] to-[#121416] px-4 pb-5 pt-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_22px_80px_rgba(0,0,0,0.54)]">
           <div className="mb-4 flex items-center justify-center gap-5">
@@ -1057,14 +1089,11 @@ export function SettingsScreen() {
             </div>
           </div>
 
-          <div className="mb-3 flex justify-center">
-            <button
-              onClick={handleSaveProfile}
-              className="rounded-full bg-white px-10 py-3 text-[12px] font-black text-black shadow-[0_14px_34px_rgba(255,255,255,0.12)] transition-colors hover:bg-gray-100"
-            >
-              Save Profile
-            </button>
-          </div>
+          {profileSaveMessage && (
+            <p className="mx-auto mb-3 max-w-[280px] rounded-full border border-red-300/18 bg-red-400/[0.08] px-4 py-2 text-center text-[11px] font-bold text-red-100/88">
+              {profileSaveMessage}
+            </p>
+          )}
 
           <div className="flex justify-center">
             <button
@@ -1415,6 +1444,23 @@ export function SettingsScreen() {
         </AnimatePresence>
       </div>
 
+      {currentView === 'main' && (
+        <div className="fixed inset-x-0 bottom-0 z-[70] mx-auto max-w-md bg-gradient-to-t from-black via-black/92 to-transparent px-5 pb-5 pt-7">
+          {profileSaveMessage && (
+            <p className="mx-auto mb-2 max-w-[310px] rounded-full border border-red-300/18 bg-red-400/[0.12] px-4 py-2 text-center text-[11px] font-bold text-red-100/90">
+              {profileSaveMessage}
+            </p>
+          )}
+          <button
+            onClick={handleSaveProfile}
+            disabled={isSavingProfile}
+            className="mx-auto flex w-full max-w-[260px] items-center justify-center rounded-full bg-white px-10 py-3.5 text-[13px] font-black text-black shadow-[0_14px_34px_rgba(255,255,255,0.16)] transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-65"
+          >
+            {isSavingProfile ? 'Saving...' : 'Save Profile'}
+          </button>
+        </div>
+      )}
+
       {/* Edit Name Modal */}
       <AnimatePresence>
         {editingName && (
@@ -1491,7 +1537,7 @@ export function SettingsScreen() {
                   type="text"
                   value={tempHandle.startsWith('@') ? tempHandle.slice(1) : tempHandle}
                   onChange={(e) => setTempHandle(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSaveHandle()}
+                  onKeyPress={(e) => e.key === 'Enter' && void handleSaveHandle()}
                   placeholder="username"
                   className="flex-1 bg-transparent text-white outline-none placeholder:text-gray-500"
                   autoFocus
@@ -1506,7 +1552,7 @@ export function SettingsScreen() {
                   Cancel
                 </button>
                 <button
-                  onClick={handleSaveHandle}
+                  onClick={() => void handleSaveHandle()}
                   disabled={!tempHandle.trim()}
                   className="flex-1 bg-white text-black py-3 rounded-full font-bold hover:bg-gray-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >

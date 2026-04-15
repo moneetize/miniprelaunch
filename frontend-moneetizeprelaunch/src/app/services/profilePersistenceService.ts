@@ -101,5 +101,8 @@ export async function saveRemoteProfileSettings(
     throw new Error(result.error || 'Failed to save profile settings.');
   }
 
-  return result.data?.settings || settings;
+  const savedSettings = result.data?.settings || settings;
+  writeStoredProfileSettings(savedSettings);
+
+  return savedSettings;
 }

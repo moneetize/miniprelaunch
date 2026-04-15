@@ -2,18 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { motion } from 'motion/react';
 import { ChevronLeft, Check, Dumbbell, Gift, Heart, Paperclip, Send, Smile } from 'lucide-react';
-import { getMemberChatById, teamChatPreview, teamMemberChats, type ChatPreview } from '../utils/chatData';
-
-interface ChatMessage {
-  id: string;
-  senderId: string;
-  senderName: string;
-  senderAvatar?: string;
-  content: string;
-  timestamp: string;
-  hasCard?: boolean;
-  hasJoinButton?: boolean;
-}
+import { teamChatPreview, teamMemberChats, type ChatPreview } from '../utils/chatData';
+import { createCurrentUserMessage, getChatPreviewById, getThreadId, loadThreadMessages, sendThreadMessage, type ChatMessage } from '../services/chatService';
 
 export function UserChat() {
   const navigate = useNavigate();
@@ -21,12 +11,28 @@ export function UserChat() {
   const { id } = useParams();
   const routeChat = location.state?.chat as ChatPreview | undefined;
   const isTeamRoute = location.pathname.includes('/chat/team/');
-  const chat = routeChat || (isTeamRoute ? teamChatPreview : getMemberChatById(id));
+  const fallbackChat = routeChat || (isTeamRoute ? teamChatPreview : teamMemberChats.find((member) => member.id === id) || teamMemberChats[0]);
+  const [chat, setChat] = useState<ChatPreview>(fallbackChat);
   const isTeamChat = chat.type === 'team';
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const threadId = useMemo(() => getThreadId(chat), [chat]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void getChatPreviewById(id, isTeamRoute).then((nextChat) => {
+      if (!cancelled) setChat(nextChat);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id, isTeamRoute]);
 
   const baseMessages = useMemo<ChatMessage[]>(() => {
+    const createdAt = new Date().toISOString();
+
     if (isTeamChat) {
       return [
         {
@@ -36,6 +42,8 @@ export function UserChat() {
           senderAvatar: teamMemberChats[2].avatar,
           content: 'Hey, everyone! I just found this product and thought you would like it. Tap the image to check it out and add it to your portfolio!',
           timestamp: '10:04 AM',
+          createdAt,
+          role: 'member',
           hasCard: true,
           hasJoinButton: true,
         },
@@ -46,6 +54,8 @@ export function UserChat() {
           senderAvatar: teamMemberChats[3].avatar,
           content: 'I just took this survey, and I would love to hear your thoughts too! Tap the link to share your insights and earn points for participating!',
           timestamp: '10:04 AM',
+          createdAt,
+          role: 'member',
         },
         {
           id: 'team-you',
@@ -53,6 +63,8 @@ export function UserChat() {
           senderName: 'You',
           content: 'I just took this survey, and I would love to hear your thoughts too! Tap the link to share your insights and earn points for participating!',
           timestamp: '10:02 AM',
+          createdAt,
+          role: 'user',
           hasCard: true,
         },
       ];
@@ -66,6 +78,8 @@ export function UserChat() {
         senderAvatar: chat.avatar,
         content: 'Hey, everyone! I just found this product and thought you would like it. Tap the image to check it out and add it to your portfolio!',
         timestamp: '10:00 AM',
+        createdAt,
+        role: 'member',
       },
       {
         id: 'member-2',
@@ -74,6 +88,8 @@ export function UserChat() {
         senderAvatar: chat.avatar,
         content: 'I just took this survey, and I would love to hear your thoughts too! Tap the link to share your insights and earn points for participating!',
         timestamp: '10:00 AM',
+        createdAt,
+        role: 'member',
         hasCard: true,
       },
       {
@@ -82,16 +98,26 @@ export function UserChat() {
         senderName: 'You',
         content: 'I just took this survey, and I would love to hear your thoughts too! Tap the link to share your insights and earn points for participating!',
         timestamp: '10:02 AM',
+        createdAt,
+        role: 'user',
         hasCard: true,
       },
     ];
   }, [chat, isTeamChat]);
 
-  const [messages, setMessages] = useState(baseMessages);
+  const [messages, setMessages] = useState<ChatMessage[]>(baseMessages);
 
   useEffect(() => {
-    setMessages(baseMessages);
-  }, [baseMessages]);
+    let cancelled = false;
+
+    void loadThreadMessages(threadId, baseMessages).then((threadMessages) => {
+      if (!cancelled) setMessages(threadMessages);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseMessages, threadId]);
 
   useEffect(() => {
     const typingTimer = window.setTimeout(() => setIsTyping(true), 900);
@@ -107,17 +133,11 @@ export function UserChat() {
     const trimmedMessage = inputValue.trim();
     if (!trimmedMessage) return;
 
-    setMessages((currentMessages) => [
-      ...currentMessages,
-      {
-        id: `user-${Date.now()}`,
-        senderId: 'current-user',
-        senderName: 'You',
-        content: trimmedMessage,
-        timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-      },
-    ]);
+    const nextMessage = createCurrentUserMessage(trimmedMessage);
+    const nextMessages = [...messages, nextMessage];
+    setMessages(nextMessages);
     setInputValue('');
+    void sendThreadMessage(threadId, nextMessage).then(setMessages);
   };
 
   const renderHeaderAvatar = () => {
@@ -138,7 +158,8 @@ export function UserChat() {
   };
 
   const renderMessage = (message: ChatMessage) => {
-    const isCurrentUser = message.senderId === 'current-user';
+    const currentUserId = localStorage.getItem('user_id') || 'current-user';
+    const isCurrentUser = message.role === 'user' || message.senderId === currentUserId || message.senderId === 'current-user';
     const showSender = isTeamChat && !isCurrentUser;
 
     return (

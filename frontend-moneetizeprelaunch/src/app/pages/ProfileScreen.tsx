@@ -7,7 +7,7 @@ import wildcardIcon from 'figma:asset/f632203f248e2d298246c5ffb0789bc0cac99ea5.p
 import tshirtRewardIcon from '../../assets/moneetize-tshirt-reward.png';
 import { getUserPoints, POINTS_UPDATED_EVENT } from '../utils/pointsManager';
 import { safeGetItem, safeSetItem } from '../utils/storage';
-import { isUserAdmin } from '../services/authService';
+import { isUserAdmin, logoutUser } from '../services/authService';
 import { getStoredUsdtBalance, loadScratchProfile, type ScratchDrawResult } from '../services/scratchService';
 import { LOCAL_NETWORK_PROFILES_UPDATED_EVENT, loadNetworkFollowStates, loadRecommendedFriends, saveNetworkFollowState, syncCurrentUserNetworkProfile, type RecommendedFriendProfile } from '../services/networkService';
 import { getStoredProfileSettings, isStoredProfileComplete, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT, writeStoredProfileSettings } from '../utils/profileSettings';
@@ -188,7 +188,6 @@ export function ProfileScreen() {
     const applyProfileSettings = () => {
       const profileSettings = getStoredProfileSettings({
         fallbackName: 'Jess Wu',
-        fallbackHandle: '@healthyhabits',
       });
 
       setUserName(profileSettings.name);
@@ -780,6 +779,17 @@ export function ProfileScreen() {
         >
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,rgba(255,255,255,0.08),transparent_28%)]" />
           <div className="pointer-events-none absolute -left-16 top-20 h-36 w-36 rounded-full bg-white/[0.04] blur-3xl" />
+          <button
+            type="button"
+            onClick={() => {
+              logoutUser();
+              navigate('/login');
+            }}
+            className="absolute right-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/8 text-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors hover:bg-white/14 hover:text-white"
+            aria-label="Log out"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
 
           <div className="relative mx-auto mb-3 flex max-w-[260px] items-start justify-center">
             <button
@@ -1325,9 +1335,7 @@ export function ProfileScreen() {
             >
               <button
                 onClick={() => {
-                  localStorage.removeItem('access_token');
-                  localStorage.removeItem('refresh_token');
-                  localStorage.removeItem('user_email');
+                  logoutUser();
                   navigate('/login');
                 }}
                 className="w-full bg-red-500/10 border border-red-500/30 text-red-400 py-3.5 rounded-full font-semibold text-base hover:bg-red-500/20 transition-all flex items-center justify-center gap-2"
@@ -1339,16 +1347,6 @@ export function ProfileScreen() {
           </motion.div>
         )}
 
-        {/* Back to Scratch Button */}
-        <motion.button
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          onClick={() => navigate('/scratch-and-win')}
-          className="mx-auto mt-9 flex min-h-[52px] w-[170px] items-center justify-center rounded-full bg-white px-6 text-sm font-black text-black shadow-[0_16px_42px_rgba(0,0,0,0.35)] transition-colors hover:bg-gray-100"
-        >
-          Back to Scratch
-        </motion.button>
       </div>
 
       {/* Invite Modal */}

@@ -518,7 +518,13 @@ export function ScratchAndWin() {
         }
       } catch (error) {
         if (!cancelled) {
-          setTicketError(error instanceof Error ? error.message : 'Unable to load scratch ticket.');
+          const message = error instanceof Error ? error.message : 'Unable to load scratch ticket.';
+          if (message.toLowerCase().includes('already been completed')) {
+            navigate('/profile-screen');
+            return;
+          }
+
+          setTicketError(message);
         }
       } finally {
         if (!cancelled) {

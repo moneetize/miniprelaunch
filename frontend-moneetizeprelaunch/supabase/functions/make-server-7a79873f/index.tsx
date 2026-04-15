@@ -33,11 +33,15 @@ const SCRATCH_HISTORY_LIMIT = 50;
 const RECOMMENDED_FRIENDS_KEY = 'network:recommended_friends';
 const PROFILE_SETTINGS_PREFIX = 'profile_settings:';
 const NETWORK_FOLLOWS_PREFIX = 'network_follows:';
+const POINTS_HISTORY_PREFIX = 'points_history:';
+const CHAT_THREADS_PREFIX = 'chat_thread:';
 const EARLY_ACCESS_REQUESTS_KEY = 'early_access_requests';
 const EMAIL_QUEUE_KEY = 'email_notifications';
 const MARKETPLACE_ORDERS_KEY = 'marketplace_orders';
 const EARLY_ACCESS_POINTS_AWARD = 25;
+const INVITE_POINTS_PER_RECIPIENT = 20;
 const ADMIN_NOTIFICATION_EMAIL = 'admin@moneetize.com';
+const CHAT_THREAD_LIMIT = 100;
 
 const defaultRecommendedFriends = [
   {
@@ -424,6 +428,113 @@ const normalizeFollowStates = (value: unknown) => {
   }, {} as Record<string, boolean>);
 };
 
+const normalizeChatThreadId = (threadId: string) => (
+  `${threadId || ''}`.trim().replace(/[^a-zA-Z0-9:_-]+/g, '_').slice(0, 180) || 'general'
+);
+
+const normalizeChatMessage = (message: any, currentUser: any) => {
+  const createdAt = typeof message?.createdAt === 'string' ? message.createdAt : new Date().toISOString();
+  const senderId = `${message?.senderId || currentUser?.id || 'current-user'}`;
+  const senderName = `${message?.senderName || getUserDisplayName(currentUser, 'You')}`.trim();
+  const content = `${message?.content || ''}`.trim().slice(0, 4000);
+
+  return {
+    id: `${message?.id || crypto.randomUUID()}`,
+    senderId,
+    senderName,
+    senderAvatar: `${message?.senderAvatar || ''}`.trim(),
+    content,
+    timestamp: `${message?.timestamp || new Date(createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`,
+    createdAt,
+    role: message?.role === 'agent' || message?.role === 'member' || message?.role === 'system' ? message.role : 'user',
+  };
+};
+
+const createAgentFallbackReply = (prompt: string) => {
+  const createdAt = new Date().toISOString();
+  const lowerPrompt = prompt.toLowerCase();
+  const content = lowerPrompt.includes('invest') || lowerPrompt.includes('market') || lowerPrompt.includes('stock') || lowerPrompt.includes('crypto')
+    ? 'I can help with financial education, risk framing, diversification, time horizon, and questions to ask before making a decision. I cannot guarantee returns or tell you what to buy. Share your goal, timeline, and risk comfort and I will help compare the tradeoffs.'
+    : 'I can help with your rewards, marketplace, profile setup, and general money education. Tell me what you want to work through.';
+
+  return {
+    id: crypto.randomUUID(),
+    senderId: 'agent',
+    senderName: 'Your Agent',
+    content,
+    timestamp: new Date(createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+    createdAt,
+    role: 'agent',
+  };
+};
+
+const extractOpenAIResponseText = (data: any) => {
+  if (typeof data?.output_text === 'string' && data.output_text.trim()) return data.output_text.trim();
+
+  const textParts: string[] = [];
+  if (Array.isArray(data?.output)) {
+    data.output.forEach((item: any) => {
+      if (Array.isArray(item?.content)) {
+        item.content.forEach((part: any) => {
+          if (typeof part?.text === 'string') textParts.push(part.text);
+          if (typeof part?.content === 'string') textParts.push(part.content);
+        });
+      }
+    });
+  }
+
+  return textParts.join('\n').trim();
+};
+
+const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
+  const openAiApiKey = Deno.env.get('OPENAI_API_KEY');
+  if (!openAiApiKey) return createAgentFallbackReply(prompt);
+
+  try {
+    const recentMessages = messages.slice(-12).map((message) => ({
+      role: message.role === 'user' ? 'user' : 'assistant',
+      content: `${message.content || ''}`.slice(0, 4000),
+    })).filter((message) => message.content.trim());
+
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${openAiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: Deno.env.get('OPENAI_MODEL') || 'gpt-5.2',
+        input: [
+          {
+            role: 'system',
+            content: 'You are the Moneetize personal AI agent. Help users with financial education, budgeting, market literacy, portfolio questions, rewards, and app guidance. Do not provide personalized investment, legal, tax, or guaranteed-return advice. Ask for goals, time horizon, liquidity needs, and risk tolerance before discussing tradeoffs. Keep answers concise and practical.',
+          },
+          ...recentMessages,
+        ],
+      }),
+    });
+
+    if (!response.ok) return createAgentFallbackReply(prompt);
+
+    const data = await response.json();
+    const content = extractOpenAIResponseText(data) || createAgentFallbackReply(prompt).content;
+    const createdAt = new Date().toISOString();
+
+    return {
+      id: crypto.randomUUID(),
+      senderId: 'agent',
+      senderName: 'Your Agent',
+      content,
+      timestamp: new Date(createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+      createdAt,
+      role: 'agent',
+    };
+  } catch (error) {
+    console.error('OpenAI agent response failed:', error);
+    return createAgentFallbackReply(prompt);
+  }
+};
+
 const queueEmailNotification = async (email: Record<string, unknown>) => {
   const queuedNotifications = parseStoredJsonArray(await kv.get(EMAIL_QUEUE_KEY));
   const notification = {
@@ -688,6 +799,25 @@ app.put("/make-server-7a79873f/profile/settings", async (c) => {
 
     const body = await c.req.json();
     const settings = normalizeProfileSettings(body?.settings || body, currentUser.user);
+    const requestedHandle = settings.handle.trim().toLowerCase();
+    const usersResult = await auth.listAllUsers();
+
+    if (usersResult.success && usersResult.data?.users) {
+      for (const user of usersResult.data.users) {
+        if (user.id === currentUser.user.id) continue;
+
+        const existingSettings = await kv.get(`${PROFILE_SETTINGS_PREFIX}${user.id}`);
+        if (!existingSettings) continue;
+
+        const existingHandle = normalizeProfileSettings(existingSettings, user).handle.trim().toLowerCase();
+        if (existingHandle && existingHandle === requestedHandle) {
+          return c.json({
+            success: false,
+            error: `${settings.handle} is already in use. Choose another handle.`,
+          }, 409);
+        }
+      }
+    }
 
     await Promise.all([
       kv.set(`${PROFILE_SETTINGS_PREFIX}${currentUser.user.id}`, settings),
@@ -946,6 +1076,142 @@ app.put("/make-server-7a79873f/network/follows", async (c) => {
   }
 });
 
+// Points routes
+app.post("/make-server-7a79873f/points/adjust", async (c) => {
+  try {
+    const currentUser = await verifyCurrentUser(c);
+    if ('response' in currentUser) return currentUser.response;
+
+    const body = await c.req.json();
+    const amount = Math.max(0, Math.round(parseStoredNumber(body?.amount, 0)));
+    const source = `${body?.source || 'app'}`.trim().slice(0, 80) || 'app';
+
+    if (amount <= 0) {
+      return c.json({ success: false, error: 'Point amount must be greater than zero' }, 400);
+    }
+
+    const pointsKey = `user_points:${currentUser.user.id}`;
+    const historyKey = `${POINTS_HISTORY_PREFIX}${currentUser.user.id}`;
+    const currentPoints = parseStoredNumber(await kv.get(pointsKey), DEFAULT_USER_POINTS);
+    const nextPoints = currentPoints + amount;
+    const createdAt = new Date().toISOString();
+    const transaction = {
+      id: crypto.randomUUID(),
+      type: 'add',
+      amount,
+      source,
+      oldBalance: currentPoints,
+      newBalance: nextPoints,
+      createdAt,
+    };
+    const history = parseStoredJsonArray(await kv.get(historyKey));
+
+    await Promise.all([
+      kv.set(pointsKey, nextPoints.toString()),
+      kv.set(historyKey, JSON.stringify([transaction, ...history].slice(0, 100))),
+    ]);
+
+    return c.json({
+      success: true,
+      data: {
+        points: nextPoints,
+        transaction,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Points adjust endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to adjust points' }, 500);
+  }
+});
+
+// Chat routes
+app.get("/make-server-7a79873f/chat/thread/:threadId", async (c) => {
+  try {
+    const currentUser = await verifyCurrentUser(c);
+    if ('response' in currentUser) return currentUser.response;
+
+    const threadId = normalizeChatThreadId(c.req.param('threadId'));
+    const messages = parseStoredJsonArray(await kv.get(`${CHAT_THREADS_PREFIX}${threadId}`));
+
+    return c.json({
+      success: true,
+      data: {
+        messages,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Chat thread load endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to load chat thread' }, 500);
+  }
+});
+
+app.post("/make-server-7a79873f/chat/thread/:threadId", async (c) => {
+  try {
+    const currentUser = await verifyCurrentUser(c);
+    if ('response' in currentUser) return currentUser.response;
+
+    const threadId = normalizeChatThreadId(c.req.param('threadId'));
+    const body = await c.req.json();
+    const message = normalizeChatMessage(body?.message, currentUser.user);
+
+    if (!message.content) {
+      return c.json({ success: false, error: 'Message content is required' }, 400);
+    }
+
+    const threadKey = `${CHAT_THREADS_PREFIX}${threadId}`;
+    const messages = parseStoredJsonArray(await kv.get(threadKey));
+    const nextMessages = [...messages, message].slice(-CHAT_THREAD_LIMIT);
+
+    await kv.set(threadKey, JSON.stringify(nextMessages));
+
+    return c.json({
+      success: true,
+      data: {
+        message,
+        messages: nextMessages,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Chat thread send endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to send chat message' }, 500);
+  }
+});
+
+app.post("/make-server-7a79873f/chat/agent", async (c) => {
+  try {
+    const currentUser = await verifyCurrentUser(c);
+    if ('response' in currentUser) return currentUser.response;
+
+    const body = await c.req.json();
+    const threadId = normalizeChatThreadId(body?.threadId || `agent:${currentUser.user.id}`);
+    const prompt = `${body?.prompt || ''}`.trim();
+    const incomingMessages = Array.isArray(body?.messages)
+      ? body.messages.map((message: any) => normalizeChatMessage(message, currentUser.user)).filter((message: any) => message.content)
+      : [];
+
+    if (!prompt) {
+      return c.json({ success: false, error: 'Prompt is required' }, 400);
+    }
+
+    const reply = await createAgentOpenAIReply(incomingMessages, prompt);
+    const threadKey = `${CHAT_THREADS_PREFIX}${threadId}`;
+    const nextMessages = [...incomingMessages, reply].slice(-CHAT_THREAD_LIMIT);
+
+    await kv.set(threadKey, JSON.stringify(nextMessages));
+
+    return c.json({
+      success: true,
+      data: {
+        reply,
+        messages: nextMessages,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Agent chat endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to send agent chat message' }, 500);
+  }
+});
+
 // Scratch and win routes
 app.post("/make-server-7a79873f/scratch/draw", async (c) => {
   try {
@@ -964,6 +1230,18 @@ app.post("/make-server-7a79873f/scratch/draw", async (c) => {
       kv.get(usdtKey),
       kv.get(historyKey),
     ]);
+    const history = parseStoredJsonArray(storedHistory);
+
+    if (history.length > 0) {
+      return c.json({
+        success: false,
+        error: 'Scratch and Win has already been completed for this account.',
+        data: {
+          latest: history[0],
+          history,
+        },
+      }, 409);
+    }
 
     const previousPoints = parseStoredNumber(storedPoints, DEFAULT_USER_POINTS);
     const previousUsdt = parseStoredNumber(storedUsdt, DEFAULT_USER_USDT);
@@ -990,7 +1268,6 @@ app.post("/make-server-7a79873f/scratch/draw", async (c) => {
       expiresAt,
     };
 
-    const history = parseStoredJsonArray(storedHistory);
     const nextHistory = [draw, ...history].slice(0, SCRATCH_HISTORY_LIMIT);
 
     await Promise.all([
@@ -1101,6 +1378,13 @@ app.post("/make-server-7a79873f/marketplace/order", async (c) => {
 
     const userPointsKey = `user_points:${currentUser.user.id}`;
     const currentPointBalance = parseStoredNumber(await kv.get(userPointsKey), DEFAULT_USER_POINTS);
+    if (currentPointBalance < pointsTotal) {
+      return c.json({
+        success: false,
+        error: `You need ${pointsTotal - currentPointBalance} more points to checkout.`,
+      }, 402);
+    }
+
     const nextPointBalance = Math.max(0, currentPointBalance - pointsTotal);
     const now = new Date().toISOString();
     const orderNumber = `${body?.orderNumber || `MNTZ-${Date.now().toString().slice(-6)}`}`.trim();
@@ -1526,8 +1810,8 @@ app.post("/make-server-7a79873f/invites/send", async (c) => {
     // - AWS SES
     // - Supabase Auth invite system
     
-    // Calculate points earned (5 points per invite)
-    const pointsEarned = emails.length * 5;
+    // Calculate points earned for completed invite sends.
+    const pointsEarned = emails.length * INVITE_POINTS_PER_RECIPIENT;
     
     // Get current user points from KV store
     const userPointsKey = `user_points:${user.id}`;
@@ -1546,7 +1830,7 @@ app.post("/make-server-7a79873f/invites/send", async (c) => {
     const newInvites = emails.map((email: string) => ({
       email,
       sentAt: new Date().toISOString(),
-      points: 5
+      points: INVITE_POINTS_PER_RECIPIENT
     }));
     
     history.push(...newInvites);

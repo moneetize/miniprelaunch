@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { AlertCircle, Check, CheckCircle, ChevronLeft, Copy, Mail, MessageSquare, Plus, X } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import { buildInviteLink } from '../utils/invitationLinks';
-import { recordSentInvites, type InviteDeliveryType } from '../utils/inviteSync';
+import { INVITE_POINTS_PER_RECIPIENT, recordSentInvites, type InviteDeliveryType } from '../utils/inviteSync';
 import { addUserPoints } from '../utils/pointsManager';
 
 const MAX_INVITES_PER_METHOD = 5;
@@ -40,7 +40,7 @@ export function ShareInvites() {
   };
 
   const awardInvitePoints = async (inviteCount: number) => {
-    const pointsEarned = inviteCount * 5;
+    const pointsEarned = inviteCount * INVITE_POINTS_PER_RECIPIENT;
     await addUserPoints(pointsEarned, 'referral');
     return pointsEarned;
   };
@@ -151,7 +151,7 @@ export function ShareInvites() {
 
   const filledEmailsCount = emails.filter((email) => email.trim() !== '').length;
   const filledPhonesCount = phoneNumbers.filter((phone) => phone.trim() !== '').length;
-  const potentialPoints = (filledEmailsCount + filledPhonesCount) * 5;
+  const potentialPoints = (filledEmailsCount + filledPhonesCount) * INVITE_POINTS_PER_RECIPIENT;
 
   return (
     <div className="absolute inset-0 h-full w-full overflow-y-auto bg-[#060708] text-white [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
@@ -184,7 +184,7 @@ export function ShareInvites() {
 
             <div className="min-w-0 text-center">
               <h1 className="text-lg font-black tracking-normal text-white">Share Invites</h1>
-              <p className="mt-1 text-xs font-semibold text-white/46">Earn 5 pts per friend</p>
+              <p className="mt-1 text-xs font-semibold text-white/46">Earn {INVITE_POINTS_PER_RECIPIENT} pts per friend</p>
             </div>
 
             <motion.div

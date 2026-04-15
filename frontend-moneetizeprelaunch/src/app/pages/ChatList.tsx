@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import { ChevronLeft, ChevronUp, Search, Trash2, Users } from 'lucide-react';
-import { agentChatPreview, teamChatPreview, teamMemberChats, type ChatPreview } from '../utils/chatData';
+import { loadChatPreviews, type ChatPreview } from '../services/chatService';
 import { getSelectedAvatarImage } from '../utils/avatarUtils';
 
 type MessageTab = 'all' | 'members' | 'teams';
@@ -14,17 +14,26 @@ export function ChatList() {
   const [activeTab, setActiveTab] = useState<MessageTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isCollapsing, setIsCollapsing] = useState(false);
+  const [chats, setChats] = useState<ChatPreview[]>([]);
   const agentAvatar = getSelectedAvatarImage();
 
-  const chats = useMemo(() => {
-    if (activeTab === 'members') return teamMemberChats;
-    if (activeTab === 'teams') return [teamChatPreview];
-    return [agentChatPreview, ...teamMemberChats, teamChatPreview];
+  useEffect(() => {
+    let cancelled = false;
+
+    void loadChatPreviews(activeTab).then((nextChats) => {
+      if (!cancelled) setChats(nextChats);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeTab]);
 
-  const filteredChats = chats.filter((chat) =>
-    `${chat.name} ${chat.handle || ''} ${chat.lastMessage}`.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
+  const filteredChats = useMemo(() => (
+    chats.filter((chat) =>
+      `${chat.name} ${chat.handle || ''} ${chat.lastMessage}`.toLowerCase().includes(searchQuery.toLowerCase()),
+    )
+  ), [chats, searchQuery]);
 
   const handleChatClick = (chat: ChatPreview) => {
     if (chat.type === 'agent') {

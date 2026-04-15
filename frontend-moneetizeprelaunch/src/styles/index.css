@@ -10,6 +10,14 @@ body,
   scrollbar-width: none;
 }
 
+html,
+body,
+#root {
+  min-height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
 html::-webkit-scrollbar,
 body::-webkit-scrollbar,
 #root::-webkit-scrollbar,

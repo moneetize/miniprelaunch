@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
 import { ChevronLeft, MessageCircle } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
-import { getUserPoints, POINTS_UPDATED_EVENT } from '../utils/pointsManager';
+import { addUserPoints, getUserPoints, POINTS_UPDATED_EVENT } from '../utils/pointsManager';
 import { getStoredProfileSettings, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT } from '../utils/profileSettings';
 import { getAgentAvatarTone, getSelectedAvatarImage } from '../utils/avatarUtils';
 import { hydrateRemoteProfileSettings } from '../services/profilePersistenceService';
@@ -115,21 +115,37 @@ export function GameplayScreen() {
     setUserPointsState(getUserPoints());
   };
 
+  const completeStandalonePointAction = async (actionId: string, points: number, source: string, path?: string) => {
+    const storageKey = `moneetizeGameplayAction:${actionId}`;
+    if (localStorage.getItem(storageKey) !== 'true') {
+      localStorage.setItem(storageKey, 'true');
+      await addUserPoints(points, source);
+      setUserPointsState(getUserPoints());
+    }
+
+    if (path) navigate(path);
+  };
+
   const firstAvailableQuest = quests.find((quest) => !quest.completed) || quests[0];
   const earnPointActions = [
     { label: 'Referring\na friend', points: 20, className: 'left-1 top-3 h-[118px] w-[118px] -rotate-[15deg]', path: '/share-invites' },
     { label: 'Sharing\nwith a friend', points: 10, className: 'right-1 top-3 h-[118px] w-[118px] rotate-[16deg]', quest: findQuest('share') },
-    { label: 'Signing\nup', points: 10, className: 'left-[-26px] top-[128px] h-[132px] w-[132px] rotate-[4deg]', quest: undefined },
+    { label: 'Signing\nup', points: 10, className: 'left-[-26px] top-[128px] h-[132px] w-[132px] rotate-[4deg]', actionId: 'signup', source: 'gameplay-signup' },
     { label: 'Performing\na first-time action', points: 5, className: 'left-1/2 top-[78px] h-[190px] w-[190px] -translate-x-1/2 rotate-[7deg] z-20', quest: firstAvailableQuest },
     { label: 'Daily\ncheck-in', points: 2, className: 'right-[-28px] top-[128px] h-[132px] w-[132px] -rotate-[8deg]', quest: findQuest('checkin') },
     { label: 'Taking a personality\nquiz', points: 5, className: 'left-0 top-[258px] h-[180px] w-[180px] -rotate-[2deg]', quest: findQuest('quiz') },
-    { label: 'Discovering hidden\nproducts', points: 10, className: 'right-0 top-[258px] h-[180px] w-[180px] -rotate-[13deg]', path: '/discovery' },
+    { label: 'Discovering hidden\nproducts', points: 10, className: 'right-0 top-[258px] h-[180px] w-[180px] -rotate-[13deg]', actionId: 'hidden-products', source: 'gameplay-hidden-products', path: '/discovery' },
     { label: 'Reviewing\na product', points: 5, className: 'left-[-4px] top-[470px] h-[132px] w-[132px] rotate-[11deg]', quest: findQuest('review') },
     { label: 'Product portfolio\nperformance', points: 10, className: 'left-1/2 top-[410px] h-[172px] w-[172px] -translate-x-1/2 -rotate-[8deg]', quest: findQuest('portfolio') },
     { label: 'Completing\na survey', points: 10, className: 'right-[-4px] top-[470px] h-[132px] w-[132px] -rotate-[10deg]', quest: findQuest('survey') },
   ];
 
   const handleEarnPointAction = (action: typeof earnPointActions[number]) => {
+    if ('actionId' in action && action.actionId) {
+      void completeStandalonePointAction(action.actionId, action.points, action.source, 'path' in action ? action.path : undefined);
+      return;
+    }
+
     if ('path' in action && action.path) {
       navigate(action.path);
       return;

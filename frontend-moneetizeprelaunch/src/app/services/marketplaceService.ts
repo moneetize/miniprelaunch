@@ -89,7 +89,21 @@ function imageVariant(color: string, logo: string) {
 }
 
 function productImage(fileName: string) {
-  return `${productAssetPath}${fileName}`;
+  return `${productAssetPath}${fileName.replace(/\.jpeg$/i, '.jpg')}`;
+}
+
+function normalizeMarketplaceImagePath(value?: string) {
+  if (!value) return value;
+
+  return value.replace(/^\/marketplace\/products\/(.+)\.jpeg$/i, '/marketplace/products/$1.jpg');
+}
+
+function normalizeMarketplaceVariantImages(variantImages?: Record<string, string>) {
+  if (!variantImages) return variantImages;
+
+  return Object.fromEntries(
+    Object.entries(variantImages).map(([key, value]) => [key, normalizeMarketplaceImagePath(value) || value]),
+  );
 }
 
 export const defaultMarketplaceProducts: MarketplaceProduct[] = [
@@ -331,6 +345,8 @@ function parseProductList(value: string | null) {
 function normalizeProduct(product: MarketplaceProduct): MarketplaceProduct {
   return {
     ...product,
+    image: normalizeMarketplaceImagePath(product.image),
+    variantImages: normalizeMarketplaceVariantImages(product.variantImages),
     pointsPrice: Number.isFinite(Number(product.pointsPrice)) ? Math.max(0, Math.round(Number(product.pointsPrice))) : 0,
     inventory: Number.isFinite(Number(product.inventory)) ? Math.max(0, Math.round(Number(product.inventory))) : 0,
     colorVariants: product.colorVariants?.length ? product.colorVariants : ['Black'],
