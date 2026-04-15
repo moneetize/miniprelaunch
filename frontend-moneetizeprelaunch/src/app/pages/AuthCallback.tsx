@@ -21,8 +21,7 @@ export function AuthCallback() {
       }
 
       const nextPath = consumeOAuthNextPath();
-      const userName = result.data?.user.name?.trim();
-      const fallbackPath = userName ? nextPath : '/personalize-name';
+      const fallbackPath = nextPath || '/profile-screen';
 
       if (fallbackPath === '/profile-screen') {
         completeScratchTeaserFlow();

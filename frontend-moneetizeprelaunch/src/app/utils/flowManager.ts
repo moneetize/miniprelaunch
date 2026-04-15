@@ -34,9 +34,7 @@ export function getScratchTeaserAuthRoute() {
 }
 
 export function getPostAuthDestination() {
-  return safeGetItem('onboardingComplete') === 'true'
-    ? '/profile-screen'
-    : '/personalize-name';
+  return '/profile-screen';
 }
 
 export function completeScratchTeaserFlow() {
