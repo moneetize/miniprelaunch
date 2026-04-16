@@ -143,7 +143,7 @@ const levelCardStyle = {
 
 const SCRATCH_REWARD_EXPIRATION_MS = 90 * 24 * 60 * 60 * 1000;
 const SCRATCH_TEASER_MODEL_VERSION = 3;
-const SCRATCH_LOCKED_TRIPTO = 250;
+const SCRATCH_LOCKED_TRIPTO = 100;
 const SCRATCH_HEAD_START_CURRENT = 316;
 const SCRATCH_HEAD_START_TARGET = 330;
 const SCRATCH_TEAM_MEMBERS = 1;
@@ -191,9 +191,12 @@ const createTeaserReward = ({
   const items: ScratchRewardItem[] = [
     { id: `${ticketId}-points`, type: 'points', label: 'Participation Score', amount: score, unit: 'score', icon: 'gem' },
     { id: `${ticketId}-wildcard`, type: 'wildcard', label: wildCardName, description: wildCardDescription, icon: 'wildcard' },
-    { id: `${ticketId}-usdt`, type: 'usdt', label: 'USDT (Locked)', amount: usdt, unit: 'USDT', icon: 'usdt' },
     { id: `${ticketId}-tripto`, type: 'tripto', label: 'Tripto (Locked)', amount: triptoPoints, unit: 'Tripto', icon: 'tripto' },
   ];
+
+  if (usdt > 0) {
+    items.splice(2, 0, { id: `${ticketId}-usdt`, type: 'usdt', label: 'USDT (Locked)', amount: usdt, unit: 'USDT', icon: 'usdt' });
+  }
 
   if (includeShirt) {
     items.splice(1, 0, {
@@ -226,7 +229,7 @@ const createTeaserReward = ({
 
 const teaserTickets: Array<{ weight: number; ticket: ScratchTicket; reward: ScratchReward }> = [
   {
-    weight: 4500,
+    weight: 6000,
     ticket: {
       id: 'teaser-blue',
       title: 'Wild Scratch',
@@ -242,10 +245,10 @@ const teaserTickets: Array<{ weight: number; ticket: ScratchTicket; reward: Scra
     },
     reward: createTeaserReward({
       ticketId: 'teaser-blue',
-      score: 20,
+      score: 1,
       level: 1,
       triptoPoints: SCRATCH_LOCKED_TRIPTO,
-      usdt: 0.5,
+      usdt: 0,
       wildCardName: 'Starter Coordination Card',
       wildCardDescription: 'A starter participation boost waiting to activate after registration.',
       participationBoost: 'Starter participation boost',
@@ -269,10 +272,10 @@ const teaserTickets: Array<{ weight: number; ticket: ScratchTicket; reward: Scra
     },
     reward: createTeaserReward({
       ticketId: 'teaser-aqua',
-      score: 45,
+      score: 2,
       level: 2,
       triptoPoints: SCRATCH_LOCKED_TRIPTO,
-      usdt: 1,
+      usdt: 2.5,
       wildCardName: 'Momentum Wild Card',
       wildCardDescription: 'A brighter participation card with a stronger activation signal.',
       participationBoost: 'Momentum boost',
@@ -280,7 +283,7 @@ const teaserTickets: Array<{ weight: number; ticket: ScratchTicket; reward: Scra
     }),
   },
   {
-    weight: 1800,
+    weight: 700,
     ticket: {
       id: 'teaser-green',
       title: 'Wild Scratch',
@@ -296,10 +299,10 @@ const teaserTickets: Array<{ weight: number; ticket: ScratchTicket; reward: Scra
     },
     reward: createTeaserReward({
       ticketId: 'teaser-green',
-      score: 75,
+      score: 3,
       level: 3,
-      triptoPoints: SCRATCH_LOCKED_TRIPTO,
-      usdt: 3,
+      triptoPoints: 150,
+      usdt: 5,
       wildCardName: 'Boost Advantage Card',
       wildCardDescription: 'Level 3 participation adds a boost advantage after sign-up.',
       participationBoost: 'Boost advantage',
@@ -308,7 +311,7 @@ const teaserTickets: Array<{ weight: number; ticket: ScratchTicket; reward: Scra
     }),
   },
   {
-    weight: 650,
+    weight: 270,
     ticket: {
       id: 'teaser-pink',
       title: 'Wild Scratch',
@@ -324,10 +327,10 @@ const teaserTickets: Array<{ weight: number; ticket: ScratchTicket; reward: Scra
     },
     reward: createTeaserReward({
       ticketId: 'teaser-pink',
-      score: 250,
+      score: 4,
       level: 4,
-      triptoPoints: SCRATCH_LOCKED_TRIPTO,
-      usdt: 8,
+      triptoPoints: 250,
+      usdt: 10,
       wildCardName: 'Golden Eligibility Card',
       wildCardDescription: 'Higher-level participation unlocks golden eligibility after registration.',
       participationBoost: 'Enhanced coordination impact',
@@ -337,7 +340,7 @@ const teaserTickets: Array<{ weight: number; ticket: ScratchTicket; reward: Scra
     }),
   },
   {
-    weight: 50,
+    weight: 30,
     ticket: {
       id: 'teaser-gold',
       title: 'Golden Scratch',
@@ -354,9 +357,9 @@ const teaserTickets: Array<{ weight: number; ticket: ScratchTicket; reward: Scra
     },
     reward: createTeaserReward({
       ticketId: 'teaser-gold',
-      score: 500,
+      score: 6,
       level: 5,
-      triptoPoints: SCRATCH_LOCKED_TRIPTO,
+      triptoPoints: 500,
       usdt: 25,
       wildCardName: 'Golden Apex Card',
       wildCardDescription: 'A very rare coordination window with top-tier launch rewards.',
@@ -981,6 +984,9 @@ export function ScratchAndWin() {
       normalizedTicketError.includes('log in') ||
       normalizedTicketError.includes('unauthorized') ||
       normalizedTicketError.includes('expired');
+    const needsProfile =
+      normalizedTicketError.includes('no scratch') ||
+      normalizedTicketError.includes('opportunities are available');
 
     return (
       <div className="absolute inset-0 w-full h-full bg-gradient-to-b from-[#0a0e1a] via-[#0f1623] to-[#0a0e1a] flex items-center justify-center px-4">
@@ -990,10 +996,10 @@ export function ScratchAndWin() {
             {needsLogin ? 'Your session expired. Please log in again to play Scratch and Win.' : ticketError || 'We could not load your scratch reward. Please try again.'}
           </p>
           <button
-            onClick={() => needsLogin ? navigate('/login') : window.location.reload()}
+            onClick={() => needsLogin ? navigate('/login') : needsProfile ? navigate('/profile-screen') : window.location.reload()}
             className="w-full rounded-full bg-white px-6 py-3 font-semibold text-black transition-colors hover:bg-gray-100"
           >
-            {needsLogin ? 'Log in' : 'Try again'}
+            {needsLogin ? 'Log in' : needsProfile ? 'View Profile' : 'Try again'}
           </button>
         </div>
       </div>

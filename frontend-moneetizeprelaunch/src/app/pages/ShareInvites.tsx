@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
 import { AlertCircle, Check, CheckCircle, ChevronLeft, Copy, Mail, MessageSquare, Plus, X } from 'lucide-react';
@@ -6,6 +6,7 @@ import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import { buildInviteLink } from '../utils/invitationLinks';
 import { sendInvitesFromServer } from '../services/inviteService';
 import { INVITE_POINTS_PER_RECIPIENT } from '../utils/inviteSync';
+import { getStoredScratchCredits, loadScratchProfile, type ScratchCredits } from '../services/scratchService';
 
 const MAX_INVITES_PER_METHOD = 5;
 const SMS_PHONE_EXAMPLE = '+15551234567';
@@ -37,6 +38,31 @@ export function ShareInvites() {
   const [error, setError] = useState<string | null>(null);
   const [sentEmails, setSentEmails] = useState<string[]>([]);
   const [sentPhones, setSentPhones] = useState<string[]>([]);
+  const [scratchCredits, setScratchCredits] = useState<ScratchCredits | null>(() => getStoredScratchCredits());
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const syncScratchCredits = () => {
+      void loadScratchProfile()
+        .then((profile) => {
+          if (!cancelled && profile?.scratchCredits) {
+            setScratchCredits(profile.scratchCredits);
+          }
+        })
+        .catch((syncError) => {
+          console.warn('Scratch credit sync skipped:', syncError);
+        });
+    };
+
+    syncScratchCredits();
+    const refreshTimer = window.setInterval(syncScratchCredits, 30000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(refreshTimer);
+    };
+  }, []);
 
   const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
@@ -124,12 +150,13 @@ export function ShareInvites() {
       if (failedDeliveries.length === validPhoneNumbers.length) {
         setError(firstFailure ? `SMS delivery failed: ${firstFailure}` : 'SMS delivery failed. Check AWS SNS SMS setup and try again.');
       } else {
+        const rewardNote = `You earn ${INVITE_POINTS_PER_RECIPIENT} pts when each friend signs up.`;
         setSuccessMessage(
           failedDeliveries.length
-            ? `${sentCount} SMS invite${sentCount === 1 ? '' : 's'} sent, ${failedDeliveries.length} failed. You earned ${result.pointsEarned} points.`
+            ? `${sentCount} SMS invite${sentCount === 1 ? '' : 's'} sent, ${failedDeliveries.length} failed. ${rewardNote}`
             : queuedCount
-              ? `${validPhoneNumbers.length} SMS invite${validPhoneNumbers.length > 1 ? 's' : ''} queued. You earned ${result.pointsEarned} points.`
-              : `${validPhoneNumbers.length} SMS invite${validPhoneNumbers.length > 1 ? 's' : ''} sent. You earned ${result.pointsEarned} points.`,
+              ? `${validPhoneNumbers.length} SMS invite${validPhoneNumbers.length > 1 ? 's' : ''} queued. ${rewardNote}`
+              : `${validPhoneNumbers.length} SMS invite${validPhoneNumbers.length > 1 ? 's' : ''} sent. ${rewardNote}`,
         );
         setPhoneNumbers(['', '']);
       }
@@ -175,12 +202,13 @@ export function ShareInvites() {
       if (failedDeliveries.length === validEmails.length) {
         setError(firstFailure ? `Email delivery failed: ${firstFailure}` : 'Email delivery failed. Check email provider setup and try again.');
       } else {
+        const rewardNote = `You earn ${INVITE_POINTS_PER_RECIPIENT} pts when each friend signs up.`;
         setSuccessMessage(
           failedDeliveries.length
-            ? `${sentCount} email invite${sentCount === 1 ? '' : 's'} sent, ${failedDeliveries.length} failed. You earned ${result.pointsEarned} points.`
+            ? `${sentCount} email invite${sentCount === 1 ? '' : 's'} sent, ${failedDeliveries.length} failed. ${rewardNote}`
             : queuedCount
-              ? `${validEmails.length} email invite${validEmails.length > 1 ? 's' : ''} queued. You earned ${result.pointsEarned} points.`
-              : `${validEmails.length} email invite${validEmails.length > 1 ? 's' : ''} sent. You earned ${result.pointsEarned} points.`,
+              ? `${validEmails.length} email invite${validEmails.length > 1 ? 's' : ''} queued. ${rewardNote}`
+              : `${validEmails.length} email invite${validEmails.length > 1 ? 's' : ''} sent. ${rewardNote}`,
         );
         setEmails(['', '']);
       }
@@ -195,6 +223,7 @@ export function ShareInvites() {
   const filledEmailsCount = emails.filter((email) => email.trim() !== '').length;
   const filledPhonesCount = phoneNumbers.filter((phone) => phone.trim() !== '').length;
   const potentialPoints = (filledEmailsCount + filledPhonesCount) * INVITE_POINTS_PER_RECIPIENT;
+  const availableScratchCredits = scratchCredits?.available || 0;
 
   return (
     <div className="absolute inset-0 h-full w-full overflow-y-auto bg-[#060708] text-white [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
@@ -227,7 +256,7 @@ export function ShareInvites() {
 
             <div className="min-w-0 text-center">
               <h1 className="text-lg font-black tracking-normal text-white">Share Invites</h1>
-              <p className="mt-1 text-xs font-semibold text-white/46">Earn {INVITE_POINTS_PER_RECIPIENT} pts per friend</p>
+              <p className="mt-1 text-xs font-semibold text-white/46">Earn {INVITE_POINTS_PER_RECIPIENT} pts when they sign up</p>
             </div>
 
             <motion.div
@@ -239,6 +268,39 @@ export function ShareInvites() {
               <img src={gemIcon} alt="" className="relative h-8 w-8 object-contain" />
             </motion.div>
           </div>
+
+          {availableScratchCredits > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-5 rounded-[1.1rem] border border-emerald-300/18 bg-emerald-300/[0.065] p-3.5"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-start gap-3">
+                  <motion.img
+                    src={gemIcon}
+                    alt=""
+                    animate={{ y: [0, -3, 0], scale: [1, 1.06, 1] }}
+                    transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
+                    className="mt-0.5 h-7 w-7 shrink-0 drop-shadow-[0_0_14px_rgba(134,255,166,0.55)]"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-xs font-black leading-relaxed text-white">You have unlocked another scratch-and-win.</p>
+                    <p className="mt-0.5 text-[11px] font-semibold text-emerald-100/62">
+                      {availableScratchCredits} chance{availableScratchCredits === 1 ? '' : 's'} available.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate('/scratch-and-win')}
+                  className="shrink-0 rounded-full bg-white px-3.5 py-2 text-[11px] font-black text-black transition-colors hover:bg-white/90"
+                >
+                  Back to Scratch
+                </button>
+              </div>
+            </motion.div>
+          )}
 
           <div className="mb-5 rounded-[1.25rem] border border-white/8 bg-black/24 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
             <div className="mb-3 flex items-center justify-between gap-3">

@@ -20,14 +20,14 @@ const QUEST_PROGRESS_KEY = 'quest_progress';
 
 // Default quests
 export const DEFAULT_QUESTS: Omit<Quest, 'completed' | 'progress'>[] = [
-  { id: 1, title: 'Personality\nQuiz', description: 'Take a personality quiz', points: 5, type: 'quiz', category: 'daily' },
+  { id: 1, title: 'Personality\nQuiz', description: 'Take a personality quiz', points: 3, type: 'quiz', category: 'daily' },
   { id: 2, title: 'Daily\nCheck-in', description: 'Complete daily check-in', points: 2, type: 'checkin', category: 'daily' },
-  { id: 3, title: 'Share\nProducts', description: 'Share 3 products', points: 10, type: 'share', category: 'daily', requirement: 3 },
-  { id: 4, title: 'Share\nProducts', description: 'Share 5 products from marketplace', points: 20, type: 'share', category: 'weekly', requirement: 5 },
-  { id: 5, title: 'Review\nItems', description: 'Write 2 product reviews', points: 5, type: 'review', category: 'weekly', requirement: 2 },
-  { id: 6, title: 'Take\nSurvey', description: 'Complete a survey', points: 10, type: 'survey', category: 'daily' },
-  { id: 7, title: 'Create\nContent', description: 'Post content', points: 18, type: 'content', category: 'weekly' },
-  { id: 8, title: 'Portfolio\nActivity', description: 'Participate in portfolio', points: 10, type: 'portfolio', category: 'weekly' },
+  { id: 3, title: 'Share\nProducts', description: 'Share 3 products', points: 2, type: 'share', category: 'daily', requirement: 3 },
+  { id: 4, title: 'Share\nProducts', description: 'Share 5 products from marketplace', points: 3, type: 'share', category: 'weekly', requirement: 5 },
+  { id: 5, title: 'Review\nItems', description: 'Write 2 product reviews', points: 3, type: 'review', category: 'weekly', requirement: 2 },
+  { id: 6, title: 'Take\nSurvey', description: 'Complete a survey', points: 5, type: 'survey', category: 'daily' },
+  { id: 7, title: 'Create\nContent', description: 'Post content', points: 5, type: 'content', category: 'weekly' },
+  { id: 8, title: 'Portfolio\nActivity', description: 'Participate in portfolio', points: 5, type: 'portfolio', category: 'weekly' },
 ];
 
 // Get all quests

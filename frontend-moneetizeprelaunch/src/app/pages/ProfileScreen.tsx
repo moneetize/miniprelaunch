@@ -8,7 +8,7 @@ import tshirtRewardIcon from '../../assets/moneetize-tshirt-reward.png';
 import { getUserPoints, POINTS_UPDATED_EVENT } from '../utils/pointsManager';
 import { safeGetItem, safeSetItem } from '../utils/storage';
 import { isUserAdmin, logoutUser } from '../services/authService';
-import { getStoredUsdtBalance, loadScratchProfile, type ScratchDrawResult } from '../services/scratchService';
+import { getStoredScratchCredits, getStoredUsdtBalance, loadScratchProfile, type ScratchCredits, type ScratchDrawResult } from '../services/scratchService';
 import { LOCAL_NETWORK_PROFILES_UPDATED_EVENT, loadNetworkFollowStates, loadRecommendedFriends, saveNetworkFollowState, syncCurrentUserNetworkProfile, type RecommendedFriendProfile } from '../services/networkService';
 import { getStoredProfileSettings, isStoredProfileComplete, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT, writeStoredProfileSettings } from '../utils/profileSettings';
 import { hydrateRemoteProfileSettings } from '../services/profilePersistenceService';
@@ -147,7 +147,7 @@ function getHistoryRewards(draw: ScratchDrawResult): HistoryRewardIcon[] {
 export function ProfileScreen() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'network' | 'your-team' | 'invited-team' | 'winnings' | 'gameplay' | 'settings'>('network');
-  const [userPoints, setUserPoints] = useState(10);
+  const [userPoints, setUserPoints] = useState(0);
   const [userName, setUserName] = useState('');
   const [userHandle, setUserHandle] = useState('');
   const [userPhoto, setUserPhoto] = useState<string>('');
@@ -173,12 +173,43 @@ export function ProfileScreen() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [showRewardHistory, setShowRewardHistory] = useState(false);
   const [scratchHistory, setScratchHistory] = useState<ScratchDrawResult[]>(() => getStoredScratchHistory());
+  const [scratchCredits, setScratchCredits] = useState<ScratchCredits | null>(() => getStoredScratchCredits());
   const [isProfileComplete, setIsProfileComplete] = useState(() => isStoredProfileComplete());
   const [recommendedFriends, setRecommendedFriends] = useState<RecommendedFriendProfile[]>([]);
   const [networkFollowStates, setNetworkFollowStates] = useState<Record<string, boolean>>(() => ({
     ...defaultNetworkFollowStates,
     ...getStoredNetworkFollowStates(),
   }));
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const syncScratchCredits = () => {
+      void loadScratchProfile()
+        .then((profile) => {
+          if (cancelled) return;
+          if (profile?.scratchCredits) setScratchCredits(profile.scratchCredits);
+          if (profile?.history) {
+            setScratchHistory(profile.history);
+            setBalance((currentBalance) => Math.max(currentBalance, getScratchHistoryUsdtTotal(profile.history || [])));
+          }
+          if (profile?.balances) {
+            setUserPoints(getUserPoints());
+            setBalance((currentBalance) => Math.max(currentBalance, profile.balances?.usdt || 0));
+          }
+        })
+        .catch((error) => {
+          console.warn('Scratch credit refresh skipped:', error);
+        });
+    };
+
+    const refreshTimer = window.setInterval(syncScratchCredits, 30000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(refreshTimer);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -243,6 +274,9 @@ export function ProfileScreen() {
               member.isCurrentUser ? { ...member, points: latestPoints } : member
             )
           );
+        }
+        if (!cancelled && profile?.scratchCredits) {
+          setScratchCredits(profile.scratchCredits);
         }
         if (!cancelled && profile?.history) {
           setScratchHistory(profile.history);
@@ -352,10 +386,11 @@ export function ProfileScreen() {
       if (!event.key || PROFILE_SETTINGS_STORAGE_KEYS.includes(event.key)) {
         handleProfileSettingsUpdated();
       }
-      if (!event.key || ['userPoints', 'pointsHistory', 'userUsdtBalance', 'scratchHistory', NETWORK_FOLLOW_STATES_KEY].includes(event.key)) {
+      if (!event.key || ['userPoints', 'pointsHistory', 'userUsdtBalance', 'scratchHistory', 'scratchCredits', NETWORK_FOLLOW_STATES_KEY].includes(event.key)) {
         const latestHistory = getStoredScratchHistory();
         syncPointBalance();
         setScratchHistory(latestHistory);
+        setScratchCredits(getStoredScratchCredits());
         setBalance(Math.max(getStoredUsdtBalance(), getScratchHistoryUsdtTotal(latestHistory)));
         setNetworkFollowStates({
           ...defaultNetworkFollowStates,
@@ -496,6 +531,8 @@ export function ProfileScreen() {
   const totalUsdtWon = Math.max(balance, getScratchHistoryUsdtTotal(scratchHistory));
   const displayBalance = formatUsdtBalance(totalUsdtWon);
   const displayNetworkingPoints = teamMembers.reduce((total, member) => total + (member.points || 0), 0);
+  const availableScratchCredits = scratchCredits?.available || 0;
+  const hasScratchOpportunity = availableScratchCredits > 0;
   const userInitials = userName
     .split(/\s+/)
     .filter(Boolean)
@@ -765,6 +802,41 @@ export function ProfileScreen() {
                 className="shrink-0 rounded-full bg-white px-3.5 py-2 text-[11px] font-black text-black transition-colors hover:bg-gray-100"
               >
                 Register
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {hasScratchOpportunity && (
+          <motion.div
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4 overflow-hidden rounded-[1rem] border border-emerald-300/20 bg-emerald-300/[0.075] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_18px_44px_rgba(0,0,0,0.32)] backdrop-blur-md"
+          >
+            <div className="flex min-w-0 flex-col items-start gap-3 min-[360px]:flex-row min-[360px]:items-center min-[360px]:justify-between">
+              <div className="flex min-w-0 items-start gap-3">
+                <motion.img
+                  src={gemIcon}
+                  alt=""
+                  animate={{ y: [0, -3, 0], scale: [1, 1.08, 1] }}
+                  transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
+                  className="mt-0.5 h-7 w-7 shrink-0 drop-shadow-[0_0_14px_rgba(134,255,166,0.55)]"
+                />
+                <div className="min-w-0">
+                  <p className="text-[12px] font-black leading-snug text-white">
+                    You have unlocked another scratch-and-win. Try your luck now.
+                  </p>
+                  <p className="mt-1 text-[11px] font-bold text-emerald-100/62">
+                    {availableScratchCredits} of {scratchCredits?.max || 5} scratch chance{availableScratchCredits === 1 ? '' : 's'} available.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate('/scratch-and-win')}
+                className="shrink-0 rounded-full bg-white px-3.5 py-2 text-[11px] font-black text-black transition-colors hover:bg-gray-100"
+              >
+                Back to Scratch
               </button>
             </div>
           </motion.div>

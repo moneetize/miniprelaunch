@@ -21,7 +21,7 @@ import { QuestToast } from '../components/QuestToast';
 
 export function GameplayScreen() {
   const navigate = useNavigate();
-  const [userPoints, setUserPointsState] = useState(10);
+  const [userPoints, setUserPointsState] = useState(0);
   const [userName, setUserName] = useState('Jess Wu');
   const [userPhoto, setUserPhoto] = useState('');
   const [selectedAvatar, setSelectedAvatar] = useState('blueAvatar');
@@ -128,16 +128,16 @@ export function GameplayScreen() {
 
   const firstAvailableQuest = quests.find((quest) => !quest.completed) || quests[0];
   const earnPointActions = [
-    { label: 'Referring\na friend', points: 5, className: 'left-1 top-3 h-[118px] w-[118px] -rotate-[15deg]', path: '/share-invites' },
-    { label: 'Sharing\nwith a friend', points: 10, className: 'right-1 top-3 h-[118px] w-[118px] rotate-[16deg]', quest: findQuest('share') },
-    { label: 'Signing\nup', points: 10, className: 'left-[-26px] top-[128px] h-[132px] w-[132px] rotate-[4deg]', actionId: 'signup', source: 'gameplay-signup' },
-    { label: 'Performing\na first-time action', points: 5, className: 'left-1/2 top-[78px] h-[190px] w-[190px] -translate-x-1/2 rotate-[7deg] z-20', quest: firstAvailableQuest },
+    { label: 'Referring\na friend', points: 2, className: 'left-1 top-3 h-[118px] w-[118px] -rotate-[15deg]', path: '/share-invites' },
+    { label: 'Sharing\nwith a friend', points: 2, className: 'right-1 top-3 h-[118px] w-[118px] rotate-[16deg]', quest: findQuest('share') },
+    { label: 'Signing\nup', points: 1, className: 'left-[-26px] top-[128px] h-[132px] w-[132px] rotate-[4deg]', actionId: 'signup', source: 'gameplay-signup' },
+    { label: 'Performing\na first-time action', points: 1, className: 'left-1/2 top-[78px] h-[190px] w-[190px] -translate-x-1/2 rotate-[7deg] z-20', quest: firstAvailableQuest },
     { label: 'Daily\ncheck-in', points: 2, className: 'right-[-28px] top-[128px] h-[132px] w-[132px] -rotate-[8deg]', quest: findQuest('checkin') },
-    { label: 'Taking a personality\nquiz', points: 5, className: 'left-0 top-[258px] h-[180px] w-[180px] -rotate-[2deg]', quest: findQuest('quiz') },
-    { label: 'Discovering hidden\nproducts', points: 10, className: 'right-0 top-[258px] h-[180px] w-[180px] -rotate-[13deg]', actionId: 'hidden-products', source: 'gameplay-hidden-products', path: '/discovery' },
-    { label: 'Reviewing\na product', points: 5, className: 'left-[-4px] top-[470px] h-[132px] w-[132px] rotate-[11deg]', quest: findQuest('review') },
-    { label: 'Product portfolio\nperformance', points: 10, className: 'left-1/2 top-[410px] h-[172px] w-[172px] -translate-x-1/2 -rotate-[8deg]', quest: findQuest('portfolio') },
-    { label: 'Completing\na survey', points: 10, className: 'right-[-4px] top-[470px] h-[132px] w-[132px] -rotate-[10deg]', quest: findQuest('survey') },
+    { label: 'Taking a personality\nquiz', points: 3, className: 'left-0 top-[258px] h-[180px] w-[180px] -rotate-[2deg]', quest: findQuest('quiz') },
+    { label: 'Discovering hidden\nproducts', points: 5, className: 'right-0 top-[258px] h-[180px] w-[180px] -rotate-[13deg]', actionId: 'hidden-products', source: 'gameplay-hidden-products', path: '/discovery' },
+    { label: 'Reviewing\na product', points: 3, className: 'left-[-4px] top-[470px] h-[132px] w-[132px] rotate-[11deg]', quest: findQuest('review') },
+    { label: 'Product portfolio\nperformance', points: 5, className: 'left-1/2 top-[410px] h-[172px] w-[172px] -translate-x-1/2 -rotate-[8deg]', quest: findQuest('portfolio') },
+    { label: 'Completing\na survey', points: 5, className: 'right-[-4px] top-[470px] h-[132px] w-[132px] -rotate-[10deg]', quest: findQuest('survey') },
   ];
 
   const handleEarnPointAction = (action: typeof earnPointActions[number]) => {

@@ -49,6 +49,28 @@ type ChatThreadsResponse = {
 
 const CHAT_API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-7a79873f/chat`;
 const CHAT_THREAD_STORAGE_PREFIX = 'moneetizeChatThread:';
+const LEGACY_DEMO_MESSAGE_IDS = new Set([
+  'boost-income',
+  'action-needed',
+  'team-olivia',
+  'team-jack',
+  'team-you',
+  'member-1',
+  'member-2',
+  'member-you',
+]);
+
+function isLegacyDemoMessage(message: ChatMessage) {
+  const content = `${message.content || ''}`;
+
+  return (
+    LEGACY_DEMO_MESSAGE_IDS.has(message.id) ||
+    content.includes('Triple Your Earnings') ||
+    content.includes('Action Needed!') ||
+    content.includes('I just took this survey') ||
+    content.includes('Hey, everyone! I just found this product')
+  );
+}
 
 function getAccessToken() {
   return safeGetItem('access_token') || '';
@@ -103,7 +125,6 @@ function mergeChats(...groups: ChatPreview[][]) {
 }
 
 export async function loadTeamChatContacts(): Promise<ChatPreview[]> {
-  const fallbackMembers = teamMemberChats;
   const pendingInvites = getPendingTeamInviteMembers().map((invite): ChatPreview => ({
     id: invite.id,
     type: 'member',
@@ -122,9 +143,9 @@ export async function loadTeamChatContacts(): Promise<ChatPreview[]> {
       .filter((profile) => followStates[profile.id] || profile.followsMe)
       .map(profileToChat);
 
-    return mergeChats(teamProfiles, pendingInvites, fallbackMembers);
+    return mergeChats(teamProfiles, pendingInvites);
   } catch {
-    return mergeChats(pendingInvites, fallbackMembers);
+    return mergeChats(pendingInvites);
   }
 }
 
@@ -169,7 +190,7 @@ export async function loadChatPreviews(tab: 'all' | 'members' | 'teams' = 'all')
     ...teamChatPreview,
     name: `${profile.name.split(' ')[0] || 'My'} team`,
     handle: profile.handle,
-    lastMessage: contacts.length ? `${contacts[0].name}: Tap to start the team thread.` : teamChatPreview.lastMessage,
+    lastMessage: contacts.length ? 'Start a team conversation.' : 'Invite teammates to start a team chat.',
   };
   const remoteThreads = await loadRemoteThreadIndex();
 
@@ -182,7 +203,14 @@ export async function getChatPreviewById(id?: string, isTeam = false): Promise<C
   if (isTeam) return (await loadChatPreviews('teams'))[0] || teamChatPreview;
 
   const contacts = await loadTeamChatContacts();
-  return contacts.find((contact) => contact.id === id) || teamMemberChats.find((member) => member.id === id) || teamMemberChats[0];
+  return contacts.find((contact) => contact.id === id) || teamMemberChats.find((member) => member.id === id) || {
+    id: id || 'member',
+    type: 'member',
+    name: 'Member',
+    handle: '',
+    lastMessage: 'Start a message.',
+    timestamp: '',
+  };
 }
 
 export function getThreadId(chat: ChatPreview) {
@@ -203,7 +231,7 @@ function parseMessages(value: string | null): ChatMessage[] {
 
   try {
     const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed as ChatMessage[] : [];
+    return Array.isArray(parsed) ? (parsed as ChatMessage[]).filter((message) => !isLegacyDemoMessage(message)) : [];
   } catch {
     return [];
   }
@@ -250,7 +278,8 @@ export async function loadThreadMessages(threadId: string, fallback: ChatMessage
       return localMessages;
     }
 
-    const messages = result.data.messages.length ? result.data.messages : localMessages;
+    const remoteMessages = result.data.messages.filter((message) => !isLegacyDemoMessage(message));
+    const messages = remoteMessages.length ? remoteMessages : localMessages;
     saveLocalThreadMessages(threadId, messages);
     return messages;
   } catch {
@@ -287,8 +316,8 @@ export function createFallbackAgentReply(prompt: string): ChatMessage {
   const createdAt = new Date().toISOString();
   const normalizedPrompt = prompt.toLowerCase();
   const content = normalizedPrompt.includes('invest') || normalizedPrompt.includes('market') || normalizedPrompt.includes('stock')
-    ? 'I can help you think through investing education, risk, diversification, time horizon, and questions to ask before making a decision. I cannot promise returns or tell you what to buy. Share your goal, timeline, and risk comfort and I will help you compare options.'
-    : 'I can help with rewards, marketplace questions, profile setup, and general money education. What would you like to work through?';
+    ? 'Share your goal, timeline, and risk comfort. I can help compare options, explain the tradeoffs, and turn the decision into a clear checklist.'
+    : 'Tell me what you want to work through. I can help with money questions, rewards, marketplace redemptions, invites, profile setup, and launch-team strategy.';
 
   return {
     id: `agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
-import { ChevronLeft, ChevronUp, Search, Trash2, Users } from 'lucide-react';
+import { ChevronLeft, ChevronUp, Search, Users } from 'lucide-react';
 import { loadChatPreviews, type ChatPreview } from '../services/chatService';
 import { getSelectedAvatarImage } from '../utils/avatarUtils';
 
@@ -156,7 +156,7 @@ export function ChatList() {
           <input
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Test text something..."
+            placeholder="Search messages..."
             className="min-w-0 flex-1 bg-transparent text-sm font-bold text-white outline-none placeholder:text-white/40"
           />
         </label>
@@ -191,15 +191,18 @@ export function ChatList() {
                   {chat.unreadCount}
                 </span>
               ) : null}
-
-              {chat.id === 'jack-nichols' && (
-                <span className="ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-red-400/75 opacity-90">
-                  <Trash2 className="h-4 w-4" />
-                </span>
-              )}
             </motion.button>
           ))}
         </div>
+
+        {!filteredChats.length && (
+          <div className="mt-8 rounded-[1rem] border border-white/8 bg-white/6 px-5 py-6 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+            <p className="text-base font-black text-white">No messages yet</p>
+            <p className="mt-2 text-sm font-semibold leading-relaxed text-white/50">
+              Your agent, team, and member conversations will appear here.
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="pointer-events-none fixed inset-x-0 bottom-6 z-30 flex justify-center">

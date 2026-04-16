@@ -1,9 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { motion } from 'motion/react';
-import { ChevronLeft, Check, Dumbbell, Gift, Heart, Paperclip, Send, Smile } from 'lucide-react';
-import { teamChatPreview, teamMemberChats, type ChatPreview } from '../utils/chatData';
+import { ChevronLeft, Check, Paperclip, Send, Users } from 'lucide-react';
+import { teamChatPreview, type ChatPreview } from '../utils/chatData';
 import { createCurrentUserMessage, getChatPreviewById, getThreadId, loadThreadMessages, sendThreadMessage, type ChatMessage } from '../services/chatService';
+
+function createFallbackMemberChat(id?: string): ChatPreview {
+  return {
+    id: id || 'member',
+    type: 'member',
+    name: 'Member',
+    handle: '',
+    lastMessage: 'Start a message.',
+    timestamp: '',
+  };
+}
 
 export function UserChat() {
   const navigate = useNavigate();
@@ -11,11 +22,10 @@ export function UserChat() {
   const { id } = useParams();
   const routeChat = location.state?.chat as ChatPreview | undefined;
   const isTeamRoute = location.pathname.includes('/chat/team/');
-  const fallbackChat = routeChat || (isTeamRoute ? teamChatPreview : teamMemberChats.find((member) => member.id === id) || teamMemberChats[0]);
+  const fallbackChat = routeChat || (isTeamRoute ? teamChatPreview : createFallbackMemberChat(id));
   const [chat, setChat] = useState<ChatPreview>(fallbackChat);
   const isTeamChat = chat.type === 'team';
   const [inputValue, setInputValue] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
   const threadId = useMemo(() => getThreadId(chat), [chat]);
 
   useEffect(() => {
@@ -30,80 +40,7 @@ export function UserChat() {
     };
   }, [id, isTeamRoute]);
 
-  const baseMessages = useMemo<ChatMessage[]>(() => {
-    const createdAt = new Date().toISOString();
-
-    if (isTeamChat) {
-      return [
-        {
-          id: 'team-olivia',
-          senderId: 'olivia-bennett',
-          senderName: 'Olivia Bennett',
-          senderAvatar: teamMemberChats[2].avatar,
-          content: 'Hey, everyone! I just found this product and thought you would like it. Tap the image to check it out and add it to your portfolio!',
-          timestamp: '10:04 AM',
-          createdAt,
-          role: 'member',
-          hasCard: true,
-          hasJoinButton: true,
-        },
-        {
-          id: 'team-jack',
-          senderId: 'jack-nichols',
-          senderName: 'Jack Nichols',
-          senderAvatar: teamMemberChats[3].avatar,
-          content: 'I just took this survey, and I would love to hear your thoughts too! Tap the link to share your insights and earn points for participating!',
-          timestamp: '10:04 AM',
-          createdAt,
-          role: 'member',
-        },
-        {
-          id: 'team-you',
-          senderId: 'current-user',
-          senderName: 'You',
-          content: 'I just took this survey, and I would love to hear your thoughts too! Tap the link to share your insights and earn points for participating!',
-          timestamp: '10:02 AM',
-          createdAt,
-          role: 'user',
-          hasCard: true,
-        },
-      ];
-    }
-
-    return [
-      {
-        id: 'member-1',
-        senderId: chat.id,
-        senderName: chat.name,
-        senderAvatar: chat.avatar,
-        content: 'Hey, everyone! I just found this product and thought you would like it. Tap the image to check it out and add it to your portfolio!',
-        timestamp: '10:00 AM',
-        createdAt,
-        role: 'member',
-      },
-      {
-        id: 'member-2',
-        senderId: chat.id,
-        senderName: chat.name,
-        senderAvatar: chat.avatar,
-        content: 'I just took this survey, and I would love to hear your thoughts too! Tap the link to share your insights and earn points for participating!',
-        timestamp: '10:00 AM',
-        createdAt,
-        role: 'member',
-        hasCard: true,
-      },
-      {
-        id: 'member-you',
-        senderId: 'current-user',
-        senderName: 'You',
-        content: 'I just took this survey, and I would love to hear your thoughts too! Tap the link to share your insights and earn points for participating!',
-        timestamp: '10:02 AM',
-        createdAt,
-        role: 'user',
-        hasCard: true,
-      },
-    ];
-  }, [chat, isTeamChat]);
+  const baseMessages = useMemo<ChatMessage[]>(() => [], [threadId]);
 
   const [messages, setMessages] = useState<ChatMessage[]>(baseMessages);
 
@@ -118,16 +55,6 @@ export function UserChat() {
       cancelled = true;
     };
   }, [baseMessages, threadId]);
-
-  useEffect(() => {
-    const typingTimer = window.setTimeout(() => setIsTyping(true), 900);
-    const clearTimer = window.setTimeout(() => setIsTyping(false), 5200);
-
-    return () => {
-      window.clearTimeout(typingTimer);
-      window.clearTimeout(clearTimer);
-    };
-  }, [chat.id]);
 
   const handleSend = () => {
     const trimmedMessage = inputValue.trim();
@@ -144,7 +71,7 @@ export function UserChat() {
     if (isTeamChat) {
       return (
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#f18f31] text-black shadow-[0_0_24px_rgba(241,143,49,0.28)]">
-          <Dumbbell className="h-6 w-6" />
+          <Users className="h-6 w-6" />
         </div>
       );
     }
@@ -200,14 +127,6 @@ export function UserChat() {
             <span>{message.timestamp}</span>
             {isCurrentUser && <Check className="h-3.5 w-3.5 text-[#6bd886]" />}
           </div>
-
-          {!isTeamChat && !isCurrentUser && message.hasCard && (
-            <div className="ml-auto mt-2 flex w-max items-center gap-2 rounded-full bg-[#222428] px-3 py-2 text-white shadow-[0_8px_22px_rgba(0,0,0,0.28)]">
-              <Heart className="h-4 w-4 fill-[#ff4457] text-[#ff4457]" />
-              <Gift className="h-4 w-4 text-[#f2ad47]" />
-              <Smile className="h-4 w-4 text-[#f6d36d]" />
-            </div>
-          )}
         </div>
       </motion.div>
     );
@@ -240,7 +159,9 @@ export function UserChat() {
 
         <div className="text-center">
           <h1 className="text-lg font-black text-white">{isTeamChat ? 'My team' : chat.name}</h1>
-          <p className="mt-1 rounded-full bg-white/8 px-3 py-1 text-xs font-bold text-white/45">{isTeamChat ? teamChatPreview.handle : chat.handle}</p>
+          {(isTeamChat ? chat.handle : chat.handle) && (
+            <p className="mt-1 rounded-full bg-white/8 px-3 py-1 text-xs font-bold text-white/45">{chat.handle}</p>
+          )}
         </div>
 
         <span className="relative h-12 w-12 shrink-0 justify-self-end">
@@ -251,16 +172,18 @@ export function UserChat() {
       <main className="relative z-10 flex-1 overflow-y-auto px-4 pb-28 pt-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         <p className="mb-4 text-center text-xs font-bold text-white/42">Today</p>
 
-        <div className="space-y-4">{messages.map(renderMessage)}</div>
-
-        {isTyping && (
+        {messages.length ? (
+          <div className="space-y-4">{messages.map(renderMessage)}</div>
+        ) : (
           <motion.div
-            initial={{ opacity: 0, y: 8 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mt-6 flex items-center gap-2 text-xs font-bold text-white/45"
+            className="mx-auto mt-8 max-w-[320px] rounded-[1.2rem] border border-white/8 bg-white/6 px-5 py-5 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
           >
-            {!isTeamChat && chat.avatar && <img src={chat.avatar} alt={chat.name} className="h-6 w-6 rounded-full object-cover" />}
-            <span>{isTeamChat ? 'Olivia and Jack are typing...' : `${chat.name.split(' ')[0]} is typing...`}</span>
+            <p className="text-base font-black text-white">{isTeamChat ? 'Start the team chat' : `Message ${chat.name}`}</p>
+            <p className="mt-2 text-sm font-semibold leading-relaxed text-white/52">
+              {isTeamChat ? 'Messages you send here are saved to your team thread.' : 'Send the first message when you are ready.'}
+            </p>
           </motion.div>
         )}
       </main>
@@ -271,7 +194,7 @@ export function UserChat() {
             value={inputValue}
             onChange={(event) => setInputValue(event.target.value)}
             onKeyDown={(event) => event.key === 'Enter' && handleSend()}
-            placeholder={isTeamChat ? 'The message you wrote' : 'Type a message...'}
+            placeholder={isTeamChat ? 'Message your team...' : 'Type a message...'}
             className="min-w-0 flex-1 bg-transparent text-sm font-bold text-white outline-none placeholder:text-white/42"
           />
           {!isTeamChat && <Paperclip className="h-5 w-5 text-white/42" />}

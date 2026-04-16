@@ -87,7 +87,7 @@ function createMarketplaceDraft(): MarketplaceProduct {
     id: '',
     name: '',
     description: '',
-    pointsPrice: 120,
+    pointsPrice: 47,
     image: '',
     category: 'Shirts',
     colorVariants: ['Black', 'White'],

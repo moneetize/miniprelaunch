@@ -26,6 +26,18 @@ interface TrackUrlInviteResponse {
     tracked: boolean;
     pointsEarned: number;
     newTotalPoints?: number;
+    scratchUnlock?: {
+      unlocked: boolean;
+      reason?: string;
+      message?: string;
+      credits?: {
+        available: number;
+        used: number;
+        totalEarned: number;
+        max: number;
+        canScratch: boolean;
+      };
+    } | null;
   };
   error?: string;
 }

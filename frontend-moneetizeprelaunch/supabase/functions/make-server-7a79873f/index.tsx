@@ -27,7 +27,7 @@ app.get("/make-server-7a79873f/health", (c) => {
 });
 
 const PRODUCTS_KEY = 'products';
-const DEFAULT_USER_POINTS = 10;
+const DEFAULT_USER_POINTS = 0;
 const DEFAULT_USER_USDT = 0;
 const SCRATCH_HISTORY_LIMIT = 50;
 const RECOMMENDED_FRIENDS_KEY = 'network:recommended_friends';
@@ -46,8 +46,26 @@ const MARKETPLACE_ORDER_LOCK_KEY = 'lock:marketplace_order';
 const MARKETPLACE_ORDER_LOCK_TTL_MS = 12000;
 const INVITE_HISTORY_PREFIX = 'invite_history:';
 const GAMEPLAY_PROGRESS_PREFIX = 'gameplay_progress:';
+const SCRATCH_CREDITS_PREFIX = 'scratch_credits:';
+const SCRATCH_PREMIUM_COUNTS_KEY = 'scratch_premium_counts';
+const SCRATCH_DRAW_LOCK_KEY = 'lock:scratch_draw';
+const INVITEE_ACTIVATION_REFERRER_PREFIX = 'invite_activation_referrer:';
+const INVITEE_ACTIVATION_AWARDED_PREFIX = 'invite_activation_awarded:';
+const TEAM_MILESTONES_PREFIX = 'team_milestones:';
+const NETWORK_POINTS_PREFIX = 'network_points:';
 const EARLY_ACCESS_POINTS_AWARD = 25;
-const INVITE_POINTS_PER_RECIPIENT = 5;
+const INVITE_POINTS_PER_RECIPIENT = 2;
+const INVITEE_ACTIVATION_POINTS = 2;
+const TEAM_OF_THREE_POINTS = 3;
+const TEAM_OF_FIVE_POINTS = 5;
+const FOLLOW_ACCEPTED_POINTS = 1;
+const MUTUAL_FOLLOW_POINTS = 2;
+const MAX_FOLLOW_POINTS_PER_DAY = 3;
+const MAX_FOLLOW_POINTS_TOTAL = 10;
+const MAX_USER_POINTS = 150;
+const INITIAL_SCRATCH_CREDITS = 1;
+const MAX_SCRATCH_OPPORTUNITIES = 5;
+const GUARANTEED_CASH_WINS = 2;
 const ADMIN_NOTIFICATION_EMAIL = 'admin@moneetize.com';
 const CHAT_THREAD_LIMIT = 100;
 const QUEUE_LIMIT = 500;
@@ -111,7 +129,7 @@ const defaultRecommendedFriends = [
 ];
 
 const SCRATCH_REWARD_EXPIRATION_MS = 90 * 24 * 60 * 60 * 1000;
-const SCRATCH_LOCKED_TRIPTO = 250;
+const SCRATCH_LOCKED_TRIPTO = 100;
 
 const createGoldenWindow = () => ({
   active: true,
@@ -168,7 +186,7 @@ const scratchTickets = [
     title: 'Wild Scratch',
     displayName: 'Blue Ticket',
     theme: 'blue',
-    weight: 4500,
+    weight: 6000,
     isGolden: false,
     borderColor: 'rgba(129, 140, 248, 0.65)',
     glowColor: 'rgba(129, 140, 248, 0.22)',
@@ -177,10 +195,10 @@ const scratchTickets = [
     scratchBaseColor: '#8492ff',
     particleColors: ['#7FCCFF', '#524CFF', '#A78BFA', '#F8FAFC'],
     reward: createScratchReward({
-      score: 20,
+      score: 1,
       level: 1,
       triptoPoints: SCRATCH_LOCKED_TRIPTO,
-      usdt: 0.5,
+      usdt: 0,
       wildCardName: 'Starter Coordination Card',
       wildCardDescription: 'A starter participation boost credited to your profile.',
       participationBoost: 'Starter participation boost',
@@ -201,10 +219,10 @@ const scratchTickets = [
     scratchBaseColor: '#36d3d8',
     particleColors: ['#22D3EE', '#6EE7B7', '#99F6E4', '#F8FAFC'],
     reward: createScratchReward({
-      score: 45,
+      score: 2,
       level: 2,
       triptoPoints: SCRATCH_LOCKED_TRIPTO,
-      usdt: 1,
+      usdt: 2.5,
       wildCardName: 'Momentum Wild Card',
       wildCardDescription: 'A brighter participation card with a stronger activation signal.',
       participationBoost: 'Momentum boost',
@@ -216,7 +234,7 @@ const scratchTickets = [
     title: 'Wild Scratch',
     displayName: 'Green Ticket',
     theme: 'green',
-    weight: 1800,
+    weight: 700,
     isGolden: false,
     borderColor: 'rgba(132, 204, 22, 0.62)',
     glowColor: 'rgba(132, 204, 22, 0.2)',
@@ -225,10 +243,10 @@ const scratchTickets = [
     scratchBaseColor: '#8fd43f',
     particleColors: ['#84CC16', '#A3E635', '#FDE047', '#ECFCCB'],
     reward: createScratchReward({
-      score: 75,
+      score: 3,
       level: 3,
-      triptoPoints: SCRATCH_LOCKED_TRIPTO,
-      usdt: 3,
+      triptoPoints: 150,
+      usdt: 5,
       wildCardName: 'Boost Advantage Card',
       wildCardDescription: 'Level 3 participation adds a boost advantage to your profile.',
       participationBoost: 'Boost advantage',
@@ -240,7 +258,7 @@ const scratchTickets = [
     title: 'Wild Scratch',
     displayName: 'Pink Ticket',
     theme: 'pink',
-    weight: 650,
+    weight: 270,
     isGolden: false,
     borderColor: 'rgba(244, 114, 182, 0.58)',
     glowColor: 'rgba(244, 114, 182, 0.2)',
@@ -249,10 +267,10 @@ const scratchTickets = [
     scratchBaseColor: '#f58aa4',
     particleColors: ['#FB7185', '#F472B6', '#FDBA74', '#FBCFE8'],
     reward: createScratchReward({
-      score: 250,
+      score: 4,
       level: 4,
-      triptoPoints: SCRATCH_LOCKED_TRIPTO,
-      usdt: 8,
+      triptoPoints: 250,
+      usdt: 10,
       wildCardName: 'Golden Eligibility Card',
       wildCardDescription: 'Higher-level participation unlocks golden eligibility.',
       participationBoost: 'Enhanced coordination impact',
@@ -265,7 +283,7 @@ const scratchTickets = [
     title: 'Golden Scratch',
     displayName: 'Gold Ticket',
     theme: 'gold',
-    weight: 50,
+    weight: 30,
     isGolden: true,
     borderColor: 'rgba(212, 175, 55, 0.72)',
     glowColor: 'rgba(212, 175, 55, 0.26)',
@@ -275,9 +293,9 @@ const scratchTickets = [
     particleColors: ['#FDE68A', '#FACC15', '#D97706', '#FEF3C7'],
     countdown: { hours: 0, minutes: 2, seconds: 14 },
     reward: createScratchReward({
-      score: 500,
+      score: 6,
       level: 5,
-      triptoPoints: SCRATCH_LOCKED_TRIPTO,
+      triptoPoints: 500,
       usdt: 25,
       wildCardName: 'Golden Apex Card',
       wildCardDescription: 'A very rare coordination window with top-tier launch rewards.',
@@ -288,6 +306,118 @@ const scratchTickets = [
     }),
   },
 ] as const;
+
+type ScratchOutcomeId = 'non_cash' | 'base_cash' | 'tier_4' | 'tier_3' | 'tier_2' | 'tier_1';
+
+const scratchOutcomeTiers: Array<{
+  id: ScratchOutcomeId;
+  ticketId: typeof scratchTickets[number]['id'];
+  label: string;
+  cash: number;
+  triptoRange: [number, number];
+  pointsRange: [number, number];
+  weight: number;
+  threshold?: number;
+  premiumCap?: number;
+  level: number;
+  wildCardName: string;
+  wildCardDescription: string;
+  participationBoost: string;
+  participationImpact: string;
+}> = [
+  {
+    id: 'non_cash',
+    ticketId: 'blue',
+    label: 'Non-cash',
+    cash: 0,
+    triptoRange: [50, 150],
+    pointsRange: [1, 2],
+    weight: 6000,
+    level: 1,
+    wildCardName: 'Starter Coordination Card',
+    wildCardDescription: 'A starter participation boost credited to your profile.',
+    participationBoost: 'Starter activation',
+    participationImpact: 'Baseline coordination signal',
+  },
+  {
+    id: 'base_cash',
+    ticketId: 'aqua',
+    label: 'Base cash',
+    cash: 2.5,
+    triptoRange: [50, 150],
+    pointsRange: [1, 2],
+    weight: 3000,
+    level: 2,
+    wildCardName: 'Momentum Wild Card',
+    wildCardDescription: 'A base locked-cash win with steady launch participation value.',
+    participationBoost: 'Base cash activation',
+    participationImpact: 'Guaranteed cash progress',
+  },
+  {
+    id: 'tier_4',
+    ticketId: 'green',
+    label: 'Tier 4',
+    cash: 5,
+    triptoRange: [100, 200],
+    pointsRange: [2, 3],
+    weight: 700,
+    threshold: 20,
+    premiumCap: 150,
+    level: 3,
+    wildCardName: 'Boost Advantage Card',
+    wildCardDescription: 'A points-qualified reward upgrade with stronger launch value.',
+    participationBoost: 'Tier 4 reward upgrade',
+    participationImpact: 'Premium eligibility started',
+  },
+  {
+    id: 'tier_3',
+    ticketId: 'pink',
+    label: 'Tier 3',
+    cash: 10,
+    triptoRange: [150, 300],
+    pointsRange: [3, 4],
+    weight: 200,
+    threshold: 40,
+    premiumCap: 25,
+    level: 4,
+    wildCardName: 'Golden Eligibility Card',
+    wildCardDescription: 'A higher launch reward unlocked by points and premium inventory.',
+    participationBoost: 'Tier 3 reward upgrade',
+    participationImpact: 'Golden eligibility',
+  },
+  {
+    id: 'tier_2',
+    ticketId: 'pink',
+    label: 'Tier 2',
+    cash: 15,
+    triptoRange: [200, 400],
+    pointsRange: [4, 5],
+    weight: 70,
+    threshold: 60,
+    premiumCap: 12,
+    level: 4,
+    wildCardName: 'Golden Eligibility Card',
+    wildCardDescription: 'A rare locked-cash reward enabled by strong progression.',
+    participationBoost: 'Tier 2 reward upgrade',
+    participationImpact: 'Rare premium eligibility',
+  },
+  {
+    id: 'tier_1',
+    ticketId: 'gold',
+    label: 'Tier 1',
+    cash: 25,
+    triptoRange: [300, 600],
+    pointsRange: [5, 6],
+    weight: 30,
+    threshold: 80,
+    premiumCap: 6,
+    level: 5,
+    wildCardName: 'Golden Apex Card',
+    wildCardDescription: 'A very rare coordination window with top-tier launch rewards.',
+    participationBoost: 'Tier 1 golden upgrade',
+    participationImpact: 'Golden Apex coordination window',
+  },
+];
 
 const getUserAccessToken = (c: any) => {
   const directToken = c.req.header('x-user-token') || c.req.header('X-User-Token');
@@ -367,6 +497,175 @@ const parseStoredJsonObject = (value: unknown) => {
     }
   }
   return {};
+};
+
+const randomInRange = ([min, max]: [number, number]) => min + randomInt((max - min) + 1);
+
+const getCappedPointAward = (currentPoints: number, requestedPoints: number) => {
+  const safeCurrentPoints = Math.max(0, Math.round(currentPoints));
+  const safeRequestedPoints = Math.max(0, Math.round(requestedPoints));
+  return Math.max(0, Math.min(safeRequestedPoints, MAX_USER_POINTS - safeCurrentPoints));
+};
+
+const selectWeightedScratchOutcome = () => {
+  const totalWeight = scratchOutcomeTiers.reduce((sum, outcome) => sum + outcome.weight, 0);
+  let roll = randomInt(totalWeight);
+
+  for (const outcome of scratchOutcomeTiers) {
+    if (roll < outcome.weight) return outcome;
+    roll -= outcome.weight;
+  }
+
+  return scratchOutcomeTiers[0];
+};
+
+const getScratchCashWinCount = (history: any[]) => history.filter((draw) => (
+  Number(draw?.reward?.usdt) > 0
+)).length;
+
+const hasPremiumScratchUpgrade = (history: any[]) => history.some((draw) => (
+  draw?.reward?.upgradeApplied === true || Number(draw?.reward?.usdt) >= 5
+));
+
+const resolveScratchOutcome = async ({
+  history,
+  currentPoints,
+}: {
+  history: any[];
+  currentPoints: number;
+}) => {
+  const used = Math.min(MAX_SCRATCH_OPPORTUNITIES, Array.isArray(history) ? history.length : 0);
+  const remainingAfterThisDraw = Math.max(0, MAX_SCRATCH_OPPORTUNITIES - (used + 1));
+  const cashWins = getScratchCashWinCount(history);
+  const requiredCashWinsRemaining = Math.max(0, GUARANTEED_CASH_WINS - cashWins);
+  const baseCashOutcome = scratchOutcomeTiers.find((outcome) => outcome.id === 'base_cash') || scratchOutcomeTiers[1];
+  let outcome = remainingAfterThisDraw < requiredCashWinsRemaining
+    ? baseCashOutcome
+    : selectWeightedScratchOutcome();
+  let upgradeApplied = false;
+  let upgradeFallbackReason = '';
+
+  if (outcome.cash >= 5) {
+    const pointsFromOutcome = randomInRange(outcome.pointsRange);
+    const projectedPoints = currentPoints + getCappedPointAward(currentPoints, pointsFromOutcome);
+    const premiumCounts = parseStoredJsonObject(await kv.get(SCRATCH_PREMIUM_COUNTS_KEY));
+    const currentPremiumCount = Math.max(0, Math.round(parseStoredNumber(premiumCounts[outcome.id], 0)));
+    const alreadyUpgraded = hasPremiumScratchUpgrade(history);
+    const isEligible = projectedPoints >= (outcome.threshold || 0);
+    const hasInventory = currentPremiumCount < (outcome.premiumCap || 0);
+
+    if (alreadyUpgraded || !isEligible || !hasInventory) {
+      upgradeFallbackReason = alreadyUpgraded
+        ? 'user_upgrade_limit'
+        : !isEligible
+          ? 'points_threshold'
+          : 'premium_pool_exhausted';
+      outcome = baseCashOutcome;
+    } else {
+      upgradeApplied = true;
+      await kv.set(SCRATCH_PREMIUM_COUNTS_KEY, {
+        ...premiumCounts,
+        [outcome.id]: currentPremiumCount + 1,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  return { outcome, upgradeApplied, upgradeFallbackReason };
+};
+
+const createScratchRewardFromOutcome = ({
+  ticket,
+  outcome,
+  awardedPoints,
+  upgradeApplied,
+  upgradeFallbackReason,
+}: {
+  ticket: typeof scratchTickets[number];
+  outcome: typeof scratchOutcomeTiers[number];
+  awardedPoints: number;
+  upgradeApplied: boolean;
+  upgradeFallbackReason: string;
+}) => ({
+  ...createScratchReward({
+    score: awardedPoints,
+    level: outcome.level,
+    triptoPoints: randomInRange(outcome.triptoRange),
+    usdt: outcome.cash,
+    wildCardName: outcome.wildCardName,
+    wildCardDescription: outcome.wildCardDescription,
+    participationBoost: outcome.participationBoost,
+    participationImpact: outcome.participationImpact,
+    goldenEligibility: outcome.level >= 4,
+    goldenWindow: ticket.isGolden ? createGoldenWindow() : null,
+  }),
+  outcome: outcome.id,
+  outcomeLabel: outcome.label,
+  cashLocked: true,
+  triptoLocked: true,
+  upgradeApplied,
+  upgradeFallbackReason,
+});
+
+const getScratchCreditState = (storedCredits: unknown, history: any[] = []) => {
+  const used = Math.min(MAX_SCRATCH_OPPORTUNITIES, Array.isArray(history) ? history.length : 0);
+  const fallbackAvailable = used > 0 ? 0 : INITIAL_SCRATCH_CREDITS;
+  const rawAvailable = Math.round(parseStoredNumber(storedCredits, fallbackAvailable));
+  const maxAvailable = Math.max(0, MAX_SCRATCH_OPPORTUNITIES - used);
+  const available = Math.min(maxAvailable, Math.max(0, rawAvailable));
+  const totalEarned = Math.min(MAX_SCRATCH_OPPORTUNITIES, used + available);
+
+  return {
+    available,
+    used,
+    totalEarned,
+    max: MAX_SCRATCH_OPPORTUNITIES,
+    canScratch: available > 0,
+  };
+};
+
+const loadScratchCreditState = async (userId: string, history?: any[]) => {
+  const historyKey = `scratch_history:${userId}`;
+  const creditsKey = `${SCRATCH_CREDITS_PREFIX}${userId}`;
+  const [storedCredits, storedHistory] = await Promise.all([
+    kv.get(creditsKey),
+    history ? Promise.resolve(history) : kv.get(historyKey),
+  ]);
+  const parsedHistory = history || parseStoredJsonArray(storedHistory);
+
+  return {
+    key: creditsKey,
+    history: parsedHistory,
+    credits: getScratchCreditState(storedCredits, parsedHistory),
+  };
+};
+
+const addScratchCreditForAcceptedInvite = async (userId: string) => {
+  const state = await loadScratchCreditState(userId);
+
+  if (state.credits.used + state.credits.available >= MAX_SCRATCH_OPPORTUNITIES) {
+    return {
+      unlocked: false,
+      reason: 'max_reached',
+      credits: state.credits,
+      message: 'You have reached the maximum Scratch and Win opportunities for this release.',
+    };
+  }
+
+  const nextCredits = {
+    ...state.credits,
+    available: state.credits.available + 1,
+    totalEarned: Math.min(MAX_SCRATCH_OPPORTUNITIES, state.credits.used + state.credits.available + 1),
+    canScratch: true,
+  };
+
+  await kv.set(state.key, nextCredits.available.toString());
+
+  return {
+    unlocked: true,
+    credits: nextCredits,
+    message: 'You have unlocked another scratch-and-win. Try your luck now.',
+  };
 };
 
 const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -467,29 +766,58 @@ const normalizeMarketplaceOrderItems = (items: unknown) => {
     .filter((item) => item.name);
 };
 
+const getPilotMerchPointPrice = (product: Record<string, unknown>, fallback: number) => {
+  const text = `${product?.id || ''} ${product?.name || ''} ${product?.category || ''}`.toLowerCase();
+  const priceRules: Array<{ pattern: RegExp; points: number }> = [
+    { pattern: /bundle[^0-9]*4|bundle\s*\(4\)/, points: 125 },
+    { pattern: /bundle[^0-9]*3|bundle\s*\(3\)/, points: 120 },
+    { pattern: /bundle[^0-9]*2|bundle\s*\(2\)/, points: 92 },
+    { pattern: /backpack/, points: 105 },
+    { pattern: /hoodie|fleece|sweatshirt/, points: 85 },
+    { pattern: /headphone/, points: 75 },
+    { pattern: /bottle/, points: 70 },
+    { pattern: /power\s*bank/, points: 63 },
+    { pattern: /visor/, points: 50 },
+    { pattern: /shirt|tee|t-shirt|tshirt|mug/, points: 47 },
+    { pattern: /speaker/, points: 40 },
+    { pattern: /charger|charging/, points: 33 },
+    { pattern: /usb|flash\s*drive/, points: 25 },
+    { pattern: /cap|hat|beanie|headband/, points: 20 },
+    { pattern: /tumbler|thermal/, points: 17 },
+    { pattern: /tote/, points: 13 },
+    { pattern: /keychain|pin|lanyard/, points: 10 },
+    { pattern: /pen/, points: 7 },
+  ];
+
+  return priceRules.find((rule) => rule.pattern.test(text))?.points ?? fallback;
+};
+
 const normalizeMarketplaceProducts = (products: unknown) => {
   if (!Array.isArray(products)) return [];
 
   return products
-    .map((product: any) => ({
-      id: `${product?.id || ''}`.trim(),
-      name: `${product?.name || ''}`.trim(),
-      description: `${product?.description || ''}`.trim(),
-      pointsPrice: Math.max(0, Math.round(parseStoredNumber(product?.pointsPrice, 0))),
-      image: `${product?.image || ''}`.trim(),
-      sourceUrl: `${product?.sourceUrl || ''}`.trim(),
-      variantImages: product?.variantImages && typeof product.variantImages === 'object' && !Array.isArray(product.variantImages)
-        ? product.variantImages
-        : {},
-      category: `${product?.category || 'Merch'}`.trim(),
-      colorVariants: normalizeStringArray(product?.colorVariants, ['Default']),
-      logoVariants: normalizeStringArray(product?.logoVariants, ['Default']),
-      inventory: Math.max(0, Math.round(parseStoredNumber(product?.inventory, 0))),
-      featured: product?.featured === true,
-      badge: product?.badge === 'HOT' || product?.badge === 'SALE' || product?.badge === 'NEW' ? product.badge : undefined,
-      status: product?.status === 'draft' ? 'draft' : 'active',
-      updatedAt: `${product?.updatedAt || new Date().toISOString()}`,
-    }))
+    .map((product: any) => {
+      const fallbackPrice = Math.max(0, Math.round(parseStoredNumber(product?.pointsPrice, 0)));
+      return {
+        id: `${product?.id || ''}`.trim(),
+        name: `${product?.name || ''}`.trim(),
+        description: `${product?.description || ''}`.trim(),
+        pointsPrice: getPilotMerchPointPrice(product, fallbackPrice),
+        image: `${product?.image || ''}`.trim(),
+        sourceUrl: `${product?.sourceUrl || ''}`.trim(),
+        variantImages: product?.variantImages && typeof product.variantImages === 'object' && !Array.isArray(product.variantImages)
+          ? product.variantImages
+          : {},
+        category: `${product?.category || 'Merch'}`.trim(),
+        colorVariants: normalizeStringArray(product?.colorVariants, ['Default']),
+        logoVariants: normalizeStringArray(product?.logoVariants, ['Default']),
+        inventory: Math.max(0, Math.round(parseStoredNumber(product?.inventory, 0))),
+        featured: product?.featured === true,
+        badge: product?.badge === 'HOT' || product?.badge === 'SALE' || product?.badge === 'NEW' ? product.badge : undefined,
+        status: product?.status === 'draft' ? 'draft' : 'active',
+        updatedAt: `${product?.updatedAt || new Date().toISOString()}`,
+      };
+    })
     .filter((product) => product.id && product.name);
 };
 
@@ -534,6 +862,197 @@ const appendPointsTransaction = async ({
 
   await kv.set(historyKey, JSON.stringify([transaction, ...history].slice(0, 250)));
   return transaction;
+};
+
+const addPointsToUser = async ({
+  userId,
+  amount,
+  source,
+  metadata = {},
+}: {
+  userId: string;
+  amount: number;
+  source: string;
+  metadata?: Record<string, unknown>;
+}) => {
+  const pointsKey = `user_points:${userId}`;
+  const currentPoints = parseStoredNumber(await kv.get(pointsKey), DEFAULT_USER_POINTS);
+  const pointsAwarded = getCappedPointAward(currentPoints, amount);
+  const newTotalPoints = currentPoints + pointsAwarded;
+
+  if (pointsAwarded <= 0) {
+    return { pointsAwarded: 0, newTotalPoints: currentPoints, transaction: null };
+  }
+
+  const transaction = await appendPointsTransaction({
+    userId,
+    type: 'add',
+    amount: pointsAwarded,
+    source,
+    oldBalance: currentPoints,
+    newBalance: newTotalPoints,
+    metadata,
+  });
+
+  await kv.set(pointsKey, newTotalPoints.toString());
+
+  return { pointsAwarded, newTotalPoints, transaction };
+};
+
+const getUniqueAcceptedInvitees = (history: any[]) => {
+  const invitees = new Set<string>();
+  history.forEach((invite) => {
+    if (invite?.status !== 'accepted') return;
+    const invitee = `${invite?.inviteeId || invite?.inviteeEmail || invite?.contact || ''}`.trim();
+    if (invitee) invitees.add(invitee);
+  });
+  return invitees;
+};
+
+const awardTeamMilestonePoints = async (userId: string, acceptedCount: number) => {
+  const milestoneKey = `${TEAM_MILESTONES_PREFIX}${userId}`;
+  const milestones = parseStoredJsonObject(await kv.get(milestoneKey));
+  const awards: Array<{ milestone: 'team-of-3' | 'team-of-5'; points: number }> = [];
+
+  if (acceptedCount >= 3 && milestones.teamOf3 !== true) {
+    awards.push({ milestone: 'team-of-3', points: TEAM_OF_THREE_POINTS });
+    milestones.teamOf3 = true;
+  }
+
+  if (acceptedCount >= 5 && milestones.teamOf5 !== true) {
+    awards.push({ milestone: 'team-of-5', points: TEAM_OF_FIVE_POINTS });
+    milestones.teamOf5 = true;
+  }
+
+  if (!awards.length) return { pointsAwarded: 0, awards: [], newTotalPoints: null };
+
+  const totalMilestonePoints = awards.reduce((sum, award) => sum + award.points, 0);
+  const result = await addPointsToUser({
+    userId,
+    amount: totalMilestonePoints,
+    source: 'team-milestone',
+    metadata: {
+      awards,
+      acceptedCount,
+    },
+  });
+
+  await kv.set(milestoneKey, {
+    ...milestones,
+    acceptedCount,
+    updatedAt: new Date().toISOString(),
+  });
+
+  return {
+    pointsAwarded: result.pointsAwarded,
+    awards,
+    newTotalPoints: result.newTotalPoints,
+    transaction: result.transaction,
+  };
+};
+
+const awardInviteeActivationPoints = async (inviteeId: string) => {
+  const referrerKey = `${INVITEE_ACTIVATION_REFERRER_PREFIX}${inviteeId}`;
+  const awardedKey = `${INVITEE_ACTIVATION_AWARDED_PREFIX}${inviteeId}`;
+  const referrer = parseStoredJsonObject(await kv.get(referrerKey));
+  const inviterId = `${referrer.inviterId || ''}`.trim();
+
+  if (!inviterId || inviterId === inviteeId || await kv.get(awardedKey)) return null;
+
+  const result = await addPointsToUser({
+    userId: inviterId,
+    amount: INVITEE_ACTIVATION_POINTS,
+    source: 'invitee-activation',
+    metadata: {
+      inviteeId,
+      promptId: referrer.promptId,
+    },
+  });
+
+  await kv.set(awardedKey, {
+    inviterId,
+    inviteeId,
+    pointsAwarded: result.pointsAwarded,
+    createdAt: new Date().toISOString(),
+  });
+
+  return result;
+};
+
+const awardNetworkFollowPoints = async ({
+  userId,
+  targetProfileId,
+  isMutual,
+}: {
+  userId: string;
+  targetProfileId: string;
+  isMutual: boolean;
+}) => {
+  const pointsStateKey = `${NETWORK_POINTS_PREFIX}${userId}`;
+  const today = new Date().toISOString().slice(0, 10);
+  const pointsState = parseStoredJsonObject(await kv.get(pointsStateKey));
+  const events = parseStoredJsonObject(pointsState.events);
+  const daily = parseStoredJsonObject(pointsState.daily);
+  const todayPoints = daily.date === today ? parseStoredNumber(daily.points, 0) : 0;
+  const totalPoints = parseStoredNumber(pointsState.total, 0);
+  const requestedAwards: Array<{ eventKey: string; points: number; source: string }> = [];
+
+  const followEventKey = `follow:${targetProfileId}`;
+  if (events[followEventKey] !== true) {
+    requestedAwards.push({ eventKey: followEventKey, points: FOLLOW_ACCEPTED_POINTS, source: 'follow-accepted' });
+  }
+
+  const mutualEventKey = `mutual:${targetProfileId}`;
+  if (isMutual && events[mutualEventKey] !== true) {
+    requestedAwards.push({ eventKey: mutualEventKey, points: MUTUAL_FOLLOW_POINTS, source: 'mutual-follow' });
+  }
+
+  const requestedPoints = requestedAwards.reduce((sum, award) => sum + award.points, 0);
+  const remainingDailyPoints = Math.max(0, MAX_FOLLOW_POINTS_PER_DAY - todayPoints);
+  const remainingTotalPoints = Math.max(0, MAX_FOLLOW_POINTS_TOTAL - totalPoints);
+  const pointsToAward = Math.min(requestedPoints, remainingDailyPoints, remainingTotalPoints);
+
+  if (pointsToAward <= 0) {
+    return { pointsAwarded: 0, newTotalPoints: null, events };
+  }
+
+  let remaining = pointsToAward;
+  const awardedEvents: Array<{ eventKey: string; points: number; source: string }> = [];
+  for (const award of requestedAwards) {
+    if (remaining <= 0) break;
+    const eventPoints = Math.min(award.points, remaining);
+    awardedEvents.push({ ...award, points: eventPoints });
+    events[award.eventKey] = true;
+    remaining -= eventPoints;
+  }
+
+  const result = await addPointsToUser({
+    userId,
+    amount: pointsToAward,
+    source: awardedEvents.some((event) => event.source === 'mutual-follow') ? 'mutual-follow' : 'follow-accepted',
+    metadata: {
+      targetProfileId,
+      isMutual,
+      awardedEvents,
+    },
+  });
+
+  await kv.set(pointsStateKey, {
+    total: totalPoints + result.pointsAwarded,
+    daily: {
+      date: today,
+      points: todayPoints + result.pointsAwarded,
+    },
+    events,
+    updatedAt: new Date().toISOString(),
+  });
+
+  return {
+    pointsAwarded: result.pointsAwarded,
+    newTotalPoints: result.newTotalPoints,
+    transaction: result.transaction,
+    events,
+  };
 };
 
 const formatMarketplaceAddress = (address: any) => [
@@ -652,8 +1171,8 @@ const createAgentFallbackReply = (prompt: string) => {
   const createdAt = new Date().toISOString();
   const lowerPrompt = prompt.toLowerCase();
   const content = lowerPrompt.includes('invest') || lowerPrompt.includes('market') || lowerPrompt.includes('stock') || lowerPrompt.includes('crypto')
-    ? 'I can help with financial education, risk framing, diversification, time horizon, and questions to ask before making a decision. I cannot guarantee returns or tell you what to buy. Share your goal, timeline, and risk comfort and I will help compare the tradeoffs.'
-    : 'I can help with your rewards, marketplace, profile setup, and general money education. Tell me what you want to work through.';
+    ? 'Tell me your goal, timeline, and risk comfort. I can help compare the tradeoffs, explain market terms, and turn the options into a clear next-step checklist.'
+    : 'Tell me what you want to work through. I can help with money questions, rewards, marketplace redemptions, profile setup, and launch-team strategy.';
 
   return {
     id: crypto.randomUUID(),
@@ -694,27 +1213,57 @@ const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
       content: `${message.content || ''}`.slice(0, 4000),
     })).filter((message) => message.content.trim());
 
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${openAiApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: Deno.env.get('OPENAI_MODEL') || 'gpt-5.2',
-        input: [
-          {
-            role: 'system',
-            content: 'You are the Moneetize personal AI agent. Help users with financial education, budgeting, market literacy, portfolio questions, rewards, and app guidance. Do not provide personalized investment, legal, tax, or guaranteed-return advice. Ask for goals, time horizon, liquidity needs, and risk tolerance before discussing tradeoffs. Keep answers concise and practical.',
-          },
-          ...recentMessages,
-        ],
-      }),
-    });
+    const modelCandidates = [
+      `${Deno.env.get('OPENAI_MODEL') || ''}`.trim(),
+      'gpt-4o',
+      'gpt-4o-mini',
+    ].filter((model, index, models) => model && models.indexOf(model) === index);
+    const agentInstructions = [
+      'You are the Moneetize personal AI agent.',
+      'Respond naturally and directly, like a helpful ChatGPT-style assistant inside the app.',
+      'Help with budgeting, markets, investing concepts, portfolio thinking, rewards, merch redemption, invites, profile setup, and app navigation.',
+      'For financial topics, be useful and concrete: explain options, risks, tradeoffs, and questions to ask. Do not promise returns, invent live prices, or claim to be a licensed advisor.',
+      'Keep caveats brief and only when they matter. Avoid repetitive warnings, alarmist language, and canned disclaimers.',
+      'Use concise paragraphs, ask follow-up questions only when needed, and keep the conversation moving.',
+    ].join(' ');
 
-    if (!response.ok) return createAgentFallbackReply(prompt);
+    let data: any = null;
+    let lastOpenAiError = '';
 
-    const data = await response.json();
+    for (const model of modelCandidates) {
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${openAiApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          input: [
+            {
+              role: 'system',
+              content: agentInstructions,
+            },
+            ...recentMessages,
+          ],
+          max_output_tokens: 900,
+        }),
+      });
+
+      if (response.ok) {
+        data = await response.json();
+        break;
+      }
+
+      lastOpenAiError = await response.text();
+      console.error('OpenAI agent response failed for model:', model, lastOpenAiError);
+    }
+
+    if (!data) {
+      console.error('OpenAI agent response failed for all configured models:', lastOpenAiError);
+      return createAgentFallbackReply(prompt);
+    }
+
     const content = extractOpenAIResponseText(data) || createAgentFallbackReply(prompt).content;
     const createdAt = new Date().toISOString();
 
@@ -990,48 +1539,51 @@ const publicScratchTicket = (ticket: typeof scratchTickets[number]) => {
   return publicTicket;
 };
 
-const createScratchRewardItems = (ticket: typeof scratchTickets[number]) => {
-  const rewardItems = [
+const createScratchRewardItems = (ticket: typeof scratchTickets[number], reward = ticket.reward) => {
+  const rewardItems: Array<Record<string, unknown>> = [
     {
       id: `${ticket.id}-points`,
       type: 'points',
       label: 'Participation Score',
-      amount: ticket.reward.participationScore,
+      amount: reward.participationScore,
       unit: 'score',
       icon: 'gem',
     },
     {
       id: `${ticket.id}-wild-card`,
       type: 'wildcard',
-      label: ticket.reward.wildCard.name,
-      description: ticket.reward.wildCard.description,
+      label: reward.wildCard.name,
+      description: reward.wildCard.description,
       icon: 'wildcard',
-    },
-    {
-      id: `${ticket.id}-usdt`,
-      type: 'usdt',
-      label: 'USDT (Locked)',
-      amount: ticket.reward.usdt,
-      unit: 'USDT',
-      icon: 'usdt',
     },
     {
       id: `${ticket.id}-tripto`,
       type: 'tripto',
       label: 'Tripto (Locked)',
-      amount: ticket.reward.triptoPoints,
+      amount: reward.triptoPoints,
       unit: 'Tripto',
       icon: 'tripto',
     },
   ];
 
-  const bonusChance = ticket.reward.participationLevel >= 5
+  if (reward.usdt > 0) {
+    rewardItems.splice(2, 0, {
+      id: `${ticket.id}-usdt`,
+      type: 'usdt',
+      label: 'USDT (Locked)',
+      amount: reward.usdt,
+      unit: 'USDT',
+      icon: 'usdt',
+    });
+  }
+
+  const bonusChance = reward.participationLevel >= 5
     ? 100
-    : ticket.reward.participationLevel === 4
+    : reward.participationLevel === 4
       ? 70
-      : ticket.reward.participationLevel === 3
+      : reward.participationLevel === 3
         ? 45
-        : ticket.reward.participationLevel === 2
+        : reward.participationLevel === 2
           ? 25
           : 15;
 
@@ -1108,7 +1660,10 @@ app.post("/make-server-7a79873f/auth/signup", async (c) => {
         profileComplete: false,
       }, result.data.user);
 
-      await kv.set(`${PROFILE_SETTINGS_PREFIX}${result.data.user.id}`, settings);
+      await Promise.all([
+        kv.set(`${PROFILE_SETTINGS_PREFIX}${result.data.user.id}`, settings),
+        kv.set(`${SCRATCH_CREDITS_PREFIX}${result.data.user.id}`, INITIAL_SCRATCH_CREDITS.toString()),
+      ]);
     }
 
     return c.json(result, result.status);
@@ -1460,10 +2015,22 @@ app.put("/make-server-7a79873f/network/follows", async (c) => {
 
     const followKey = `${NETWORK_FOLLOWS_PREFIX}${currentUser.user.id}`;
     const currentStates = normalizeFollowStates(await kv.get(followKey));
+    const wasFollowing = currentStates[targetProfileId] === true;
+    const nextFollowing = body?.following === true;
     const nextStates = {
       ...currentStates,
-      [targetProfileId]: body?.following === true,
+      [targetProfileId]: nextFollowing,
     };
+    let pointsAward = null;
+
+    if (!wasFollowing && nextFollowing && targetProfileId !== currentUser.user.id) {
+      const targetFollowStates = normalizeFollowStates(await kv.get(`${NETWORK_FOLLOWS_PREFIX}${targetProfileId}`));
+      pointsAward = await awardNetworkFollowPoints({
+        userId: currentUser.user.id,
+        targetProfileId,
+        isMutual: targetFollowStates[currentUser.user.id] === true,
+      });
+    }
 
     await kv.set(followKey, {
       userId: currentUser.user.id,
@@ -1475,6 +2042,7 @@ app.put("/make-server-7a79873f/network/follows", async (c) => {
       success: true,
       data: {
         states: nextStates,
+        pointsAward,
       },
     }, 200);
   } catch (error) {
@@ -1500,12 +2068,25 @@ app.post("/make-server-7a79873f/points/adjust", async (c) => {
     const pointsKey = `user_points:${currentUser.user.id}`;
     const historyKey = `${POINTS_HISTORY_PREFIX}${currentUser.user.id}`;
     const currentPoints = parseStoredNumber(await kv.get(pointsKey), DEFAULT_USER_POINTS);
-    const nextPoints = currentPoints + amount;
+    const pointsAwarded = getCappedPointAward(currentPoints, amount);
+    const nextPoints = currentPoints + pointsAwarded;
+
+    if (pointsAwarded <= 0) {
+      return c.json({
+        success: true,
+        data: {
+          points: currentPoints,
+          transaction: null,
+          pointsAwarded: 0,
+        },
+      }, 200);
+    }
+
     const createdAt = new Date().toISOString();
     const transaction = {
       id: crypto.randomUUID(),
       type: 'add',
-      amount,
+      amount: pointsAwarded,
       source,
       oldBalance: currentPoints,
       newBalance: nextPoints,
@@ -1522,6 +2103,7 @@ app.post("/make-server-7a79873f/points/adjust", async (c) => {
       success: true,
       data: {
         points: nextPoints,
+        pointsAwarded,
         transaction,
       },
     }, 200);
@@ -1582,7 +2164,7 @@ app.post("/make-server-7a79873f/gameplay/progress", async (c) => {
       ? `${previousQuest.completedAt || new Date().toISOString()}`
       : '';
     const currentPoints = parseStoredNumber(await kv.get(userPointsKey), DEFAULT_USER_POINTS);
-    const pointsAwarded = completed && !wasCompleted ? points : 0;
+    const pointsAwarded = completed && !wasCompleted ? getCappedPointAward(currentPoints, points) : 0;
     const newTotalPoints = currentPoints + pointsAwarded;
     const nextQuest = {
       ...previousQuest,
@@ -1778,82 +2360,142 @@ app.post("/make-server-7a79873f/scratch/draw", async (c) => {
     const currentUser = await verifyCurrentUser(c);
     if ('response' in currentUser) return currentUser.response;
 
-    const userId = currentUser.user.id;
-    const ticket = selectScratchTicket();
-    const publicTicket = publicScratchTicket(ticket);
-    const pointsKey = `user_points:${userId}`;
-    const usdtKey = `user_usdt:${userId}`;
-    const historyKey = `scratch_history:${userId}`;
+    return await withKvLock(SCRATCH_DRAW_LOCK_KEY, async () => {
+      const userId = currentUser.user.id;
+      const pointsKey = `user_points:${userId}`;
+      const usdtKey = `user_usdt:${userId}`;
+      const historyKey = `scratch_history:${userId}`;
 
-    const [storedPoints, storedUsdt, storedHistory] = await Promise.all([
-      kv.get(pointsKey),
-      kv.get(usdtKey),
-      kv.get(historyKey),
-    ]);
-    const history = parseStoredJsonArray(storedHistory);
+      const [storedPoints, storedUsdt, storedHistory] = await Promise.all([
+        kv.get(pointsKey),
+        kv.get(usdtKey),
+        kv.get(historyKey),
+      ]);
+      const history = parseStoredJsonArray(storedHistory);
+      const scratchState = await loadScratchCreditState(userId, history);
 
-    if (history.length > 0) {
-      return c.json({
-        success: false,
-        error: 'Scratch and Win has already been completed for this account.',
-        data: {
-          latest: history[0],
-          history,
+      if (scratchState.credits.available <= 0) {
+        return c.json({
+          success: false,
+          error: 'No Scratch and Win opportunities are available. Invite friends to unlock another scratch.',
+          data: {
+            latest: history[0],
+            history,
+            scratchCredits: scratchState.credits,
+          },
+        }, 403);
+      }
+
+      const previousPoints = parseStoredNumber(storedPoints, DEFAULT_USER_POINTS);
+      const previousUsdt = parseStoredNumber(storedUsdt, DEFAULT_USER_USDT);
+      const { outcome, upgradeApplied, upgradeFallbackReason } = await resolveScratchOutcome({
+        history,
+        currentPoints: previousPoints,
+      });
+      const ticket = scratchTickets.find((scratchTicket) => scratchTicket.id === outcome.ticketId) || scratchTickets[0];
+      const publicTicket = publicScratchTicket(ticket);
+      const requestedPoints = randomInRange(outcome.pointsRange);
+      const awardedPoints = getCappedPointAward(previousPoints, requestedPoints);
+      const nextPoints = previousPoints + awardedPoints;
+      const reward: any = {
+        ...createScratchRewardFromOutcome({
+          ticket,
+          outcome,
+          awardedPoints,
+          upgradeApplied,
+          upgradeFallbackReason,
+        }),
+      };
+      reward.items = createScratchRewardItems(ticket, reward);
+      const nextUsdt = Number((previousUsdt + reward.usdt).toFixed(2));
+      const createdAt = new Date().toISOString();
+      const expiresAt = new Date(Date.now() + reward.expiresIn).toISOString();
+
+      const draw = {
+        id: crypto.randomUUID(),
+        userId,
+        ticket: publicTicket,
+        reward,
+        balances: {
+          points: nextPoints,
+          usdt: nextUsdt,
         },
-      }, 409);
-    }
+        createdAt,
+        expiresAt,
+      };
 
-    const previousPoints = parseStoredNumber(storedPoints, DEFAULT_USER_POINTS);
-    const previousUsdt = parseStoredNumber(storedUsdt, DEFAULT_USER_USDT);
-    const nextPoints = previousPoints + ticket.reward.moneetizePoints;
-    const nextUsdt = Number((previousUsdt + ticket.reward.usdt).toFixed(2));
-    const createdAt = new Date().toISOString();
-    const expiresAt = new Date(Date.now() + ticket.reward.expiresIn).toISOString();
-    const reward = {
-      ...ticket.reward,
-      wildCard: { ...ticket.reward.wildCard },
-      items: createScratchRewardItems(ticket),
-    };
+      const nextHistory = [draw, ...history].slice(0, SCRATCH_HISTORY_LIMIT);
+      const nextScratchCredits = {
+        ...scratchState.credits,
+        available: Math.max(0, scratchState.credits.available - 1),
+        used: Math.min(MAX_SCRATCH_OPPORTUNITIES, scratchState.credits.used + 1),
+        totalEarned: Math.min(
+          MAX_SCRATCH_OPPORTUNITIES,
+          scratchState.credits.used + 1 + Math.max(0, scratchState.credits.available - 1),
+        ),
+        canScratch: scratchState.credits.available - 1 > 0,
+      };
+      const drawWithCredits = {
+        ...draw,
+        scratchCredits: nextScratchCredits,
+      };
+      const writes = [
+        kv.set(pointsKey, nextPoints.toString()),
+        kv.set(usdtKey, nextUsdt.toString()),
+        kv.set(historyKey, JSON.stringify(nextHistory)),
+        kv.set(scratchState.key, nextScratchCredits.available.toString()),
+      ];
 
-    const draw = {
-      id: crypto.randomUUID(),
-      userId,
-      ticket: publicTicket,
-      reward,
-      balances: {
-        points: nextPoints,
-        usdt: nextUsdt,
-      },
-      createdAt,
-      expiresAt,
-    };
+      let pointsTransaction = null;
+      if (awardedPoints > 0) {
+        pointsTransaction = await appendPointsTransaction({
+          userId,
+          type: 'add',
+          amount: awardedPoints,
+          source: 'scratch-ticket',
+          oldBalance: previousPoints,
+          newBalance: nextPoints,
+          metadata: {
+            drawId: draw.id,
+            outcome: outcome.id,
+            cashLocked: reward.usdt,
+            triptoLocked: reward.triptoPoints,
+            upgradeApplied,
+          },
+        });
+      }
 
-    const nextHistory = [draw, ...history].slice(0, SCRATCH_HISTORY_LIMIT);
+      await Promise.all(writes);
+      await awardInviteeActivationPoints(userId);
 
-    await Promise.all([
-      kv.set(pointsKey, nextPoints.toString()),
-      kv.set(usdtKey, nextUsdt.toString()),
-      kv.set(historyKey, JSON.stringify(nextHistory)),
-    ]);
+      console.log('Scratch reward awarded:', {
+        userId,
+        ticket: ticket.id,
+        outcome: outcome.id,
+        participationLevel: reward.participationLevel,
+        points: reward.participationScore,
+        usdt: reward.usdt,
+        tripto: reward.triptoPoints,
+        nextPoints,
+        nextUsdt,
+      });
 
-    console.log('Scratch reward awarded:', {
-      userId,
-      ticket: ticket.id,
-      participationLevel: reward.participationLevel,
-      points: reward.participationScore,
-      usdt: reward.usdt,
-      nextPoints,
-      nextUsdt,
+      return c.json({
+        success: true,
+        data: {
+          ...drawWithCredits,
+          pointsTransaction,
+        },
+      }, 200);
     });
-
-    return c.json({ success: true, data: draw }, 200);
   } catch (error) {
     console.error('Scratch draw endpoint error:', error);
+    const status = typeof (error as any)?.status === 'number' ? (error as any).status : 500;
     return c.json({
       success: false,
       error: 'Failed to draw scratch reward',
       details: error instanceof Error ? error.message : 'Unknown error'
-    }, 500);
+    }, status);
   }
 });
 
@@ -1868,6 +2510,8 @@ app.get("/make-server-7a79873f/scratch/profile", async (c) => {
       kv.get(`user_usdt:${userId}`),
       kv.get(`scratch_history:${userId}`),
     ]);
+    const history = parseStoredJsonArray(storedHistory);
+    const scratchState = await loadScratchCreditState(userId, history);
 
     return c.json({
       success: true,
@@ -1876,7 +2520,8 @@ app.get("/make-server-7a79873f/scratch/profile", async (c) => {
           points: parseStoredNumber(storedPoints, DEFAULT_USER_POINTS),
           usdt: parseStoredNumber(storedUsdt, DEFAULT_USER_USDT),
         },
-        history: parseStoredJsonArray(storedHistory),
+        history,
+        scratchCredits: scratchState.credits,
       },
     }, 200);
   } catch (error) {
@@ -2515,15 +3160,15 @@ app.post("/make-server-7a79873f/invites/send", async (c) => {
         deliveryProvider: deliveryRecord.type === 'sms' ? 'aws-sns' : 'resend',
         deliveryError: 'error' in deliveryRecord.delivery ? deliveryRecord.delivery.error : undefined,
         deliveryMessageId: 'messageId' in deliveryRecord.delivery ? deliveryRecord.delivery.messageId : undefined,
-        points: alreadyInvited ? 0 : INVITE_POINTS_PER_RECIPIENT,
+        points: 0,
         sentAt,
         updatedAt: sentAt,
       };
     });
-    const pointsEarned = records.reduce((total, record) => total + record.points, 0);
+    const pointsEarned = 0;
     const userPointsKey = `user_points:${currentUser.user.id}`;
     const currentPoints = parseStoredNumber(await kv.get(userPointsKey), DEFAULT_USER_POINTS);
-    const newTotalPoints = currentPoints + pointsEarned;
+    const newTotalPoints = currentPoints;
     const writes = [
       kv.set(inviteHistoryKey, JSON.stringify([...records, ...history].slice(0, 500))),
     ];
@@ -2619,7 +3264,7 @@ app.post("/make-server-7a79873f/invites/track-url", async (c) => {
       (
         invite?.type === 'url' &&
         invite?.promptId === promptId &&
-        (invite?.inviteeId === invitedUser?.id || invite?.visitorId === visitorId)
+        (invitedUser?.id ? invite?.inviteeId === invitedUser.id : invite?.visitorId === visitorId)
       )
     ));
     const userPointsKey = `user_points:${inviterId}`;
@@ -2637,8 +3282,10 @@ app.post("/make-server-7a79873f/invites/track-url", async (c) => {
     }
 
     const trackedAt = new Date().toISOString();
-    const pointsEarned = INVITE_POINTS_PER_RECIPIENT;
-    const newTotalPoints = currentPoints + pointsEarned;
+    const acceptedInvitePoints = invitedUser ? INVITE_POINTS_PER_RECIPIENT : 0;
+    const scratchUnlock = invitedUser
+      ? await addScratchCreditForAcceptedInvite(inviterId)
+      : null;
     const record = {
       id: crypto.randomUUID(),
       type: 'url',
@@ -2654,28 +3301,44 @@ app.post("/make-server-7a79873f/invites/track-url", async (c) => {
       status: invitedUser ? 'accepted' : 'pending',
       deliveryStatus: 'opened',
       deliveryProvider: 'invite-url',
-      points: pointsEarned,
+      points: acceptedInvitePoints,
+      scratchUnlocked: Boolean(scratchUnlock?.unlocked),
       sentAt: trackedAt,
       updatedAt: trackedAt,
     };
-    const transaction = await appendPointsTransaction({
-      userId: inviterId,
-      type: 'add',
-      amount: pointsEarned,
-      source: 'referral',
-      oldBalance: currentPoints,
-      newBalance: newTotalPoints,
-      metadata: {
-        inviteType: 'url',
-        promptId,
-        inviteeId: invitedUser?.id,
-      },
-    });
+    const nextHistory = [record, ...history].slice(0, 500);
+    let inviteAcceptedAward = { pointsAwarded: 0, newTotalPoints: currentPoints, transaction: null as any };
+    let teamMilestoneAward = { pointsAwarded: 0, awards: [] as any[], newTotalPoints: null as number | null, transaction: null as any };
 
-    await Promise.all([
-      kv.set(inviteHistoryKey, JSON.stringify([record, ...history].slice(0, 500))),
-      kv.set(userPointsKey, newTotalPoints.toString()),
-    ]);
+    if (acceptedInvitePoints > 0) {
+      inviteAcceptedAward = await addPointsToUser({
+        userId: inviterId,
+        amount: acceptedInvitePoints,
+        source: 'invite-accepted',
+        metadata: {
+          inviteType: 'url',
+          promptId,
+          inviteeId: invitedUser?.id,
+          scratchUnlocked: Boolean(scratchUnlock?.unlocked),
+        },
+      });
+      teamMilestoneAward = await awardTeamMilestonePoints(inviterId, getUniqueAcceptedInvitees(nextHistory).size);
+    }
+
+    if (invitedUser?.id) {
+      await kv.set(`${INVITEE_ACTIVATION_REFERRER_PREFIX}${invitedUser.id}`, {
+        inviterId,
+        inviteeId: invitedUser.id,
+        promptId,
+        inviteUrl,
+        createdAt: trackedAt,
+      });
+    }
+
+    await kv.set(inviteHistoryKey, JSON.stringify(nextHistory));
+
+    const pointsEarned = inviteAcceptedAward.pointsAwarded + teamMilestoneAward.pointsAwarded;
+    const newTotalPoints = teamMilestoneAward.newTotalPoints ?? inviteAcceptedAward.newTotalPoints ?? currentPoints;
 
     return c.json({
       success: true,
@@ -2683,7 +3346,9 @@ app.post("/make-server-7a79873f/invites/track-url", async (c) => {
         tracked: true,
         pointsEarned,
         newTotalPoints,
-        transaction,
+        transaction: inviteAcceptedAward.transaction,
+        teamMilestoneAward,
+        scratchUnlock,
       },
     }, 200);
   } catch (error) {

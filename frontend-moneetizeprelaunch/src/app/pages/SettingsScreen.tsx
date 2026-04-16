@@ -46,6 +46,8 @@ import { hydrateRemoteProfileSettings, saveRemoteProfileSettings } from '../serv
 import aiBubble from 'figma:asset/36fff8878cf3ea6d1ef44d3f08bbc2346c733ebc.png';
 import greenMorphicBall from 'figma:asset/8fd559d05db8d67dee13e79dc6418365220fd613.png';
 
+const SHOW_THIRD_PARTY_LOGINS = false;
+
 const aiAgentAvatars = [
   {
     id: 'blueAvatar',
@@ -920,6 +922,7 @@ export function SettingsScreen() {
       </div>
 
       {/* Connect Account */}
+      {SHOW_THIRD_PARTY_LOGINS && (
       <div className="mb-6">
         <h3 className="text-white font-bold text-center mb-4">Connect account</h3>
         <div className="space-y-3">
@@ -952,6 +955,7 @@ export function SettingsScreen() {
           </button>
         </div>
       </div>
+      )}
 
       {/* Tags That Describe You */}
       <div className="mb-6">
@@ -1175,6 +1179,7 @@ export function SettingsScreen() {
             </div>
           </div>
 
+          {SHOW_THIRD_PARTY_LOGINS && (
           <div className="mb-4">
             <h3 className="mb-2 text-center text-base font-black text-white">Connect account</h3>
             <div className="space-y-1.5">
@@ -1196,6 +1201,7 @@ export function SettingsScreen() {
               ))}
             </div>
           </div>
+          )}
 
           <div className="mb-5">
             <h3 className="text-center text-base font-black text-white">Tags that describe you</h3>

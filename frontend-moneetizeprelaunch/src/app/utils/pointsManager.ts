@@ -90,7 +90,7 @@ function emitPointsUpdate() {
 /**
  * Initialize points for a new user.
  */
-export function initializeUserPoints(initialPoints: number = 10): void {
+export function initializeUserPoints(initialPoints: number = 0): void {
   const existingPoints = safeGetItem(USER_POINTS_KEY);
   if (!existingPoints) {
     safeSetItem(USER_POINTS_KEY, Math.max(0, Math.round(initialPoints)).toString());

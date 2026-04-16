@@ -69,12 +69,21 @@ export interface ScratchBalances {
   usdt: number;
 }
 
+export interface ScratchCredits {
+  available: number;
+  used: number;
+  totalEarned: number;
+  max: number;
+  canScratch: boolean;
+}
+
 export interface ScratchDrawResult {
   id: string;
   userId: string;
   ticket: ScratchTicket;
   reward: ScratchReward;
   balances: ScratchBalances;
+  scratchCredits?: ScratchCredits;
   createdAt: string;
   expiresAt: string;
 }
@@ -90,6 +99,7 @@ type ScratchProfileResponse = {
   data?: {
     balances?: ScratchBalances;
     history?: ScratchDrawResult[];
+    scratchCredits?: ScratchCredits;
   };
   error?: string;
 };
@@ -97,6 +107,7 @@ type ScratchProfileResponse = {
 const SCRATCH_API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-7a79873f/scratch`;
 const USER_USDT_BALANCE_KEY = 'userUsdtBalance';
 const SCRATCH_HISTORY_KEY = 'scratchHistory';
+const SCRATCH_CREDITS_KEY = 'scratchCredits';
 const LAST_SCRATCH_REWARD_KEY = 'lastScratchReward';
 const AUTH_ERROR_MESSAGE = 'Please log in again to play Scratch and Win.';
 
@@ -204,6 +215,36 @@ function persistBalances(balances?: ScratchBalances) {
   safeSetItem(USER_USDT_BALANCE_KEY, balances.usdt.toFixed(2));
 }
 
+function persistScratchCredits(credits?: ScratchCredits) {
+  if (!credits) return;
+  safeSetItem(SCRATCH_CREDITS_KEY, JSON.stringify(credits));
+}
+
+export function getStoredScratchCredits(): ScratchCredits | null {
+  try {
+    const storedCredits = safeGetItem(SCRATCH_CREDITS_KEY);
+    const parsed = storedCredits ? JSON.parse(storedCredits) : null;
+    if (!parsed || typeof parsed !== 'object') return null;
+
+    const available = Number(parsed.available);
+    const used = Number(parsed.used);
+    const totalEarned = Number(parsed.totalEarned);
+    const max = Number(parsed.max);
+
+    if (![available, used, totalEarned, max].every(Number.isFinite)) return null;
+
+    return {
+      available,
+      used,
+      totalEarned,
+      max,
+      canScratch: Boolean(parsed.canScratch ?? available > 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function getStoredScratchHistory(): ScratchDrawResult[] {
   try {
     const history = safeGetItem(SCRATCH_HISTORY_KEY);
@@ -261,6 +302,7 @@ export async function drawScratchTicket(): Promise<ScratchDrawResult> {
     throw new Error(normalizeScratchError(response, result.error || 'Failed to draw scratch reward.'));
   }
 
+  persistScratchCredits(result.data.scratchCredits);
   persistScratchDraw(result.data);
   return result.data;
 }
@@ -275,6 +317,7 @@ export async function loadScratchProfile(): Promise<ScratchProfileResponse['data
   }
 
   persistBalances(result.data?.balances);
+  persistScratchCredits(result.data?.scratchCredits);
 
   if (result.data?.history) {
     const mergedHistory = mergeScratchHistory(result.data.history, getStoredScratchHistory());
