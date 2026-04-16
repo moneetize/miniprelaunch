@@ -943,9 +943,9 @@ export function ProfileScreen() {
               <button
                 type="button"
                 onClick={() => navigate('/admin-panel')}
-                className="flex items-center gap-2 rounded-full border border-blue-300/30 bg-blue-400/10 px-4 py-2 text-xs font-black text-white transition-all hover:bg-blue-400/20"
+                className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.075] px-4 py-2 text-xs font-black text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_12px_26px_rgba(0,0,0,0.18)] transition-colors hover:bg-white/[0.12]"
               >
-                <Shield className="h-3.5 w-3.5" />
+                <Shield className="h-3.5 w-3.5 text-emerald-200" />
                 Admin Panel
               </button>
             </div>

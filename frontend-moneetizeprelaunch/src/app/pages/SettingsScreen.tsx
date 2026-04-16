@@ -925,13 +925,13 @@ export function SettingsScreen() {
           {isAdmin && (
             <button
               onClick={() => navigate('/admin-panel')}
-              className="w-full rounded-2xl border border-blue-300/25 bg-blue-400/10 p-4 flex items-center justify-between hover:bg-blue-400/15 transition-colors"
+              className="flex w-full items-center justify-between rounded-full border border-white/10 bg-white/[0.075] px-4 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:bg-white/[0.12]"
             >
               <div className="flex items-center gap-3">
-                <Shield className="w-5 h-5 text-blue-100" />
-                <span className="text-white text-sm font-black">Admin Panel</span>
+                <Shield className="h-4 w-4 text-emerald-200" />
+                <span className="text-sm font-black text-white">Admin Panel</span>
               </div>
-              <ChevronRight className="w-4 h-4 text-blue-100/70" />
+              <ChevronRight className="h-4 w-4 text-white/45" />
             </button>
           )}
         </div>
@@ -1196,13 +1196,13 @@ export function SettingsScreen() {
               {isAdmin && (
                 <button
                   onClick={() => navigate('/admin-panel')}
-                  className="flex w-full items-center justify-between rounded-full border border-blue-300/20 bg-blue-300/10 px-4 py-3 text-left transition-colors hover:bg-blue-300/15"
+                  className="flex w-full items-center justify-between rounded-full border border-white/10 bg-white/[0.075] px-4 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:bg-white/[0.12]"
                 >
                   <span className="flex items-center gap-2.5">
-                    <Shield className="h-3.5 w-3.5 text-blue-100" />
+                    <Shield className="h-3.5 w-3.5 text-emerald-200" />
                     <span className="text-[12px] font-black text-white">Admin Panel</span>
                   </span>
-                  <ChevronRight className="h-3.5 w-3.5 text-blue-100/70" />
+                  <ChevronRight className="h-3.5 w-3.5 text-white/45" />
                 </button>
               )}
             </div>

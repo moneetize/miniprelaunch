@@ -9,6 +9,7 @@ import { INVITE_POINTS_PER_RECIPIENT, MAX_RELEASE_TEAM_INVITES } from '../utils/
 import { getStoredScratchCredits, loadScratchProfile, type ScratchCredits } from '../services/scratchService';
 
 const SMS_PHONE_EXAMPLE = '+15551234567';
+const SMS_INVITES_ENABLED = false;
 
 const normalizePhoneForSms = (phone: string) => {
   const trimmed = `${phone || ''}`.trim();
@@ -102,6 +103,8 @@ export function ShareInvites() {
   };
 
   const handleAddPhone = () => {
+    if (!SMS_INVITES_ENABLED) return;
+
     setPhoneNumbers((current) => (
       emails.length + current.length < MAX_RELEASE_TEAM_INVITES ? [...current, ''] : current
     ));
@@ -121,6 +124,11 @@ export function ShareInvites() {
   const handleSendSMS = async () => {
     setError(null);
     setSuccessMessage(null);
+
+    if (!SMS_INVITES_ENABLED) {
+      setError('SMS invites are coming soon. Use email or copy your invite link while Twilio campaign approval is in progress.');
+      return;
+    }
 
     const enteredPhoneNumbers = phoneNumbers.map((phone) => phone.trim()).filter(Boolean);
     const invalidPhoneNumbers = enteredPhoneNumbers.filter((phone) => !isSmsPhoneNumber(phone));
@@ -162,7 +170,7 @@ export function ShareInvites() {
       setSentPhones(validPhoneNumbers);
       setSentEmails([]);
       if (failedDeliveries.length === validPhoneNumbers.length) {
-        setError(firstFailure ? `SMS delivery failed: ${firstFailure}` : 'SMS delivery failed. Check AWS SNS SMS setup and try again.');
+        setError(firstFailure ? `SMS delivery failed: ${firstFailure}` : 'SMS delivery failed. Check Twilio campaign and Messaging Service setup, then try again.');
       } else {
         const rewardNote = `You earn ${INVITE_POINTS_PER_RECIPIENT} pts when each friend signs up.`;
         setSuccessMessage(
@@ -245,10 +253,10 @@ export function ShareInvites() {
   };
 
   const filledEmailsCount = emails.filter((email) => email.trim() !== '').length;
-  const filledPhonesCount = phoneNumbers.filter((phone) => phone.trim() !== '').length;
+  const filledPhonesCount = SMS_INVITES_ENABLED ? phoneNumbers.filter((phone) => phone.trim() !== '').length : 0;
   const potentialPoints = (filledEmailsCount + filledPhonesCount) * INVITE_POINTS_PER_RECIPIENT;
   const availableScratchCredits = scratchCredits?.available || 0;
-  const totalInviteSlots = emails.length + phoneNumbers.length;
+  const totalInviteSlots = emails.length + (SMS_INVITES_ENABLED ? phoneNumbers.length : 0);
 
   return (
     <div className="absolute inset-0 h-full w-full overflow-y-auto bg-[#060708] text-white [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
@@ -461,14 +469,19 @@ export function ShareInvites() {
                     <MessageSquare className="h-4 w-4" />
                   </span>
                   <div className="min-w-0">
-                    <h2 className="text-sm font-black text-white">SMS</h2>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-sm font-black text-white">SMS</h2>
+                      <span className="rounded-full border border-amber-200/18 bg-amber-300/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.08em] text-amber-100">
+                        Coming Soon
+                      </span>
+                    </div>
                     <p className="text-[11px] font-semibold text-white/40">Example: {SMS_PHONE_EXAMPLE}</p>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={handleAddPhone}
-                  disabled={totalInviteSlots >= MAX_RELEASE_TEAM_INVITES}
+                  disabled={!SMS_INVITES_ENABLED || totalInviteSlots >= MAX_RELEASE_TEAM_INVITES}
                   className="flex h-8 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 text-[11px] font-black text-white/78 transition-colors hover:bg-white/12 disabled:cursor-not-allowed disabled:opacity-35"
                 >
                   <Plus className="h-3.5 w-3.5" />
@@ -488,9 +501,10 @@ export function ShareInvites() {
                       value={phone}
                       onChange={(event) => handlePhoneChange(index, event.target.value)}
                       onBlur={() => handlePhoneBlur(index)}
-                      className="h-12 w-full rounded-full border border-white/8 bg-white/[0.06] pl-11 pr-11 text-sm font-semibold text-white outline-none transition-colors placeholder:text-white/30 focus:border-emerald-200/42"
+                      disabled={!SMS_INVITES_ENABLED}
+                      className="h-12 w-full rounded-full border border-white/8 bg-white/[0.06] pl-11 pr-11 text-sm font-semibold text-white outline-none transition-colors placeholder:text-white/30 focus:border-emerald-200/42 disabled:cursor-not-allowed disabled:opacity-45"
                     />
-                    {phone && (
+                    {SMS_INVITES_ENABLED && phone && (
                       <button
                         type="button"
                         onClick={() => handleRemovePhone(index)}
@@ -561,11 +575,11 @@ export function ShareInvites() {
 
             <button
               onClick={handleSendSMS}
-              disabled={isLoading || filledPhonesCount === 0 || !hasInviteConsent}
+              disabled={!SMS_INVITES_ENABLED || isLoading || filledPhonesCount === 0 || !hasInviteConsent}
               className="flex h-[52px] w-full items-center justify-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-5 text-sm font-black text-white shadow-[0_16px_38px_rgba(0,0,0,0.25)] transition-colors hover:bg-white/12 disabled:cursor-not-allowed disabled:opacity-35"
             >
               <MessageSquare className="h-[18px] w-[18px]" />
-              Send SMS Invites ({filledPhonesCount})
+              SMS Invites Coming Soon
             </button>
           </motion.div>
 

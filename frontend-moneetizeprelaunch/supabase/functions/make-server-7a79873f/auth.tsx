@@ -133,7 +133,9 @@ export async function signup(body: SignupRequest) {
         user: {
           id: data.user.id,
           email: data.user.email,
-          name: data.user.user_metadata?.name
+          name: data.user.user_metadata?.name,
+          user_metadata: data.user.user_metadata || {},
+          app_metadata: data.user.app_metadata || {},
         },
         session: {
           access_token: sessionData.session?.access_token,
@@ -204,7 +206,9 @@ export async function login(body: LoginRequest) {
         user: {
           id: data.user.id,
           email: data.user.email,
-          name: data.user.user_metadata?.name
+          name: data.user.user_metadata?.name,
+          user_metadata: data.user.user_metadata || {},
+          app_metadata: data.user.app_metadata || {},
         },
         session: {
           access_token: data.session.access_token,
@@ -256,7 +260,9 @@ export async function getProfile(accessToken: string) {
           id: user.id,
           email: user.email,
           name: user.user_metadata?.name,
-          created_at: user.created_at
+          created_at: user.created_at,
+          user_metadata: user.user_metadata || {},
+          app_metadata: user.app_metadata || {},
         }
       },
       status: 200
@@ -565,6 +571,91 @@ export async function deleteUserByEmail(email: string) {
     return {
       success: false,
       error: 'An unexpected error occurred while deleting user',
+      status: 500
+    };
+  }
+}
+
+/**
+ * Grant or revoke admin metadata for an existing user by email.
+ */
+export async function setUserAdminByEmail(email: string, isAdmin: boolean) {
+  try {
+    const normalizedEmail = `${email || ''}`.trim().toLowerCase();
+
+    if (!normalizedEmail) {
+      return {
+        success: false,
+        error: 'Email is required',
+        status: 400
+      };
+    }
+
+    const { data, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+
+    if (listError) {
+      console.error('Failed to list users for admin update:', listError);
+      return {
+        success: false,
+        error: listError.message || 'Failed to find user',
+        status: 500
+      };
+    }
+
+    const user = data.users.find(u => u.email?.toLowerCase() === normalizedEmail);
+
+    if (!user) {
+      return {
+        success: false,
+        error: `No user found with email: ${email}`,
+        status: 404
+      };
+    }
+
+    const nextMetadata = {
+      ...(user.user_metadata || {}),
+      isAdmin,
+      role: isAdmin ? 'admin' : undefined,
+    };
+
+    if (!isAdmin) {
+      delete nextMetadata.role;
+    }
+
+    const { data: updateData, error } = await supabaseAdmin.auth.admin.updateUserById(
+      user.id,
+      {
+        user_metadata: nextMetadata,
+      }
+    );
+
+    if (error) {
+      console.error('Admin metadata update error:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to update admin metadata',
+        status: 500
+      };
+    }
+
+    return {
+      success: true,
+      data: {
+        user: {
+          id: updateData.user.id,
+          email: updateData.user.email,
+          name: updateData.user.user_metadata?.name,
+          user_metadata: updateData.user.user_metadata || {},
+          app_metadata: updateData.user.app_metadata || {},
+        }
+      },
+      status: 200
+    };
+  } catch (error) {
+    console.error('Unexpected admin metadata update error:', error);
+    return {
+      success: false,
+      error: 'An unexpected error occurred while updating admin metadata',
       status: 500
     };
   }

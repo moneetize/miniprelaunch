@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 import { 
+  ChevronLeft,
   Plus, 
   Trash2, 
   Edit, 
@@ -28,6 +29,8 @@ import { ImageWithFallback } from '../components/figma/ImageWithFallback';
 import { isAuthenticated, isUserAdmin, logoutUser } from '../services/authService';
 import { loadProductCatalog, saveProductCatalog } from '../services/productService';
 import { grantEarlyAccessRequest, loadEarlyAccessRequests, type EarlyAccessRequest } from '../services/earlyAccessService';
+import { safeGetItem } from '../utils/storage';
+import { projectId, publicAnonKey } from '/utils/supabase/info';
 import {
   loadMarketplaceProducts,
   loadMarketplaceProductsFromServer,
@@ -78,9 +81,34 @@ const categories = [
   'Fashion', 'Books', 'Pets', 'Art', 'Gaming', 'Grocery'
 ];
 
-type AdminTab = 'products' | 'earlyAccess' | 'marketplace';
+type AdminTab = 'products' | 'earlyAccess' | 'marketplace' | 'admins';
+
+interface AdminUserRecord {
+  id?: string;
+  email: string;
+  name?: string;
+  created_at?: string;
+  source?: 'core' | 'added' | 'metadata';
+  protected?: boolean;
+  accountExists?: boolean;
+  metadataAdmin?: boolean;
+}
+
+type AdminUsersResponse = {
+  success?: boolean;
+  data?: {
+    admins?: AdminUserRecord[];
+    metadataUpdate?: {
+      success?: boolean;
+      error?: string;
+      status?: number;
+    };
+  };
+  error?: string;
+};
 
 const marketplaceCategories = ['Shirts', 'Hoodies', 'Bags', 'Hats', 'Headwear', 'Drinkware', 'Office Supplies', 'Technology', 'Lifestyle'];
+const ADMIN_API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-7a79873f/admin`;
 
 function createMarketplaceDraft(): MarketplaceProduct {
   return {
@@ -101,6 +129,26 @@ function createMarketplaceDraft(): MarketplaceProduct {
 
 function textToList(value: string) {
   return value.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+function adminHeaders() {
+  const accessToken = safeGetItem('access_token');
+
+  return {
+    Authorization: `Bearer ${publicAnonKey}`,
+    apikey: publicAnonKey,
+    'Content-Type': 'application/json',
+    ...(accessToken ? { 'x-user-token': accessToken } : {}),
+  };
+}
+
+async function readAdminJson<T>(response: Response): Promise<T> {
+  const text = await response.text();
+  return text ? (JSON.parse(text) as T) : ({} as T);
+}
+
+function isValidAdminEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
 
 export function AdminPanel() {
@@ -138,6 +186,11 @@ export function AdminPanel() {
   const [marketplaceOrders, setMarketplaceOrders] = useState<MarketplaceOrder[]>([]);
   const [marketplaceDraft, setMarketplaceDraft] = useState<MarketplaceProduct>(() => createMarketplaceDraft());
   const [editingMarketplaceId, setEditingMarketplaceId] = useState<string | null>(null);
+  const [adminUsers, setAdminUsers] = useState<AdminUserRecord[]>([]);
+  const [adminEmailDraft, setAdminEmailDraft] = useState('');
+  const [adminUsersMessage, setAdminUsersMessage] = useState('');
+  const [isLoadingAdminUsers, setIsLoadingAdminUsers] = useState(false);
+  const [savingAdminEmail, setSavingAdminEmail] = useState('');
   
   // Search and filter states
   const [searchQuery, setSearchQuery] = useState('');
@@ -155,6 +208,7 @@ export function AdminPanel() {
     if (hasAdminAccess) {
       loadProducts();
       loadEarlyAccessQueue();
+      void loadAdminUsers();
       loadMarketplaceCatalog();
       void loadMarketplaceOrdersQueue();
     }
@@ -215,6 +269,92 @@ export function AdminPanel() {
 
   const loadMarketplaceOrdersQueue = async () => {
     setMarketplaceOrders(await loadMarketplaceOrdersFromServer());
+  };
+
+  const loadAdminUsers = async () => {
+    try {
+      setIsLoadingAdminUsers(true);
+      const response = await fetch(`${ADMIN_API_URL}/admin-users`, {
+        method: 'GET',
+        headers: adminHeaders(),
+      });
+      const result = await readAdminJson<AdminUsersResponse>(response);
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to load admin users');
+      }
+
+      setAdminUsers(result.data?.admins || []);
+    } catch (error) {
+      console.error('Failed to load admin users:', error);
+      setAdminUsersMessage(error instanceof Error ? error.message : 'Failed to load admin users.');
+    } finally {
+      setIsLoadingAdminUsers(false);
+    }
+  };
+
+  const handleAddAdminUser = async () => {
+    const email = adminEmailDraft.trim().toLowerCase();
+    setAdminUsersMessage('');
+
+    if (!isValidAdminEmail(email)) {
+      setAdminUsersMessage('Enter a valid email address before adding an admin.');
+      return;
+    }
+
+    try {
+      setSavingAdminEmail(email);
+      const response = await fetch(`${ADMIN_API_URL}/admin-users`, {
+        method: 'POST',
+        headers: adminHeaders(),
+        body: JSON.stringify({ email }),
+      });
+      const result = await readAdminJson<AdminUsersResponse>(response);
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to add admin user');
+      }
+
+      setAdminUsers(result.data?.admins || []);
+      setAdminEmailDraft('');
+      setAdminUsersMessage(
+        result.data?.metadataUpdate?.success === false
+          ? `${email} was added to the admin list. Create that account or save its profile before metadata can be synced.`
+          : `${email} can now access the admin panel.`,
+      );
+    } catch (error) {
+      console.error('Failed to add admin user:', error);
+      setAdminUsersMessage(error instanceof Error ? error.message : 'Failed to add admin user.');
+    } finally {
+      setSavingAdminEmail('');
+    }
+  };
+
+  const handleRemoveAdminUser = async (email: string) => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) return;
+    if (!confirm(`Remove admin access for ${normalizedEmail}?`)) return;
+
+    try {
+      setSavingAdminEmail(normalizedEmail);
+      const response = await fetch(`${ADMIN_API_URL}/admin-users/${encodeURIComponent(normalizedEmail)}`, {
+        method: 'DELETE',
+        headers: adminHeaders(),
+      });
+      const result = await readAdminJson<AdminUsersResponse>(response);
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to remove admin user');
+      }
+
+      setAdminUsers(result.data?.admins || []);
+      setAdminUsersMessage(`${normalizedEmail} was removed from editable admin access.`);
+    } catch (error) {
+      console.error('Failed to remove admin user:', error);
+      setAdminUsersMessage(error instanceof Error ? error.message : 'Failed to remove admin user.');
+    } finally {
+      setSavingAdminEmail('');
+    }
   };
 
   const handleGrantEarlyAccess = async (requestId: string) => {
@@ -624,7 +764,7 @@ export function AdminPanel() {
   const renderMarketplaceAdmin = () => (
     <div className="space-y-5">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <div className="rounded-lg border border-white/10 bg-[#101311] p-4 shadow-[0_18px_42px_rgba(0,0,0,0.28)]">
+        <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.055] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-5">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-black text-white">
@@ -643,14 +783,14 @@ export function AdminPanel() {
               value={marketplaceDraft.name}
               onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, name: event.target.value })}
               placeholder="Product name"
-              className="w-full rounded-lg border border-white/10 bg-white/[0.07] px-4 py-3 text-white outline-none placeholder:text-white/28 focus:border-[#8ff0a8]"
+              className="w-full rounded-full border border-white/10 bg-black/20 px-4 py-3 text-white outline-none placeholder:text-white/28 focus:border-[#8ff0a8]"
             />
             <textarea
               value={marketplaceDraft.description}
               onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, description: event.target.value })}
               placeholder="Product description"
               rows={3}
-              className="w-full resize-none rounded-lg border border-white/10 bg-white/[0.07] px-4 py-3 text-white outline-none placeholder:text-white/28 focus:border-[#8ff0a8]"
+              className="w-full resize-none rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white outline-none placeholder:text-white/28 focus:border-[#8ff0a8]"
             />
 
             <div className="grid grid-cols-2 gap-3">
@@ -661,7 +801,7 @@ export function AdminPanel() {
                   min={0}
                   value={marketplaceDraft.pointsPrice}
                   onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, pointsPrice: Number(event.target.value) })}
-                  className="w-full rounded-lg border border-white/10 bg-white/[0.07] px-4 py-3 text-white outline-none focus:border-[#8ff0a8]"
+                  className="w-full rounded-full border border-white/10 bg-black/20 px-4 py-3 text-white outline-none focus:border-[#8ff0a8]"
                 />
               </label>
               <label className="block">
@@ -671,7 +811,7 @@ export function AdminPanel() {
                   min={0}
                   value={marketplaceDraft.inventory}
                   onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, inventory: Number(event.target.value) })}
-                  className="w-full rounded-lg border border-white/10 bg-white/[0.07] px-4 py-3 text-white outline-none focus:border-[#8ff0a8]"
+                  className="w-full rounded-full border border-white/10 bg-black/20 px-4 py-3 text-white outline-none focus:border-[#8ff0a8]"
                 />
               </label>
             </div>
@@ -680,7 +820,7 @@ export function AdminPanel() {
               <select
                 value={marketplaceDraft.category}
                 onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, category: event.target.value })}
-                className="rounded-lg border border-white/10 bg-[#1b201d] px-4 py-3 text-white outline-none focus:border-[#8ff0a8]"
+                className="rounded-full border border-white/10 bg-[#161a18] px-4 py-3 text-white outline-none focus:border-[#8ff0a8]"
               >
                 {marketplaceCategories.map((category) => (
                   <option key={category} value={category}>{category}</option>
@@ -689,7 +829,7 @@ export function AdminPanel() {
               <select
                 value={marketplaceDraft.status}
                 onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, status: event.target.value as MarketplaceProduct['status'] })}
-                className="rounded-lg border border-white/10 bg-[#1b201d] px-4 py-3 text-white outline-none focus:border-[#8ff0a8]"
+                className="rounded-full border border-white/10 bg-[#161a18] px-4 py-3 text-white outline-none focus:border-[#8ff0a8]"
               >
                 <option value="active">Active</option>
                 <option value="draft">Draft</option>
@@ -699,7 +839,7 @@ export function AdminPanel() {
             <select
               value={marketplaceDraft.badge || 'NEW'}
               onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, badge: event.target.value as MarketplaceProduct['badge'] })}
-              className="w-full rounded-lg border border-white/10 bg-[#1b201d] px-4 py-3 text-white outline-none focus:border-[#8ff0a8]"
+              className="w-full rounded-full border border-white/10 bg-[#161a18] px-4 py-3 text-white outline-none focus:border-[#8ff0a8]"
             >
               <option value="NEW">NEW badge</option>
               <option value="HOT">HOT badge</option>
@@ -711,42 +851,42 @@ export function AdminPanel() {
               value={marketplaceDraft.colorVariants.join(', ')}
               onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, colorVariants: textToList(event.target.value) })}
               placeholder="Colors: Black, White, Blue"
-              className="w-full rounded-lg border border-white/10 bg-white/[0.07] px-4 py-3 text-white outline-none placeholder:text-white/28 focus:border-[#8ff0a8]"
+              className="w-full rounded-full border border-white/10 bg-black/20 px-4 py-3 text-white outline-none placeholder:text-white/28 focus:border-[#8ff0a8]"
             />
             <input
               type="text"
               value={marketplaceDraft.logoVariants.join(', ')}
               onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, logoVariants: textToList(event.target.value) })}
               placeholder="Logo colors: Light Blue, Pink, Yellow"
-              className="w-full rounded-lg border border-white/10 bg-white/[0.07] px-4 py-3 text-white outline-none placeholder:text-white/28 focus:border-[#8ff0a8]"
+              className="w-full rounded-full border border-white/10 bg-black/20 px-4 py-3 text-white outline-none placeholder:text-white/28 focus:border-[#8ff0a8]"
             />
             <input
               type="text"
               value={marketplaceDraft.image || ''}
               onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, image: event.target.value })}
               placeholder="Product image path"
-              className="w-full rounded-lg border border-white/10 bg-white/[0.07] px-4 py-3 text-white outline-none placeholder:text-white/28 focus:border-[#8ff0a8]"
+              className="w-full rounded-full border border-white/10 bg-black/20 px-4 py-3 text-white outline-none placeholder:text-white/28 focus:border-[#8ff0a8]"
             />
             <input
               type="text"
               value={marketplaceDraft.sourceUrl || ''}
               onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, sourceUrl: event.target.value })}
               placeholder="Supplier URL"
-              className="w-full rounded-lg border border-white/10 bg-white/[0.07] px-4 py-3 text-white outline-none placeholder:text-white/28 focus:border-[#8ff0a8]"
+              className="w-full rounded-full border border-white/10 bg-black/20 px-4 py-3 text-white outline-none placeholder:text-white/28 focus:border-[#8ff0a8]"
             />
 
             <div className="grid grid-cols-[1fr_auto] gap-2 pt-2">
               <button
                 type="button"
                 onClick={handleMarketplaceSave}
-                className="h-12 rounded-lg bg-[#8ff0a8] px-4 text-sm font-black text-[#06120a] transition-colors hover:bg-[#7be594]"
+                className="h-12 rounded-full bg-white px-4 text-sm font-black text-black transition-colors hover:bg-gray-100"
               >
                 {editingMarketplaceId ? 'Save Product' : 'Add Product'}
               </button>
               <button
                 type="button"
                 onClick={resetMarketplaceForm}
-                className="h-12 rounded-lg border border-white/10 bg-white/[0.08] px-4 text-sm font-black text-white transition-colors hover:bg-white/12"
+                className="h-12 rounded-full border border-white/10 bg-white/[0.08] px-4 text-sm font-black text-white transition-colors hover:bg-white/12"
               >
                 Clear
               </button>
@@ -754,7 +894,7 @@ export function AdminPanel() {
           </div>
         </div>
 
-        <div className="rounded-lg border border-white/10 bg-[#101311] p-4 shadow-[0_18px_42px_rgba(0,0,0,0.28)]">
+        <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.055] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-5">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-lg font-black text-white">Marketplace Products</h2>
@@ -763,7 +903,7 @@ export function AdminPanel() {
             <button
               type="button"
               onClick={() => navigate('/marketplace')}
-              className="rounded-lg border border-white/10 bg-white/[0.08] px-3 py-2 text-xs font-black text-white transition-colors hover:bg-white/12"
+              className="rounded-full border border-white/10 bg-white/[0.08] px-3 py-2 text-xs font-black text-white transition-colors hover:bg-white/12"
             >
               View Marketplace
             </button>
@@ -774,11 +914,11 @@ export function AdminPanel() {
               const isOutOfStock = product.inventory <= 0;
 
               return (
-              <div key={product.id} className="rounded-lg border border-white/10 bg-white/[0.055] p-3">
+              <div key={product.id} className="rounded-[1.1rem] border border-white/8 bg-black/20 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
                 <div className="flex gap-3">
-                  <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-lg bg-black/18">
+                  <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-lg bg-[#e8ebe7]">
                     {product.image ? (
-                      <img src={product.image} alt={product.name} className="h-full w-full rounded-lg object-contain" />
+                      <img src={product.image} alt={product.name} className="h-full w-full object-contain" />
                     ) : (
                       <Package className="h-7 w-7 text-white/45" />
                     )}
@@ -820,7 +960,7 @@ export function AdminPanel() {
                     <button
                       type="button"
                       onClick={() => handleMarketplaceInventoryChange(product.id, product.inventory - 1)}
-                      className="h-9 rounded-lg border border-white/10 bg-white/[0.08] text-sm font-black text-white"
+                    className="h-9 rounded-full border border-white/10 bg-white/[0.08] text-sm font-black text-white"
                       aria-label={`Decrease ${product.name} inventory`}
                     >
                       -
@@ -830,13 +970,13 @@ export function AdminPanel() {
                       min={0}
                       value={product.inventory}
                       onChange={(event) => handleMarketplaceInventoryChange(product.id, Number(event.target.value))}
-                      className="h-9 rounded-lg border border-white/10 bg-black/18 px-3 text-center text-sm font-black text-white outline-none focus:border-[#8ff0a8]"
+                      className="h-9 rounded-full border border-white/10 bg-black/18 px-3 text-center text-sm font-black text-white outline-none focus:border-[#8ff0a8]"
                       aria-label={`${product.name} inventory amount`}
                     />
                     <button
                       type="button"
                       onClick={() => handleMarketplaceInventoryChange(product.id, product.inventory + 1)}
-                      className="h-9 rounded-lg border border-white/10 bg-white/[0.08] text-sm font-black text-white"
+                      className="h-9 rounded-full border border-white/10 bg-white/[0.08] text-sm font-black text-white"
                       aria-label={`Increase ${product.name} inventory`}
                     >
                       +
@@ -848,14 +988,14 @@ export function AdminPanel() {
                   <button
                     type="button"
                     onClick={() => handleMarketplaceEdit(product)}
-                    className="rounded-lg bg-blue-500/20 px-3 py-2 text-xs font-black text-blue-300 transition-colors hover:bg-blue-500/30"
+                    className="rounded-full border border-white/10 bg-white/[0.08] px-3 py-2 text-xs font-black text-white transition-colors hover:bg-white/12"
                   >
                     Edit
                   </button>
                   <button
                     type="button"
                     onClick={() => handleMarketplaceDelete(product.id)}
-                    className="rounded-lg bg-red-500/20 px-3 py-2 text-xs font-black text-red-300 transition-colors hover:bg-red-500/30"
+                    className="rounded-full border border-red-300/15 bg-red-400/10 px-3 py-2 text-xs font-black text-red-200 transition-colors hover:bg-red-400/16"
                   >
                     Delete
                   </button>
@@ -867,7 +1007,7 @@ export function AdminPanel() {
         </div>
       </div>
 
-      <div className="rounded-lg border border-white/10 bg-[#101311] p-4 shadow-[0_18px_42px_rgba(0,0,0,0.28)]">
+      <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.055] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-5">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-black text-white">Marketplace Orders</h2>
@@ -878,7 +1018,7 @@ export function AdminPanel() {
           <button
             type="button"
             onClick={() => void loadMarketplaceOrdersQueue()}
-            className="rounded-lg border border-white/10 bg-white/[0.08] px-3 py-2 text-xs font-black text-white transition-colors hover:bg-white/12"
+            className="rounded-full border border-white/10 bg-white/[0.08] px-3 py-2 text-xs font-black text-white transition-colors hover:bg-white/12"
           >
             Refresh Orders
           </button>
@@ -944,15 +1084,126 @@ export function AdminPanel() {
     </div>
   );
 
+  const renderAdminUsers = () => (
+    <div className="space-y-5">
+      <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.055] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-5">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-black text-white sm:text-lg">Admin Users</h2>
+            <p className="mt-1 text-xs font-semibold text-white/42">
+              Grant admin panel access without hiding real user profiles from Network.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadAdminUsers()}
+            disabled={isLoadingAdminUsers}
+            className="rounded-full border border-white/10 bg-white/[0.07] px-4 py-2 text-xs font-black text-white transition-colors hover:bg-white/12 disabled:opacity-50"
+          >
+            {isLoadingAdminUsers ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+
+        <div className="grid gap-2.5 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <input
+            type="email"
+            value={adminEmailDraft}
+            onChange={(event) => {
+              setAdminEmailDraft(event.target.value);
+              setAdminUsersMessage('');
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                void handleAddAdminUser();
+              }
+            }}
+            placeholder="admin-user@moneetize.com"
+            className="h-12 w-full rounded-full border border-white/8 bg-black/20 px-4 text-sm font-bold text-white outline-none placeholder:text-white/30 focus:border-[#8ff0a8]/50"
+          />
+          <button
+            type="button"
+            onClick={() => void handleAddAdminUser()}
+            disabled={Boolean(savingAdminEmail) || !adminEmailDraft.trim()}
+            className="flex h-12 items-center justify-center gap-2 rounded-full bg-white px-5 text-sm font-black text-black transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Plus className="h-4 w-4" />
+            Add Admin
+          </button>
+        </div>
+
+        {adminUsersMessage && (
+          <p className="mt-3 rounded-[1rem] border border-white/8 bg-white/[0.045] px-4 py-3 text-xs font-bold leading-relaxed text-white/66">
+            {adminUsersMessage}
+          </p>
+        )}
+      </div>
+
+      <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.055] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-5">
+        {adminUsers.length > 0 ? (
+          <div className="space-y-3">
+            {adminUsers.map((adminUser) => {
+              const isSavingThisUser = savingAdminEmail === adminUser.email;
+
+              return (
+                <div
+                  key={adminUser.email}
+                  className="flex flex-col gap-3 rounded-[1rem] border border-white/8 bg-black/20 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:flex-row sm:items-center"
+                >
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-emerald-300/18 bg-emerald-300/[0.08] text-sm font-black text-emerald-100">
+                      {(adminUser.name || adminUser.email).slice(0, 2).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-sm font-black text-white">{adminUser.name || adminUser.email}</p>
+                        <span className="rounded-full bg-white/8 px-2 py-0.5 text-[10px] font-black uppercase text-white/52">
+                          {adminUser.source === 'core' ? 'Core' : adminUser.source === 'metadata' ? 'Metadata' : 'Added'}
+                        </span>
+                        {!adminUser.accountExists && (
+                          <span className="rounded-full bg-amber-300/12 px-2 py-0.5 text-[10px] font-black uppercase text-amber-200">
+                            Account needed
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 truncate text-xs font-semibold text-white/42">{adminUser.email}</p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleRemoveAdminUser(adminUser.email)}
+                    disabled={adminUser.protected || isSavingThisUser}
+                    className="flex h-10 items-center justify-center gap-2 rounded-full border border-red-300/15 bg-red-400/10 px-4 text-xs font-black text-red-200 transition-colors hover:bg-red-400/16 disabled:cursor-not-allowed disabled:opacity-35"
+                    aria-label={`Remove ${adminUser.email} admin access`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    {adminUser.protected ? 'Protected' : isSavingThisUser ? 'Removing...' : 'Remove'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-[1rem] border border-dashed border-white/10 px-4 py-8 text-center">
+            <Users className="mx-auto h-8 w-8 text-white/30" />
+            <p className="mt-3 text-sm font-bold text-white/45">No admin users loaded yet.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   if (isCheckingAdmin) {
     return (
-      <div className="min-h-[100dvh] w-full bg-[#050706] flex items-center justify-center px-4 text-white">
+      <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[#060708] px-4 text-white">
+        <div className="pointer-events-none fixed inset-x-0 top-0 h-48 bg-[radial-gradient(circle_at_50%_0%,rgba(143,240,168,0.12),transparent_72%)]" />
         <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
+          initial={{ scale: 0.94, opacity: 0, y: 14 }}
           animate={{ scale: 1, opacity: 1 }}
-          className="w-full max-w-md rounded-lg border border-white/10 bg-[#111512] p-6 text-center shadow-[0_24px_70px_rgba(0,0,0,0.5)]"
+          className="relative w-full max-w-md overflow-hidden rounded-[1.6rem] border border-white/10 bg-gradient-to-b from-[#1b1d1f] via-[#17191b] to-[#101214] p-6 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_78px_rgba(0,0,0,0.62)]"
         >
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-[#8ff0a8]/25 bg-[#8ff0a8]/10">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-[#8ff0a8]/25 bg-[#8ff0a8]/10 shadow-[0_0_26px_rgba(143,240,168,0.18)]">
             <Users className="h-7 w-7 text-[#8ff0a8]" />
           </div>
           <h2 className="mb-2 text-2xl font-black text-white">Checking Admin Access</h2>
@@ -964,32 +1215,33 @@ export function AdminPanel() {
 
   if (!isAdmin) {
     return (
-      <div className="min-h-[100dvh] w-full bg-[#050706] flex items-center justify-center px-4 text-white">
+      <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[#060708] px-4 text-white">
+        <div className="pointer-events-none fixed inset-x-0 top-0 h-48 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.08),transparent_72%)]" />
         <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
+          initial={{ scale: 0.94, opacity: 0, y: 14 }}
           animate={{ scale: 1, opacity: 1 }}
-          className="w-full max-w-md rounded-lg border border-white/10 bg-[#111512] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.5)]"
+          className="relative w-full max-w-md overflow-hidden rounded-[1.6rem] border border-white/10 bg-gradient-to-b from-[#1b1d1f] via-[#17191b] to-[#101214] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_78px_rgba(0,0,0,0.62)]"
         >
           <div className="mb-6 text-center">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-red-300/20 bg-red-500/10">
               <AlertCircle className="h-7 w-7 text-red-300" />
             </div>
-            <p className="text-xs font-black uppercase tracking-[0.08em] text-[#8ff0a8]">Moneetize Admin</p>
+            <p className="text-[11px] font-black uppercase tracking-[0.16em] text-[#8ff0a8]/80">Moneetize Admin</p>
             <h2 className="mt-2 mb-2 text-2xl font-black text-white">Admin Account Required</h2>
             <p className="text-sm font-semibold leading-relaxed text-white/45">
-              Log in with an account that has the Supabase admin role to manage products.
+              Log in with an approved admin account to manage products, marketplace rewards, and early access requests.
             </p>
           </div>
           <div className="flex gap-3">
             <button
-              onClick={() => navigate('/profile-feeds')}
-              className="h-12 flex-1 rounded-lg border border-white/10 bg-white/[0.08] text-sm font-black text-white transition-colors hover:bg-white/12"
+              onClick={() => navigate('/profile-screen')}
+              className="h-12 flex-1 rounded-full border border-white/10 bg-white/[0.08] text-sm font-black text-white transition-colors hover:bg-white/12"
             >
               Cancel
             </button>
             <button
               onClick={() => navigate('/login')}
-              className="h-12 flex-1 rounded-lg bg-[#8ff0a8] text-sm font-black text-[#06120a] transition-colors hover:bg-[#7be594]"
+              className="h-12 flex-1 rounded-full bg-white text-sm font-black text-black shadow-[0_16px_38px_rgba(0,0,0,0.34)] transition-colors hover:bg-gray-100"
             >
               Login
             </button>
@@ -1000,102 +1252,112 @@ export function AdminPanel() {
   }
 
   return (
-    <div className="absolute inset-0 w-full h-full overflow-y-auto bg-[#0a0e1a]">
-      {/* Header */}
-      <div className="sticky top-0 bg-[#0a0e1a]/95 backdrop-blur-sm z-40 border-b border-gray-800 shadow-lg">
-        <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-2 sm:py-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h1 className="text-white text-sm sm:text-base lg:text-lg font-bold">Admin Panel</h1>
-              <p className="text-gray-400 text-[10px] sm:text-xs">Manage products</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => navigate('/profile-feeds')}
-                className="px-2 sm:px-3 py-1.5 sm:py-2 bg-[#2a2d3e] text-white rounded-lg font-medium hover:bg-[#35384a] transition-colors flex items-center gap-1.5 text-xs"
-              >
-                <Eye className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                <span>View</span>
-              </button>
-              <button
-                onClick={handleLogout}
-                className="px-2 sm:px-2.5 py-1.5 sm:py-2 bg-red-500/10 text-red-500 rounded-lg font-medium hover:bg-red-500/20 transition-colors flex items-center justify-center"
-              >
-                <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              </button>
-            </div>
+    <div className="absolute inset-0 h-full w-full overflow-y-auto bg-[#060708] text-white [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+      <div className="pointer-events-none fixed inset-x-0 top-0 h-48 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.08),transparent_72%)]" />
+
+      <div className="sticky top-0 z-40 bg-[#060708]/88 px-4 pb-3 pt-[calc(0.9rem+env(safe-area-inset-top))] backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
+          <button
+            onClick={() => navigate('/profile-screen')}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/8 text-white/82 transition-colors hover:bg-white/14"
+            aria-label="Back to profile"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+
+          <div className="min-w-0 text-center">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#8ff0a8]/70">Moneetize</p>
+            <h1 className="truncate text-lg font-black tracking-normal text-white">Admin Panel</h1>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={() => navigate('/marketplace')}
+              className="hidden h-10 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 text-xs font-black text-white/78 transition-colors hover:bg-white/12 min-[390px]:flex"
+            >
+              <Eye className="h-3.5 w-3.5" />
+              View
+            </button>
+            <button
+              onClick={handleLogout}
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-red-300/15 bg-red-400/10 text-red-200 transition-colors hover:bg-red-400/16"
+              aria-label="Log out"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
           </div>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-3 sm:py-4 lg:py-6">
+      <div className="relative mx-auto max-w-7xl px-4 pb-10 pt-2 sm:px-5 lg:px-6">
         {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 lg:gap-6 mb-6 sm:mb-8">
-          <div className="bg-[#1a1d2e] rounded-xl sm:rounded-2xl p-3 sm:p-4 lg:p-6 hover:bg-[#1f2235] transition-colors">
+        <div className="mb-6 grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4">
+          <div className="rounded-[1.25rem] border border-white/8 bg-white/[0.055] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:bg-white/[0.075] sm:p-4 lg:p-5">
             <div className="flex flex-col items-center gap-2 sm:gap-3 text-center">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 lg:w-14 lg:h-14 bg-purple-500/20 rounded-lg sm:rounded-xl flex items-center justify-center">
-                <Package className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7 text-purple-500" />
+              <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-black/20 sm:h-12 sm:w-12">
+                <Package className="h-5 w-5 text-white/78 sm:h-6 sm:w-6" />
               </div>
               <div>
-                <p className="text-white text-xl sm:text-2xl lg:text-3xl font-bold">{products.length}</p>
-                <p className="text-gray-400 text-[10px] sm:text-xs lg:text-sm">Products</p>
+                <p className="text-xl font-black text-white sm:text-2xl lg:text-3xl">{products.length}</p>
+                <p className="text-[10px] font-bold text-white/40 sm:text-xs">Products</p>
               </div>
             </div>
           </div>
-          <div className="bg-[#1a1d2e] rounded-xl sm:rounded-2xl p-3 sm:p-4 lg:p-6 hover:bg-[#1f2235] transition-colors">
+          <div className="rounded-[1.25rem] border border-white/8 bg-white/[0.055] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:bg-white/[0.075] sm:p-4 lg:p-5">
             <div className="flex flex-col items-center gap-2 sm:gap-3 text-center">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 lg:w-14 lg:h-14 bg-green-500/20 rounded-lg sm:rounded-xl flex items-center justify-center">
-                <ShoppingBag className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7 text-green-500" />
+              <div className="flex h-11 w-11 items-center justify-center rounded-full border border-emerald-300/18 bg-emerald-300/[0.08] sm:h-12 sm:w-12">
+                <ShoppingBag className="h-5 w-5 text-emerald-200 sm:h-6 sm:w-6" />
               </div>
               <div>
-                <p className="text-white text-xl sm:text-2xl lg:text-3xl font-bold">{categories.length}</p>
-                <p className="text-gray-400 text-[10px] sm:text-xs lg:text-sm">Categories</p>
+                <p className="text-xl font-black text-white sm:text-2xl lg:text-3xl">{categories.length}</p>
+                <p className="text-[10px] font-bold text-white/40 sm:text-xs">Categories</p>
               </div>
             </div>
           </div>
-          <div className="bg-[#1a1d2e] rounded-xl sm:rounded-2xl p-3 sm:p-4 lg:p-6 hover:bg-[#1f2235] transition-colors">
+          <div className="rounded-[1.25rem] border border-white/8 bg-white/[0.055] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:bg-white/[0.075] sm:p-4 lg:p-5">
             <div className="flex flex-col items-center gap-2 sm:gap-3 text-center">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 lg:w-14 lg:h-14 bg-blue-500/20 rounded-lg sm:rounded-xl flex items-center justify-center">
-                <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7 text-blue-500" />
+              <div className="flex h-11 w-11 items-center justify-center rounded-full border border-sky-200/16 bg-sky-300/[0.08] sm:h-12 sm:w-12">
+                <TrendingUp className="h-5 w-5 text-sky-100 sm:h-6 sm:w-6" />
               </div>
               <div>
-                <p className="text-white text-xl sm:text-2xl lg:text-3xl font-bold">
+                <p className="text-xl font-black text-white sm:text-2xl lg:text-3xl">
                   {products.filter(p => p.recommended).length}
                 </p>
-                <p className="text-gray-400 text-[10px] sm:text-xs lg:text-sm">Featured</p>
+                <p className="text-[10px] font-bold text-white/40 sm:text-xs">Featured</p>
               </div>
             </div>
           </div>
-          <div className="bg-[#1a1d2e] rounded-xl sm:rounded-2xl p-3 sm:p-4 lg:p-6 hover:bg-[#1f2235] transition-colors">
+          <div className="rounded-[1.25rem] border border-white/8 bg-white/[0.055] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:bg-white/[0.075] sm:p-4 lg:p-5">
             <div className="flex flex-col items-center gap-2 sm:gap-3 text-center">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 lg:w-14 lg:h-14 bg-amber-500/20 rounded-lg sm:rounded-xl flex items-center justify-center">
-                <CheckCircle className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7 text-amber-300" />
+              <div className="flex h-11 w-11 items-center justify-center rounded-full border border-amber-200/16 bg-amber-300/[0.08] sm:h-12 sm:w-12">
+                <CheckCircle className="h-5 w-5 text-amber-100 sm:h-6 sm:w-6" />
               </div>
               <div>
-                <p className="text-white text-xl sm:text-2xl lg:text-3xl font-bold">
+                <p className="text-xl font-black text-white sm:text-2xl lg:text-3xl">
                   {earlyAccessRequests.filter((request) => request.status === 'pending').length}
                 </p>
-                <p className="text-gray-400 text-[10px] sm:text-xs lg:text-sm">Early Access</p>
+                <p className="text-[10px] font-bold text-white/40 sm:text-xs">Early Access</p>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-white/5 bg-[#1a1d2e] p-2">
+        <div className="mb-6 flex flex-wrap gap-1.5 rounded-full border border-white/8 bg-black/28 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
           {[
             { id: 'products', label: 'Products' },
             { id: 'earlyAccess', label: 'Early Access' },
             { id: 'marketplace', label: 'Marketplace' },
+            { id: 'admins', label: 'Admins' },
           ].map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setActiveAdminTab(tab.id as AdminTab)}
-              className={`rounded-xl px-4 py-2 text-sm font-bold transition-colors ${
+              className={`rounded-full px-4 py-2 text-sm font-black transition-colors ${
                 activeAdminTab === tab.id
                   ? 'bg-white text-black'
-                  : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
+                  : 'text-white/58 hover:bg-white/[0.06] hover:text-white'
               }`}
             >
               {tab.label}
@@ -1104,19 +1366,20 @@ export function AdminPanel() {
         </div>
 
         {activeAdminTab === 'marketplace' && renderMarketplaceAdmin()}
+        {activeAdminTab === 'admins' && renderAdminUsers()}
 
         {/* Early Access Requests */}
         {activeAdminTab === 'earlyAccess' && (
-        <div className="bg-[#1a1d2e] rounded-2xl p-4 sm:p-5 mb-6 sm:mb-8 border border-white/5">
+        <div className="mb-6 rounded-[1.5rem] border border-white/8 bg-white/[0.055] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
             <div>
-              <h2 className="text-white text-base sm:text-lg font-bold">Early Access Requests</h2>
-              <p className="text-gray-400 text-xs">Token Early Access form submissions from Winnings</p>
+              <h2 className="text-base font-black text-white sm:text-lg">Early Access Requests</h2>
+              <p className="text-xs font-semibold text-white/42">Token Early Access form submissions from Winnings</p>
             </div>
             <button
               onClick={loadEarlyAccessQueue}
               disabled={isLoadingEarlyAccess}
-              className="px-3 py-2 bg-[#2a2d3e] text-white rounded-lg font-semibold hover:bg-[#35384a] transition-colors text-xs disabled:opacity-50"
+              className="rounded-full border border-white/10 bg-white/[0.07] px-4 py-2 text-xs font-black text-white transition-colors hover:bg-white/12 disabled:opacity-50"
             >
               {isLoadingEarlyAccess ? 'Refreshing...' : 'Refresh'}
             </button>
@@ -1132,7 +1395,7 @@ export function AdminPanel() {
               {earlyAccessRequests.map((request) => (
                 <div
                   key={request.id}
-                  className="rounded-xl border border-white/8 bg-[#222638] px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center"
+                  className="flex flex-col gap-3 rounded-[1rem] border border-white/8 bg-black/20 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:flex-row sm:items-center"
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -1156,10 +1419,10 @@ export function AdminPanel() {
                   <button
                     onClick={() => handleGrantEarlyAccess(request.id)}
                     disabled={request.status === 'granted' || grantingEarlyAccessId === request.id}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors ${
+                    className={`rounded-full px-4 py-2 text-xs font-black transition-colors ${
                       request.status === 'granted'
                         ? 'bg-emerald-500/15 text-emerald-300 cursor-default'
-                        : 'bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50'
+                        : 'bg-white text-black hover:bg-gray-100 disabled:opacity-50'
                     }`}
                   >
                     {request.status === 'granted'
@@ -1178,26 +1441,26 @@ export function AdminPanel() {
         {/* Add Product Button */}
         {activeAdminTab === 'products' && (
         <>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
-          <h2 className="text-white text-base sm:text-lg font-bold">Products</h2>
+        <div className="mb-4 flex flex-col justify-between gap-3 sm:mb-6 sm:flex-row sm:items-center">
+          <h2 className="text-base font-black text-white sm:text-lg">Products</h2>
           <div className="flex gap-2">
             <button
               onClick={() => setIsAddingProduct(true)}
-              className="flex-1 sm:flex-initial px-3 py-2 bg-purple-500 text-white rounded-lg font-semibold hover:bg-purple-600 transition-all hover:scale-105 flex items-center justify-center gap-1.5 shadow-lg shadow-purple-500/30 text-xs"
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-white px-4 py-2 text-xs font-black text-black shadow-[0_14px_32px_rgba(0,0,0,0.28)] transition-colors hover:bg-gray-100 sm:flex-initial"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Add</span>
             </button>
             <button
               onClick={() => setShowImportModal(true)}
-              className="flex-1 sm:flex-initial px-3 py-2 bg-blue-500 text-white rounded-lg font-semibold hover:bg-blue-600 transition-all hover:scale-105 flex items-center justify-center gap-1.5 shadow-lg shadow-blue-500/30 text-xs"
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/[0.07] px-4 py-2 text-xs font-black text-white transition-colors hover:bg-white/12 sm:flex-initial"
             >
               <Upload className="w-3.5 h-3.5" />
               <span>Import</span>
             </button>
             <button
               onClick={handleExportProducts}
-              className="flex-1 sm:flex-initial px-3 py-2 bg-green-500 text-white rounded-lg font-semibold hover:bg-green-600 transition-all hover:scale-105 flex items-center justify-center gap-1.5 shadow-lg shadow-green-500/30 text-xs"
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-full border border-emerald-300/18 bg-emerald-300/[0.08] px-4 py-2 text-xs font-black text-emerald-100 transition-colors hover:bg-emerald-300/[0.13] sm:flex-initial"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Export</span>
@@ -1207,7 +1470,7 @@ export function AdminPanel() {
 
         {/* Search and Filters */}
         {products.length > 0 && (
-          <div className="bg-[#1a1d2e] rounded-2xl p-4 mb-6 space-y-4">
+          <div className="mb-6 space-y-4 rounded-[1.5rem] border border-white/8 bg-white/[0.055] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
             {/* Search Bar */}
             <div className="relative">
               <input
@@ -1215,7 +1478,7 @@ export function AdminPanel() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search products by name, brand, or tags..."
-                className="w-full bg-[#2a2d3e] text-white rounded-xl pl-10 pr-4 py-3 outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full rounded-full border border-white/8 bg-black/20 py-3 pl-10 pr-4 text-white outline-none placeholder:text-white/30 focus:border-[#8ff0a8]/50"
               />
               <Package className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
               {searchQuery && (
@@ -1234,7 +1497,7 @@ export function AdminPanel() {
               <select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                className="bg-[#2a2d3e] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                className="rounded-full border border-white/8 bg-[#161a18] px-4 py-2.5 text-sm text-white outline-none focus:border-[#8ff0a8]/50"
               >
                 <option value="all">All Categories</option>
                 {categories.map(cat => (
@@ -1246,7 +1509,7 @@ export function AdminPanel() {
               <select
                 value={selectedInvestmentType}
                 onChange={(e) => setSelectedInvestmentType(e.target.value)}
-                className="bg-[#2a2d3e] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                className="rounded-full border border-white/8 bg-[#161a18] px-4 py-2.5 text-sm text-white outline-none focus:border-[#8ff0a8]/50"
               >
                 <option value="all">All Investment Types</option>
                 {investmentTypes.map(type => (
@@ -1258,7 +1521,7 @@ export function AdminPanel() {
               <select
                 value={priceRange}
                 onChange={(e) => setPriceRange(e.target.value)}
-                className="bg-[#2a2d3e] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                className="rounded-full border border-white/8 bg-[#161a18] px-4 py-2.5 text-sm text-white outline-none focus:border-[#8ff0a8]/50"
               >
                 <option value="all">All Prices</option>
                 <option value="0-25">$0 - $25</option>
@@ -1271,7 +1534,7 @@ export function AdminPanel() {
               <select
                 value={minRating}
                 onChange={(e) => setMinRating(Number(e.target.value))}
-                className="bg-[#2a2d3e] text-white rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                className="rounded-full border border-white/8 bg-[#161a18] px-4 py-2.5 text-sm text-white outline-none focus:border-[#8ff0a8]/50"
               >
                 <option value={0}>All Ratings</option>
                 <option value={4}>4+ Stars</option>
@@ -1280,13 +1543,13 @@ export function AdminPanel() {
             </div>
 
             {/* Sort and Clear */}
-            <div className="flex items-center justify-between gap-3 pt-2 border-t border-gray-800">
+            <div className="flex items-center justify-between gap-3 border-t border-white/8 pt-2">
               <div className="flex items-center gap-2">
                 <span className="text-gray-400 text-sm">Sort by:</span>
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as any)}
-                  className="bg-[#2a2d3e] text-white rounded-lg px-3 py-1.5 outline-none text-sm"
+                  className="rounded-full border border-white/8 bg-[#161a18] px-3 py-1.5 text-sm text-white outline-none"
                 >
                   <option value="category">Category</option>
                   <option value="name">Name</option>
@@ -1303,7 +1566,7 @@ export function AdminPanel() {
                   setMinRating(0);
                   setSortBy('category');
                 }}
-                className="text-purple-400 hover:text-purple-300 text-sm font-medium flex items-center gap-1"
+                className="flex items-center gap-1 text-sm font-black text-white/64 hover:text-white"
               >
                 <X className="w-4 h-4" />
                 Clear Filters
@@ -1314,29 +1577,29 @@ export function AdminPanel() {
 
         {/* Products Grid */}
         {products.length === 0 ? (
-          <div className="bg-[#1a1d2e] rounded-3xl p-12 sm:p-16 text-center">
-            <div className="w-20 h-20 sm:w-24 sm:h-24 bg-purple-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
-              <Package className="w-10 h-10 sm:w-12 sm:h-12 text-purple-500" />
+          <div className="rounded-[1.6rem] border border-white/8 bg-white/[0.055] p-10 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-14">
+            <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full border border-white/10 bg-black/22 sm:h-24 sm:w-24">
+              <Package className="h-10 w-10 text-white/54 sm:h-12 sm:w-12" />
             </div>
-            <h3 className="text-white text-xl sm:text-2xl font-bold mb-3">No products yet</h3>
-            <p className="text-gray-400 mb-6 sm:mb-8 max-w-md mx-auto">
+            <h3 className="mb-3 text-xl font-black text-white sm:text-2xl">No products yet</h3>
+            <p className="mx-auto mb-6 max-w-md text-sm font-semibold text-white/45 sm:mb-8">
               Get started by adding your first product to the catalog
             </p>
             <button
               onClick={() => setIsAddingProduct(true)}
-              className="px-8 py-3 bg-purple-500 text-white rounded-xl font-bold hover:bg-purple-600 transition-colors inline-flex items-center gap-2"
+              className="inline-flex items-center gap-2 rounded-full bg-white px-8 py-3 font-black text-black transition-colors hover:bg-gray-100"
             >
               <Plus className="w-5 h-5" />
               Add Your First Product
             </button>
           </div>
         ) : filteredProducts.length === 0 ? (
-          <div className="bg-[#1a1d2e] rounded-3xl p-12 sm:p-16 text-center">
-            <div className="w-20 h-20 sm:w-24 sm:h-24 bg-gray-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
-              <Package className="w-10 h-10 sm:w-12 sm:h-12 text-gray-500" />
+          <div className="rounded-[1.6rem] border border-white/8 bg-white/[0.055] p-10 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-14">
+            <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full border border-white/10 bg-black/22 sm:h-24 sm:w-24">
+              <Package className="h-10 w-10 text-white/42 sm:h-12 sm:w-12" />
             </div>
-            <h3 className="text-white text-xl sm:text-2xl font-bold mb-3">No products match your filters</h3>
-            <p className="text-gray-400 mb-6 sm:mb-8">
+            <h3 className="mb-3 text-xl font-black text-white sm:text-2xl">No products match your filters</h3>
+            <p className="mb-6 text-sm font-semibold text-white/45 sm:mb-8">
               Try adjusting your search or filter criteria
             </p>
             <button
@@ -1347,7 +1610,7 @@ export function AdminPanel() {
                 setPriceRange('all');
                 setMinRating(0);
               }}
-              className="px-8 py-3 bg-purple-500 text-white rounded-xl font-bold hover:bg-purple-600 transition-colors inline-flex items-center gap-2"
+              className="inline-flex items-center gap-2 rounded-full bg-white px-8 py-3 font-black text-black transition-colors hover:bg-gray-100"
             >
               <X className="w-5 h-5" />
               Clear All Filters
@@ -1357,24 +1620,24 @@ export function AdminPanel() {
           <div className="space-y-8">
             {/* Results Count */}
             <div className="flex items-center justify-between">
-              <p className="text-gray-400 text-sm">
+              <p className="text-sm font-semibold text-white/44">
                 Showing <span className="text-white font-semibold">{filteredProducts.length}</span> product{filteredProducts.length !== 1 ? 's' : ''}
-                {selectedCategory !== 'all' && <span className="text-purple-400"> in {selectedCategory}</span>}
+                {selectedCategory !== 'all' && <span className="text-[#8ff0a8]"> in {selectedCategory}</span>}
               </p>
             </div>
 
             {/* Products Grouped by Category */}
             {Object.entries(groupedProducts).map(([category, categoryProducts]) => (
-              <div key={category} className="bg-[#1a1d2e] rounded-2xl p-4 sm:p-6">
+              <div key={category} className="rounded-[1.5rem] border border-white/8 bg-white/[0.055] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-6">
                 {/* Category Header */}
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-purple-500/20 rounded-lg flex items-center justify-center">
-                      <ShoppingBag className="w-5 h-5 text-purple-500" />
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full border border-emerald-300/18 bg-emerald-300/[0.08]">
+                      <ShoppingBag className="h-5 w-5 text-emerald-100" />
                     </div>
                     <div>
-                      <h3 className="text-white font-bold text-lg">{category}</h3>
-                      <p className="text-gray-400 text-sm">{categoryProducts.length} product{categoryProducts.length !== 1 ? 's' : ''}</p>
+                      <h3 className="text-lg font-black text-white">{category}</h3>
+                      <p className="text-sm font-semibold text-white/42">{categoryProducts.length} product{categoryProducts.length !== 1 ? 's' : ''}</p>
                     </div>
                   </div>
                 </div>
@@ -1382,16 +1645,16 @@ export function AdminPanel() {
                 {/* 2x2 Square Grid per Row */}
                 <div className="grid grid-cols-2 gap-3 sm:gap-4">
                   {categoryProducts.map(product => (
-                    <div key={product.id} className="bg-[#2a2d3e] rounded-xl p-4 hover:bg-[#35384a] transition-all hover:scale-[1.02] group">
+                    <div key={product.id} className="group rounded-[1.1rem] border border-white/8 bg-black/20 p-3 transition-colors hover:bg-white/[0.08] sm:p-4">
                       {/* Square Product Image */}
-                      <div className="relative aspect-square rounded-lg overflow-hidden mb-3">
+                      <div className="relative mb-3 aspect-square overflow-hidden rounded-lg bg-[#e8ebe7]">
                         {product.image.startsWith('data:') ? (
-                          <img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                          <img src={product.image} alt={product.name} className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-105" />
                         ) : (
-                          <ImageWithFallback src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                          <ImageWithFallback src={product.image} alt={product.name} className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-105" />
                         )}
                         {product.recommended && (
-                          <div className="absolute top-2 right-2 bg-purple-500 text-white px-2 py-1 rounded-md shadow-lg flex items-center gap-1">
+                          <div className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-white px-2 py-1 text-black shadow-lg">
                             <Star className="w-3.5 h-3.5" fill="currentColor" />
                             <span className="text-xs font-semibold hidden sm:inline">Featured</span>
                           </div>
@@ -1399,14 +1662,14 @@ export function AdminPanel() {
                       </div>
                       
                       {/* Product Info */}
-                      <h4 className="text-white font-bold text-sm sm:text-base mb-1 line-clamp-2">{product.name}</h4>
-                      <p className="text-gray-400 text-xs sm:text-sm mb-2">{product.brand}</p>
+                      <h4 className="mb-1 line-clamp-2 text-sm font-black text-white sm:text-base">{product.name}</h4>
+                      <p className="mb-2 text-xs font-semibold text-white/42 sm:text-sm">{product.brand}</p>
                       
                       <div className="flex items-center justify-between mb-3">
-                        <span className="text-green-400 font-bold text-base sm:text-lg">${product.price}</span>
+                        <span className="text-base font-black text-[#8ff0a8] sm:text-lg">${product.price}</span>
                         <div className="flex items-center gap-1">
                           <Star className="w-4 h-4 text-yellow-400" fill="currentColor" />
-                          <span className="text-gray-400 text-sm">{product.rating}</span>
+                          <span className="text-sm font-semibold text-white/45">{product.rating}</span>
                         </div>
                       </div>
 
@@ -1414,14 +1677,14 @@ export function AdminPanel() {
                       <div className="flex gap-2">
                         <button
                           onClick={() => setEditingProduct(product)}
-                          className="flex-1 bg-blue-500/20 text-blue-500 py-2 sm:py-2.5 rounded-lg text-sm font-medium hover:bg-blue-500/30 transition-colors flex items-center justify-center gap-1.5"
+                          className="flex flex-1 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/[0.07] py-2 text-sm font-black text-white transition-colors hover:bg-white/12 sm:py-2.5"
                         >
                           <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                           Edit
                         </button>
                         <button
                           onClick={() => handleDeleteProduct(product.id)}
-                          className="flex-1 bg-red-500/20 text-red-500 py-2 sm:py-2.5 rounded-lg text-sm font-medium hover:bg-red-500/30 transition-colors flex items-center justify-center gap-1.5"
+                          className="flex flex-1 items-center justify-center gap-1.5 rounded-full border border-red-300/15 bg-red-400/10 py-2 text-sm font-black text-red-200 transition-colors hover:bg-red-400/16 sm:py-2.5"
                         >
                           <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                           Delete
@@ -1456,10 +1719,10 @@ export function AdminPanel() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-[#1a1d2e] rounded-3xl p-6 w-full max-w-2xl my-8"
+              className="my-8 w-full max-w-2xl rounded-[1.6rem] border border-white/10 bg-gradient-to-b from-[#1b1d1f] via-[#17191b] to-[#101214] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_78px_rgba(0,0,0,0.62)] sm:p-6"
             >
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-white text-2xl font-bold">
+                <h3 className="text-2xl font-black text-white">
                   {editingProduct ? 'Edit Product' : 'Add New Product'}
                 </h3>
                 <button
@@ -1467,7 +1730,7 @@ export function AdminPanel() {
                     setIsAddingProduct(false);
                     setEditingProduct(null);
                   }}
-                  className="text-gray-400 hover:text-white"
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-white/8 text-white/54 transition-colors hover:bg-white/14 hover:text-white"
                 >
                   <X className="w-6 h-6" />
                 </button>
@@ -1500,7 +1763,7 @@ export function AdminPanel() {
                         </button>
                       </div>
                     ) : null}
-                    <label className="flex items-center justify-center gap-2 bg-[#2a2d3e] text-white py-3 rounded-xl cursor-pointer hover:bg-[#35384a] transition-colors">
+                    <label className="flex cursor-pointer items-center justify-center gap-2 rounded-full border border-white/10 bg-white/[0.07] py-3 font-black text-white transition-colors hover:bg-white/12">
                       <Upload className="w-5 h-5" />
                       Upload Image
                       <input
@@ -1524,7 +1787,7 @@ export function AdminPanel() {
                       : setNewProduct({ ...newProduct, name: e.target.value })
                     }
                     placeholder="e.g., Master Facial Cream"
-                    className="w-full bg-[#2a2d3e] text-white rounded-xl px-4 py-3 outline-none"
+                     className="w-full rounded-full border border-white/8 bg-white/[0.07] px-4 py-3 text-white outline-none focus:border-[#8ff0a8]/50"
                   />
                 </div>
 
@@ -1539,7 +1802,7 @@ export function AdminPanel() {
                       : setNewProduct({ ...newProduct, brand: e.target.value })
                     }
                     placeholder="e.g., Rashida"
-                    className="w-full bg-[#2a2d3e] text-white rounded-xl px-4 py-3 outline-none"
+                     className="w-full rounded-full border border-white/8 bg-white/[0.07] px-4 py-3 text-white outline-none focus:border-[#8ff0a8]/50"
                   />
                 </div>
 
@@ -1554,7 +1817,7 @@ export function AdminPanel() {
                     }
                     placeholder="Describe the product..."
                     rows={3}
-                    className="w-full bg-[#2a2d3e] text-white rounded-xl px-4 py-3 outline-none resize-none"
+                     className="w-full resize-none rounded-[1rem] border border-white/8 bg-white/[0.07] px-4 py-3 text-white outline-none focus:border-[#8ff0a8]/50"
                   />
                 </div>
 
@@ -1570,7 +1833,7 @@ export function AdminPanel() {
                         : setNewProduct({ ...newProduct, price: parseFloat(e.target.value) })
                       }
                       placeholder="29.99"
-                      className="w-full bg-[#2a2d3e] text-white rounded-xl px-4 py-3 outline-none"
+                       className="w-full rounded-full border border-white/8 bg-white/[0.07] px-4 py-3 text-white outline-none focus:border-[#8ff0a8]/50"
                     />
                   </div>
                   <div>
@@ -1583,7 +1846,7 @@ export function AdminPanel() {
                         : setNewProduct({ ...newProduct, originalPrice: parseFloat(e.target.value) })
                       }
                       placeholder="39.99"
-                      className="w-full bg-[#2a2d3e] text-white rounded-xl px-4 py-3 outline-none"
+                       className="w-full rounded-full border border-white/8 bg-white/[0.07] px-4 py-3 text-white outline-none focus:border-[#8ff0a8]/50"
                     />
                   </div>
                 </div>
@@ -1597,7 +1860,7 @@ export function AdminPanel() {
                       ? setEditingProduct({ ...editingProduct, category: e.target.value })
                       : setNewProduct({ ...newProduct, category: e.target.value })
                     }
-                    className="w-full bg-[#2a2d3e] text-white rounded-xl px-4 py-3 outline-none"
+                     className="w-full rounded-full border border-white/8 bg-[#161a18] px-4 py-3 text-white outline-none focus:border-[#8ff0a8]/50"
                   >
                     {categories.map(cat => (
                       <option key={cat} value={cat}>{cat}</option>
@@ -1619,7 +1882,7 @@ export function AdminPanel() {
                         ? setEditingProduct({ ...editingProduct, rating: parseFloat(e.target.value) })
                         : setNewProduct({ ...newProduct, rating: parseFloat(e.target.value) })
                       }
-                      className="w-full bg-[#2a2d3e] text-white rounded-xl px-4 py-3 outline-none"
+                       className="w-full rounded-full border border-white/8 bg-white/[0.07] px-4 py-3 text-white outline-none focus:border-[#8ff0a8]/50"
                     />
                   </div>
                   <div>
@@ -1631,7 +1894,7 @@ export function AdminPanel() {
                         ? setEditingProduct({ ...editingProduct, reviews: parseInt(e.target.value) })
                         : setNewProduct({ ...newProduct, reviews: parseInt(e.target.value) })
                       }
-                      className="w-full bg-[#2a2d3e] text-white rounded-xl px-4 py-3 outline-none"
+                       className="w-full rounded-full border border-white/8 bg-white/[0.07] px-4 py-3 text-white outline-none focus:border-[#8ff0a8]/50"
                     />
                   </div>
                 </div>
@@ -1658,8 +1921,8 @@ export function AdminPanel() {
                         }}
                         className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
                           (editingProduct?.investmentType || newProduct.investmentType || []).includes(type.id)
-                            ? 'bg-purple-500 text-white'
-                            : 'bg-[#2a2d3e] text-gray-400 hover:bg-[#35384a]'
+                            ? 'bg-white text-black'
+                            : 'border border-white/8 bg-white/[0.07] text-white/56 hover:bg-white/12'
                         }`}
                       >
                         {type.label}
@@ -1691,7 +1954,7 @@ export function AdminPanel() {
                         }
                       }}
                       placeholder="Add tag (e.g., beauty, skincare)"
-                      className="flex-1 bg-[#2a2d3e] text-white rounded-xl px-4 py-2 outline-none"
+                      className="flex-1 rounded-full border border-white/8 bg-white/[0.07] px-4 py-2 text-white outline-none focus:border-[#8ff0a8]/50"
                     />
                     <button
                       onClick={() => {
@@ -1705,14 +1968,14 @@ export function AdminPanel() {
                           addTag();
                         }
                       }}
-                      className="bg-purple-500 text-white px-4 py-2 rounded-xl hover:bg-purple-600"
+                      className="rounded-full bg-white px-4 py-2 text-black transition-colors hover:bg-gray-100"
                     >
                       <Plus className="w-5 h-5" />
                     </button>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {(editingProduct ? editingProduct.tags : newProduct.tags || []).map((tag, idx) => (
-                      <div key={idx} className="bg-[#2a2d3e] text-white px-3 py-1 rounded-lg text-sm flex items-center gap-2">
+                      <div key={idx} className="flex items-center gap-2 rounded-full border border-white/8 bg-white/[0.07] px-3 py-1 text-sm text-white">
                         #{tag}
                         <button
                           onClick={() => {
@@ -1744,7 +2007,7 @@ export function AdminPanel() {
                         ? setEditingProduct({ ...editingProduct, recommended: e.target.checked })
                         : setNewProduct({ ...newProduct, recommended: e.target.checked })
                       }
-                      className="w-5 h-5 rounded bg-[#2a2d3e]"
+                      className="h-5 w-5 rounded accent-emerald-300"
                     />
                     <span className="text-white">Featured/Recommended Product</span>
                   </label>
@@ -1752,20 +2015,20 @@ export function AdminPanel() {
               </div>
 
               {/* Actions */}
-              <div className="flex gap-3 mt-6 pt-4 border-t border-gray-800">
+              <div className="mt-6 flex gap-3 border-t border-white/8 pt-4">
                 <button
                   onClick={() => {
                     setIsAddingProduct(false);
                     setEditingProduct(null);
                     setImagePreview('');
                   }}
-                  className="flex-1 bg-[#2a2d3e] text-white py-3 rounded-xl font-semibold hover:bg-[#35384a] transition-colors"
+                  className="flex-1 rounded-full border border-white/10 bg-white/[0.08] py-3 font-black text-white transition-colors hover:bg-white/12"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={editingProduct ? handleUpdateProduct : handleAddProduct}
-                  className="flex-1 bg-purple-500 text-white py-3 rounded-xl font-bold hover:bg-purple-600 transition-colors flex items-center justify-center gap-2"
+                  className="flex flex-1 items-center justify-center gap-2 rounded-full bg-white py-3 font-black text-black transition-colors hover:bg-gray-100"
                 >
                   <Save className="w-5 h-5" />
                   {editingProduct ? 'Update' : 'Add'} Product
@@ -1791,15 +2054,15 @@ export function AdminPanel() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-[#1a1d2e] rounded-3xl p-6 w-full max-w-2xl my-8"
+              className="my-8 w-full max-w-2xl rounded-[1.6rem] border border-white/10 bg-gradient-to-b from-[#1b1d1f] via-[#17191b] to-[#101214] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_78px_rgba(0,0,0,0.62)] sm:p-6"
             >
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-white text-2xl font-bold">
+                <h3 className="text-2xl font-black text-white">
                   Import Products
                 </h3>
                 <button
                   onClick={() => setShowImportModal(false)}
-                  className="text-gray-400 hover:text-white"
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-white/8 text-white/54 transition-colors hover:bg-white/14 hover:text-white"
                 >
                   <X className="w-6 h-6" />
                 </button>
@@ -1812,8 +2075,8 @@ export function AdminPanel() {
                   <div className="relative">
                     <label className={`flex items-center justify-center gap-2 py-3 rounded-xl transition-colors ${
                       isProcessingImport 
-                        ? 'bg-[#2a2d3e]/50 text-gray-500 cursor-not-allowed' 
-                        : 'bg-[#2a2d3e] text-white cursor-pointer hover:bg-[#35384a]'
+                        ? 'cursor-not-allowed bg-white/[0.04] text-white/28' 
+                        : 'cursor-pointer border border-white/10 bg-white/[0.07] text-white hover:bg-white/12'
                     }`}>
                       <Upload className={`w-5 h-5 ${isProcessingImport ? 'animate-bounce' : ''}`} />
                       {isProcessingImport ? 'Processing...' : 'Choose File to Upload'}
@@ -1845,16 +2108,16 @@ export function AdminPanel() {
                     {/* 2x2 Square Grid - Same as main products display */}
                     <div className="grid grid-cols-2 gap-3 sm:gap-4">
                       {importPreview.map(product => (
-                        <div key={product.id} className="bg-[#2a2d3e] rounded-xl p-4 hover:bg-[#35384a] transition-all hover:scale-[1.02] group">
+                        <div key={product.id} className="rounded-[1rem] border border-white/8 bg-white/[0.055] p-3 transition-all hover:bg-white/[0.075] sm:p-4 group">
                           {/* Square Product Image */}
-                          <div className="relative aspect-square rounded-lg overflow-hidden mb-3">
+                          <div className="relative mb-3 aspect-square overflow-hidden rounded-[0.9rem] bg-[#e8ebe7]">
                             {product.image.startsWith('data:') ? (
-                              <img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                              <img src={product.image} alt={product.name} className="h-full w-full object-contain p-3 transition-transform duration-300 group-hover:scale-105" />
                             ) : (
-                              <ImageWithFallback src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                              <ImageWithFallback src={product.image} alt={product.name} className="h-full w-full object-contain p-3 transition-transform duration-300 group-hover:scale-105" />
                             )}
                             {product.recommended && (
-                              <div className="absolute top-2 right-2 bg-purple-500 text-white px-2 py-1 rounded-md shadow-lg flex items-center gap-1">
+                              <div className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-black/68 px-2 py-1 text-white shadow-lg">
                                 <Star className="w-3.5 h-3.5" fill="currentColor" />
                                 <span className="text-xs font-semibold hidden sm:inline">Featured</span>
                               </div>
@@ -1877,7 +2140,7 @@ export function AdminPanel() {
                           {product.tags.length > 0 && (
                             <div className="flex flex-wrap gap-1 mb-2">
                               {product.tags.slice(0, 2).map((tag, idx) => (
-                                <span key={idx} className="bg-[#1a1d2e] text-gray-400 px-2 py-0.5 rounded text-xs">
+                                <span key={idx} className="rounded-full bg-white/8 px-2 py-0.5 text-xs text-white/46">
                                   #{tag}
                                 </span>
                               ))}
@@ -1916,17 +2179,17 @@ export function AdminPanel() {
                     setImportErrors([]);
                     setIsProcessingImport(false);
                   }}
-                  className="flex-1 bg-[#2a2d3e] text-white py-3 rounded-xl font-semibold hover:bg-[#35384a] transition-colors"
+                  className="flex-1 rounded-full border border-white/10 bg-white/[0.07] py-3 font-bold text-white transition-colors hover:bg-white/12"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleConfirmImport}
                   disabled={importPreview.length === 0 || isProcessingImport}
-                  className={`flex-1 py-3 rounded-xl font-bold transition-colors flex items-center justify-center gap-2 ${
+                  className={`flex-1 py-3 rounded-full font-black transition-colors flex items-center justify-center gap-2 ${
                     importPreview.length === 0 || isProcessingImport
-                      ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                      : 'bg-purple-500 text-white hover:bg-purple-600'
+                      ? 'cursor-not-allowed bg-white/[0.08] text-white/30'
+                      : 'bg-white text-black hover:bg-gray-100'
                   }`}
                 >
                   <Save className="w-5 h-5" />

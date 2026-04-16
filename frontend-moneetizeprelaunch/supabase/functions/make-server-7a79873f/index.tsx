@@ -44,6 +44,7 @@ const MARKETPLACE_ORDERS_KEY = 'marketplace_orders';
 const MARKETPLACE_PRODUCTS_KEY = 'marketplace_products';
 const MARKETPLACE_ORDER_LOCK_KEY = 'lock:marketplace_order';
 const MARKETPLACE_ORDER_LOCK_TTL_MS = 12000;
+const ADMIN_EMAIL_CONFIG_KEY = 'admin_email_config';
 const INVITE_HISTORY_PREFIX = 'invite_history:';
 const GAMEPLAY_PROGRESS_PREFIX = 'gameplay_progress:';
 const SCRATCH_CREDITS_PREFIX = 'scratch_credits:';
@@ -68,7 +69,7 @@ const MAX_SCRATCH_OPPORTUNITIES = 5;
 const MAX_RELEASE_TEAM_INVITES = 5;
 const GUARANTEED_CASH_WINS = 2;
 const ADMIN_NOTIFICATION_EMAIL = 'admin@moneetize.com';
-const ADMIN_EMAILS = new Set([
+const CORE_ADMIN_EMAILS = new Set([
   ADMIN_NOTIFICATION_EMAIL,
   'nathan@moneetize.com',
   'gloryvee@gmail.com',
@@ -1384,99 +1385,6 @@ const queueSmsNotification = async (sms: Record<string, unknown>) => {
   return notification;
 };
 
-const toHex = (buffer: ArrayBuffer) => [...new Uint8Array(buffer)]
-  .map((byte) => byte.toString(16).padStart(2, '0'))
-  .join('');
-
-const sha256Hex = async (value: string) => toHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
-
-const hmacRaw = async (key: string | Uint8Array, value: string) => {
-  const keyBytes = typeof key === 'string' ? new TextEncoder().encode(key) : key;
-  const cryptoKey = await crypto.subtle.importKey(
-    'raw',
-    keyBytes,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const signature = await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(value));
-  return new Uint8Array(signature);
-};
-
-const hmacHex = async (key: Uint8Array, value: string) => toHex(await hmacRaw(key, value));
-
-const getAwsSignatureKey = async (secretKey: string, dateStamp: string, region: string, service: string) => {
-  const dateKey = await hmacRaw(`AWS4${secretKey}`, dateStamp);
-  const dateRegionKey = await hmacRaw(dateKey, region);
-  const dateRegionServiceKey = await hmacRaw(dateRegionKey, service);
-  return hmacRaw(dateRegionServiceKey, 'aws4_request');
-};
-
-const formatAwsDate = (date = new Date()) => {
-  const iso = date.toISOString().replace(/[:-]|\.\d{3}/g, '');
-  return {
-    amzDate: iso,
-    dateStamp: iso.slice(0, 8),
-  };
-};
-
-const addSnsStringAttribute = (
-  params: URLSearchParams,
-  index: number,
-  name: string,
-  value: string,
-) => {
-  params.set(`MessageAttributes.entry.${index}.Name`, name);
-  params.set(`MessageAttributes.entry.${index}.Value.DataType`, 'String');
-  params.set(`MessageAttributes.entry.${index}.Value.StringValue`, value);
-  return index + 1;
-};
-
-const normalizeSnsOriginationNumber = (value: string) => {
-  const cleaned = `${value || ''}`.trim().replace(/[^\d+]/g, '');
-  if (!cleaned) return '';
-  const normalized = cleaned.startsWith('+')
-    ? `+${cleaned.replace(/\D/g, '')}`
-    : cleaned.replace(/\D/g, '');
-
-  return /^\+?\d{5,14}$/.test(normalized) ? normalized : '';
-};
-
-const getSnsSmsType = () => {
-  const configuredType = `${Deno.env.get('AWS_SNS_SMS_TYPE') || ''}`.trim();
-  return configuredType === 'Promotional' || configuredType === 'Transactional'
-    ? configuredType
-    : 'Transactional';
-};
-
-const buildSnsPublishBody = (phoneNumber: string, message: string) => {
-  const params = new URLSearchParams();
-  params.set('Action', 'Publish');
-  params.set('Version', '2010-03-31');
-  params.set('PhoneNumber', phoneNumber);
-  params.set('Message', message);
-  let attributeIndex = addSnsStringAttribute(params, 1, 'AWS.SNS.SMS.SMSType', getSnsSmsType());
-
-  const originationNumber = normalizeSnsOriginationNumber(
-    `${Deno.env.get('AWS_SNS_SMS_ORIGINATION_NUMBER') || Deno.env.get('AWS_MM_SMS_ORIGINATION_NUMBER') || ''}`,
-  );
-  if (originationNumber) {
-    attributeIndex = addSnsStringAttribute(params, attributeIndex, 'AWS.MM.SMS.OriginationNumber', originationNumber);
-  }
-
-  const senderId = `${Deno.env.get('AWS_SNS_SMS_SENDER_ID') || ''}`.trim();
-  if (senderId) {
-    attributeIndex = addSnsStringAttribute(params, attributeIndex, 'AWS.SNS.SMS.SenderID', senderId.slice(0, 11));
-  }
-
-  const maxPrice = `${Deno.env.get('AWS_SNS_SMS_MAX_PRICE') || Deno.env.get('AWS_SNS_SMS_MAX_PRICE_USD') || ''}`.trim();
-  if (maxPrice && /^\d+(\.\d{1,4})?$/.test(maxPrice)) {
-    addSnsStringAttribute(params, attributeIndex, 'AWS.SNS.SMS.MaxPrice', maxPrice);
-  }
-
-  return params.toString();
-};
-
 const getTwilioSender = () => {
   const messagingServiceSid = `${Deno.env.get('TWILIO_MESSAGING_SERVICE_SID') || ''}`.trim();
   const fromNumber = normalizePhoneNumber(
@@ -1657,14 +1565,61 @@ const isAdminMetadata = (metadata?: Record<string, unknown>) => {
   );
 };
 
-const isAdminEmail = (email?: string) => ADMIN_EMAILS.has(`${email || ''}`.trim().toLowerCase());
+const normalizeEmail = (email?: string) => `${email || ''}`.trim().toLowerCase();
+
+const getAdminEmailConfig = async () => {
+  const storedConfig = await kv.get(ADMIN_EMAIL_CONFIG_KEY);
+  const emails = Array.isArray(storedConfig?.emails)
+    ? storedConfig.emails.map(normalizeEmail).filter(Boolean)
+    : [];
+  const removed = Array.isArray(storedConfig?.removed)
+    ? storedConfig.removed.map(normalizeEmail).filter(Boolean)
+    : [];
+
+  return {
+    emails,
+    removed,
+  };
+};
+
+const saveAdminEmailConfig = async (config: { emails: string[]; removed: string[] }) => {
+  const emails = [...new Set(config.emails.map(normalizeEmail).filter(Boolean))].sort();
+  const removed = [...new Set(config.removed.map(normalizeEmail).filter(Boolean))].sort();
+
+  await kv.set(ADMIN_EMAIL_CONFIG_KEY, {
+    emails,
+    removed,
+    updatedAt: new Date().toISOString(),
+  });
+
+  return { emails, removed };
+};
+
+const getAllowedAdminEmails = async () => {
+  const config = await getAdminEmailConfig();
+  const emails = new Set<string>([...CORE_ADMIN_EMAILS, ...config.emails]);
+
+  config.removed.forEach((email) => {
+    if (email !== ADMIN_NOTIFICATION_EMAIL) emails.delete(email);
+  });
+
+  return emails;
+};
+
+const isAdminEmail = async (email?: string) => (await getAllowedAdminEmails()).has(normalizeEmail(email));
+
+const isCoreAdminEmail = (email?: string) => CORE_ADMIN_EMAILS.has(normalizeEmail(email));
+
+const isSystemAdminEmail = (email?: string) => {
+  const normalizedEmail = normalizeEmail(email);
+  return normalizedEmail === ADMIN_NOTIFICATION_EMAIL || normalizedEmail.startsWith('admin@');
+};
 
 const isNetworkVisibleUser = (user: any, currentUserId = '') => {
-  const email = `${user?.email || ''}`.trim().toLowerCase();
+  const email = normalizeEmail(user?.email);
 
   if (!user?.id || user.id === currentUserId) return false;
-  if (isAdminEmail(email) || email.startsWith('admin@')) return false;
-  if (isAdminMetadata(user.user_metadata) || isAdminMetadata(user.app_metadata)) return false;
+  if (isSystemAdminEmail(email)) return false;
 
   return true;
 };
@@ -1682,7 +1637,7 @@ const requireAdmin = async (c: any) => {
     return { response: c.json({ success: false, error: 'Unauthorized' }, 401) };
   }
 
-  if (!isAdminEmail(user.email) && !isAdminMetadata(user.user_metadata) && !isAdminMetadata(user.app_metadata)) {
+  if (!(await isAdminEmail(user.email)) && !isAdminMetadata(user.user_metadata) && !isAdminMetadata(user.app_metadata)) {
     return { response: c.json({ success: false, error: 'Admin access required' }, 403) };
   }
 
@@ -3046,6 +3001,147 @@ app.post("/make-server-7a79873f/admin/early-access-requests/:requestId/grant", a
 });
 
 // Admin Routes - User Management
+const buildAdminUsersPayload = async () => {
+  const [config, allowedEmails, usersResult] = await Promise.all([
+    getAdminEmailConfig(),
+    getAllowedAdminEmails(),
+    auth.listAllUsers(),
+  ]);
+
+  const users = usersResult.success && usersResult.data?.users ? usersResult.data.users : [];
+  const usersByEmail = new Map(users.map((user: any) => [normalizeEmail(user.email), user]));
+  const adminEntries = new Map<string, any>();
+
+  [...allowedEmails].forEach((email) => {
+    const user = usersByEmail.get(email);
+
+    adminEntries.set(email, {
+      id: user?.id || '',
+      email,
+      name: user?.name || user?.user_metadata?.name || email.split('@')[0],
+      created_at: user?.created_at || '',
+      source: isCoreAdminEmail(email) ? 'core' : 'added',
+      protected: isCoreAdminEmail(email),
+      accountExists: Boolean(user),
+      metadataAdmin: Boolean(isAdminMetadata(user?.user_metadata) || isAdminMetadata(user?.app_metadata)),
+    });
+  });
+
+  users.forEach((user: any) => {
+    const email = normalizeEmail(user.email);
+    if (!email || adminEntries.has(email)) return;
+    if (!isAdminMetadata(user.user_metadata) && !isAdminMetadata(user.app_metadata)) return;
+
+    adminEntries.set(email, {
+      id: user.id,
+      email,
+      name: user.name || user.user_metadata?.name || email.split('@')[0],
+      created_at: user.created_at || '',
+      source: 'metadata',
+      protected: false,
+      accountExists: true,
+      metadataAdmin: true,
+    });
+  });
+
+  return {
+    admins: [...adminEntries.values()].sort((left, right) => {
+      if (left.protected !== right.protected) return left.protected ? -1 : 1;
+      return `${left.email}`.localeCompare(`${right.email}`);
+    }),
+    config,
+  };
+};
+
+app.get("/make-server-7a79873f/admin/admin-users", async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if ('response' in admin) return admin.response;
+
+    const payload = await buildAdminUsersPayload();
+    return c.json({ success: true, data: payload }, 200);
+  } catch (error) {
+    console.error('List admin users endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to list admin users' }, 500);
+  }
+});
+
+app.post("/make-server-7a79873f/admin/admin-users", async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if ('response' in admin) return admin.response;
+
+    const body = await c.req.json();
+    const email = normalizeEmail(body?.email);
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return c.json({ success: false, error: 'A valid admin email is required' }, 400);
+    }
+
+    const config = await getAdminEmailConfig();
+    const nextConfig = await saveAdminEmailConfig({
+      emails: [...config.emails, email],
+      removed: config.removed.filter((removedEmail) => removedEmail !== email),
+    });
+    const metadataUpdate = await auth.setUserAdminByEmail(email, true);
+    const payload = await buildAdminUsersPayload();
+
+    return c.json({
+      success: true,
+      data: {
+        ...payload,
+        config: nextConfig,
+        metadataUpdate,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Add admin user endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to add admin user' }, 500);
+  }
+});
+
+app.delete("/make-server-7a79873f/admin/admin-users/:email", async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if ('response' in admin) return admin.response;
+
+    const email = normalizeEmail(decodeURIComponent(c.req.param('email') || ''));
+    const currentAdminEmail = normalizeEmail(admin.user.email);
+
+    if (!email) {
+      return c.json({ success: false, error: 'Admin email is required' }, 400);
+    }
+
+    if (isCoreAdminEmail(email)) {
+      return c.json({ success: false, error: 'Launch admin accounts cannot be removed here' }, 400);
+    }
+
+    if (email === currentAdminEmail) {
+      return c.json({ success: false, error: 'You cannot remove your own admin access while signed in' }, 400);
+    }
+
+    const config = await getAdminEmailConfig();
+    const nextConfig = await saveAdminEmailConfig({
+      emails: config.emails.filter((adminEmail) => adminEmail !== email),
+      removed: isCoreAdminEmail(email) ? [...config.removed, email] : config.removed,
+    });
+    const metadataUpdate = await auth.setUserAdminByEmail(email, false);
+    const payload = await buildAdminUsersPayload();
+
+    return c.json({
+      success: true,
+      data: {
+        ...payload,
+        config: nextConfig,
+        metadataUpdate,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Remove admin user endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to remove admin user' }, 500);
+  }
+});
+
 app.get("/make-server-7a79873f/admin/users", async (c) => {
   try {
     const admin = await requireAdmin(c);
