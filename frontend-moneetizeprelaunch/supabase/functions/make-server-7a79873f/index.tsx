@@ -842,21 +842,58 @@ const formatAwsDate = (date = new Date()) => {
   };
 };
 
+const addSnsStringAttribute = (
+  params: URLSearchParams,
+  index: number,
+  name: string,
+  value: string,
+) => {
+  params.set(`MessageAttributes.entry.${index}.Name`, name);
+  params.set(`MessageAttributes.entry.${index}.Value.DataType`, 'String');
+  params.set(`MessageAttributes.entry.${index}.Value.StringValue`, value);
+  return index + 1;
+};
+
+const normalizeSnsOriginationNumber = (value: string) => {
+  const cleaned = `${value || ''}`.trim().replace(/[^\d+]/g, '');
+  if (!cleaned) return '';
+  const normalized = cleaned.startsWith('+')
+    ? `+${cleaned.replace(/\D/g, '')}`
+    : cleaned.replace(/\D/g, '');
+
+  return /^\+?\d{5,14}$/.test(normalized) ? normalized : '';
+};
+
+const getSnsSmsType = () => {
+  const configuredType = `${Deno.env.get('AWS_SNS_SMS_TYPE') || ''}`.trim();
+  return configuredType === 'Promotional' || configuredType === 'Transactional'
+    ? configuredType
+    : 'Transactional';
+};
+
 const buildSnsPublishBody = (phoneNumber: string, message: string) => {
   const params = new URLSearchParams();
   params.set('Action', 'Publish');
   params.set('Version', '2010-03-31');
   params.set('PhoneNumber', phoneNumber);
   params.set('Message', message);
-  params.set('MessageAttributes.entry.1.Name', 'AWS.SNS.SMS.SMSType');
-  params.set('MessageAttributes.entry.1.Value.DataType', 'String');
-  params.set('MessageAttributes.entry.1.Value.StringValue', 'Transactional');
+  let attributeIndex = addSnsStringAttribute(params, 1, 'AWS.SNS.SMS.SMSType', getSnsSmsType());
+
+  const originationNumber = normalizeSnsOriginationNumber(
+    `${Deno.env.get('AWS_SNS_SMS_ORIGINATION_NUMBER') || Deno.env.get('AWS_MM_SMS_ORIGINATION_NUMBER') || ''}`,
+  );
+  if (originationNumber) {
+    attributeIndex = addSnsStringAttribute(params, attributeIndex, 'AWS.MM.SMS.OriginationNumber', originationNumber);
+  }
 
   const senderId = `${Deno.env.get('AWS_SNS_SMS_SENDER_ID') || ''}`.trim();
   if (senderId) {
-    params.set('MessageAttributes.entry.2.Name', 'AWS.SNS.SMS.SenderID');
-    params.set('MessageAttributes.entry.2.Value.DataType', 'String');
-    params.set('MessageAttributes.entry.2.Value.StringValue', senderId.slice(0, 11));
+    attributeIndex = addSnsStringAttribute(params, attributeIndex, 'AWS.SNS.SMS.SenderID', senderId.slice(0, 11));
+  }
+
+  const maxPrice = `${Deno.env.get('AWS_SNS_SMS_MAX_PRICE') || Deno.env.get('AWS_SNS_SMS_MAX_PRICE_USD') || ''}`.trim();
+  if (maxPrice && /^\d+(\.\d{1,4})?$/.test(maxPrice)) {
+    addSnsStringAttribute(params, attributeIndex, 'AWS.SNS.SMS.MaxPrice', maxPrice);
   }
 
   return params.toString();
