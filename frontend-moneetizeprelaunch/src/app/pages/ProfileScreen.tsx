@@ -736,14 +736,14 @@ export function ProfileScreen() {
         </div>
       </div>
 
-      <div className="pt-16 pb-6 px-4 max-w-md mx-auto">
+      <div className="mx-auto w-full max-w-[430px] overflow-x-hidden px-3 pb-6 pt-16 min-[390px]:px-4">
         {!isProfileComplete && (
           <motion.div
             initial={{ opacity: 0, y: -12 }}
             animate={{ opacity: 1, y: 0 }}
             className="mb-4 overflow-hidden rounded-[1rem] border border-white/10 bg-white/[0.075] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_18px_44px_rgba(0,0,0,0.32)] backdrop-blur-md"
           >
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 flex-col items-start gap-3 min-[360px]:flex-row min-[360px]:justify-between">
               <div className="min-w-0">
                 <p className="text-[12px] font-bold leading-snug text-white">
                   Complete your onboarding process and receive bonus points!
@@ -762,7 +762,7 @@ export function ProfileScreen() {
               <button
                 type="button"
                 onClick={() => navigate('/settings')}
-                className="shrink-0 rounded-full bg-white px-4 py-2 text-[11px] font-black text-black transition-colors hover:bg-gray-100"
+                className="shrink-0 rounded-full bg-white px-3.5 py-2 text-[11px] font-black text-black transition-colors hover:bg-gray-100"
               >
                 Register
               </button>
@@ -873,28 +873,28 @@ export function ProfileScreen() {
             </div>
           )}
 
-          <div className="relative mt-4 grid grid-cols-3 gap-1.5">
+          <div className="relative mt-4 grid grid-cols-[repeat(3,minmax(0,1fr))] gap-1.5">
             {profileStats.map((stat) => (
               <button
                 key={stat.label}
                 type="button"
-                className="min-h-[76px] rounded-[1rem] border border-white/12 bg-white/[0.095] px-3 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                className="min-h-[76px] min-w-0 rounded-[1rem] border border-white/12 bg-white/[0.095] px-2.5 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] min-[390px]:px-3"
               >
-                <span className="mb-1 flex items-center gap-1.5 text-sm font-black text-white">
-                  {stat.value}
+                <span className="mb-1 flex min-w-0 items-center gap-1.5 text-sm font-black text-white">
+                  <span className="min-w-0 truncate">{stat.value}</span>
                   <span className="text-white/52">{stat.icon}</span>
                 </span>
-                <span className="text-[11px] font-bold text-white/50">{stat.label}</span>
+                <span className="block truncate text-[10px] font-bold text-white/50 min-[390px]:text-[11px]">{stat.label}</span>
               </button>
             ))}
           </div>
         </motion.section>
 
           {/* Tab Navigation */}
-          <div className="mb-5 grid grid-cols-4 rounded-full border border-white/10 bg-[#101215]/95 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_10px_32px_rgba(0,0,0,0.22)]">
+          <div className="mb-5 grid grid-cols-[repeat(4,minmax(0,1fr))] rounded-full border border-white/10 bg-[#101215]/95 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_10px_32px_rgba(0,0,0,0.22)]">
             <button
               onClick={() => setActiveTab('network')}
-              className={`rounded-full px-2 py-2.5 text-xs font-semibold transition-colors ${
+              className={`min-w-0 truncate rounded-full px-1 py-2.5 text-[11px] font-semibold transition-colors min-[390px]:text-xs ${
                 activeTab === 'network'
                   ? 'bg-white/10 text-white'
                   : 'text-white/70 hover:text-white'
@@ -904,19 +904,19 @@ export function ProfileScreen() {
             </button>
             <button
               onClick={() => navigate('/team-view')}
-              className="rounded-full px-2 py-2.5 text-xs font-semibold text-white/70 transition-colors hover:text-white"
+              className="min-w-0 truncate rounded-full px-1 py-2.5 text-[11px] font-semibold text-white/70 transition-colors hover:text-white min-[390px]:text-xs"
             >
               Team
             </button>
             <button
               onClick={() => navigate('/winnings')}
-              className="rounded-full px-2 py-2.5 text-xs font-semibold text-white/70 transition-colors hover:text-white"
+              className="min-w-0 truncate rounded-full px-1 py-2.5 text-[11px] font-semibold text-white/70 transition-colors hover:text-white min-[390px]:text-xs"
             >
               Winnings
             </button>
             <button
               onClick={() => navigate('/gameplay')}
-              className={`rounded-full px-2 py-2.5 text-xs font-semibold transition-colors ${
+              className={`min-w-0 truncate rounded-full px-1 py-2.5 text-[11px] font-semibold transition-colors min-[390px]:text-xs ${
                 activeTab === 'gameplay'
                   ? 'bg-white/10 text-white'
                   : 'text-white/70 hover:text-white'

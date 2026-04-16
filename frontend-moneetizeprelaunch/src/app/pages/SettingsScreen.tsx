@@ -220,13 +220,13 @@ function resizeProfilePhoto(file: File): Promise<string> {
 
       image.onerror = () => reject(new Error('Unable to load this photo.'));
       image.onload = () => {
-        const maxSize = 640;
-        const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
-        const width = Math.max(1, Math.round(image.width * scale));
-        const height = Math.max(1, Math.round(image.height * scale));
+        const outputSize = 240;
+        const cropSize = Math.min(image.width, image.height);
+        const sourceX = Math.max(0, Math.round((image.width - cropSize) / 2));
+        const sourceY = Math.max(0, Math.round((image.height - cropSize) / 2));
         const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = outputSize;
+        canvas.height = outputSize;
 
         const context = canvas.getContext('2d');
         if (!context) {
@@ -234,8 +234,16 @@ function resizeProfilePhoto(file: File): Promise<string> {
           return;
         }
 
-        context.drawImage(image, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.82));
+        context.drawImage(image, sourceX, sourceY, cropSize, cropSize, 0, 0, outputSize, outputSize);
+
+        let quality = 0.78;
+        let photo = canvas.toDataURL('image/jpeg', quality);
+        while (photo.length > 80000 && quality > 0.48) {
+          quality -= 0.08;
+          photo = canvas.toDataURL('image/jpeg', quality);
+        }
+
+        resolve(photo);
       };
 
       image.src = `${reader.result || ''}`;
@@ -624,14 +632,27 @@ export function SettingsScreen() {
     try {
       const photo = await resizeProfilePhoto(file);
       setUserPhoto(photo);
-      saveProfilePhoto(photo);
+      const savedLocally = saveProfilePhoto(photo);
       notifyProfileSettingsUpdated();
       syncCurrentUserNetworkProfile();
-      void saveRemoteProfileSettings({ photo }).catch((error) => {
+      setProfileSaveMessage(savedLocally ? 'Saving profile photo...' : 'Photo was compressed, but local storage is full. Saving remotely...');
+
+      try {
+        const savedSettings = await saveRemoteProfileSettings({ photo });
+        if (savedSettings) {
+          writeStoredProfileSettings(savedSettings);
+          setUserPhoto(getStoredProfileSettings({ fallbackName: userName, fallbackEmail: userEmail }).photo || photo);
+          notifyProfileSettingsUpdated();
+          syncCurrentUserNetworkProfile();
+        }
+        setProfileSaveMessage('');
+      } catch (error) {
         console.warn('Remote profile photo sync skipped:', error);
-      });
+        setProfileSaveMessage('Photo is ready locally. Tap Save Profile to retry saving it to your account.');
+      }
     } catch (error) {
       console.error('Profile photo update failed:', error);
+      setProfileSaveMessage(error instanceof Error ? error.message : 'Profile photo update failed.');
     } finally {
       event.target.value = '';
     }
@@ -996,7 +1017,7 @@ export function SettingsScreen() {
         exit={{ opacity: 0 }}
         className="pb-28"
       >
-        <section className="min-h-[calc(100vh-3rem)] overflow-hidden rounded-[1.55rem] border border-white/8 bg-gradient-to-b from-[#1c1f22] via-[#17191c] to-[#121416] px-4 pb-5 pt-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_22px_80px_rgba(0,0,0,0.54)]">
+        <section className="min-h-[calc(100dvh-3rem)] overflow-hidden rounded-[1.55rem] border border-white/8 bg-gradient-to-b from-[#1c1f22] via-[#17191c] to-[#121416] px-4 pb-5 pt-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_22px_80px_rgba(0,0,0,0.54)]">
           <div className="mb-4 flex items-center justify-center gap-5">
             <button
               onClick={() => navigate(-1)}
@@ -1237,7 +1258,7 @@ export function SettingsScreen() {
       exit={{ opacity: 0 }}
       className="pb-4 pt-5"
     >
-      <section className="min-h-[calc(100vh-4.25rem)] overflow-hidden rounded-[1.6rem] border border-white/8 bg-gradient-to-b from-[#1b1d1f] via-[#17191b] to-[#111315] px-5 pb-8 pt-9 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_78px_rgba(0,0,0,0.62)]">
+      <section className="min-h-[calc(100dvh-4.25rem)] overflow-hidden rounded-[1.6rem] border border-white/8 bg-gradient-to-b from-[#1b1d1f] via-[#17191b] to-[#111315] px-5 pb-8 pt-9 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_78px_rgba(0,0,0,0.62)]">
         <div className="mb-12 flex items-center justify-center gap-5">
           <button
             onClick={() => setCurrentView('main')}
@@ -1323,7 +1344,7 @@ export function SettingsScreen() {
         exit={{ opacity: 0 }}
         className="pb-4 pt-5"
       >
-        <section className="min-h-[calc(100vh-4.25rem)] overflow-hidden rounded-[1.6rem] border border-white/8 bg-gradient-to-b from-[#1b1d1f] via-[#17191b] to-[#111315] px-5 pb-6 pt-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_78px_rgba(0,0,0,0.62)]">
+        <section className="min-h-[calc(100dvh-4.25rem)] overflow-hidden rounded-[1.6rem] border border-white/8 bg-gradient-to-b from-[#1b1d1f] via-[#17191b] to-[#111315] px-5 pb-6 pt-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_78px_rgba(0,0,0,0.62)]">
           <div className="mb-4 flex items-center justify-center gap-5">
             <button
               onClick={() => setCurrentView('main')}
@@ -1440,7 +1461,7 @@ export function SettingsScreen() {
       exit={{ opacity: 0 }}
       className="pb-4 pt-5"
     >
-      <section className="min-h-[calc(100vh-4.25rem)] overflow-hidden rounded-[1.6rem] border border-white/8 bg-gradient-to-b from-[#1b1d1f] via-[#17191b] to-[#111315] px-5 pb-8 pt-9 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_78px_rgba(0,0,0,0.62)]">
+      <section className="min-h-[calc(100dvh-4.25rem)] overflow-hidden rounded-[1.6rem] border border-white/8 bg-gradient-to-b from-[#1b1d1f] via-[#17191b] to-[#111315] px-5 pb-8 pt-9 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_78px_rgba(0,0,0,0.62)]">
       <div className="mb-12 flex items-center justify-center gap-5">
         <button
           onClick={() => setCurrentView('main')}
@@ -1523,7 +1544,7 @@ export function SettingsScreen() {
   );
 
   return (
-    <div className="absolute inset-0 w-full h-full overflow-y-auto bg-black">
+    <div className="absolute inset-0 flex h-full w-full flex-col overflow-hidden bg-black">
       <input
         ref={photoInputRef}
         type="file"
@@ -1555,17 +1576,19 @@ export function SettingsScreen() {
         </div>
       </div>
 
-      <div className="pt-8 px-4 max-w-md mx-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-8 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+        <div className="mx-auto max-w-md">
         <AnimatePresence mode="wait">
           {currentView === 'main' && renderUpdatedMainView()}
           {currentView === 'agent' && renderAgentView()}
           {currentView === 'interests' && renderInterestsView()}
           {currentView === 'password' && renderPasswordView()}
         </AnimatePresence>
+        </div>
       </div>
 
       {currentView === 'main' && (
-        <div className="fixed inset-x-0 bottom-0 z-[70] mx-auto max-w-md bg-gradient-to-t from-black via-black/92 to-transparent px-5 pb-5 pt-7">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[70] mx-auto max-w-md bg-gradient-to-t from-black via-black/92 to-transparent px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-7">
           {profileSaveMessage && (
             <p className="mx-auto mb-2 max-w-[310px] rounded-full border border-red-300/18 bg-red-400/[0.12] px-4 py-2 text-center text-[11px] font-bold text-red-100/90">
               {profileSaveMessage}
@@ -1574,7 +1597,7 @@ export function SettingsScreen() {
           <button
             onClick={handleSaveProfile}
             disabled={isSavingProfile}
-            className="mx-auto flex w-full max-w-[260px] items-center justify-center rounded-full bg-white px-10 py-3.5 text-[13px] font-black text-black shadow-[0_14px_34px_rgba(255,255,255,0.16)] transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-65"
+            className="pointer-events-auto mx-auto flex w-full max-w-[260px] items-center justify-center rounded-full bg-white px-10 py-3.5 text-[13px] font-black text-black shadow-[0_14px_34px_rgba(255,255,255,0.16)] transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-65"
           >
             {isSavingProfile ? 'Saving...' : 'Save Profile'}
           </button>

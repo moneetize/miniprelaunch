@@ -197,16 +197,16 @@ export function writeStoredProfileSettings(settings: ProfileSettingsSnapshot) {
 
 export function saveProfilePhoto(photo: string) {
   const ownerId = getCurrentProfileOwnerId();
-  safeSetItem('userPhoto', photo);
-  if (ownerId) {
-    safeSetItem(PROFILE_PHOTO_OWNER_STORAGE_KEY, ownerId);
-  }
+  const savedPhoto = safeSetItem('userPhoto', photo);
+  const savedOwner = ownerId ? safeSetItem(PROFILE_PHOTO_OWNER_STORAGE_KEY, ownerId) : true;
 
   try {
     sessionStorage.setItem('userPhoto', photo);
   } catch {
     // localStorage copy is the durable source.
   }
+
+  return savedPhoto && savedOwner;
 }
 
 export function clearProfilePhoto() {

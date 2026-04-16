@@ -7,6 +7,7 @@ body,
 #root,
 * {
   -ms-overflow-style: none;
+  box-sizing: border-box;
   scrollbar-width: none;
 }
 
@@ -15,7 +16,31 @@ body,
 #root {
   min-height: 100%;
   width: 100%;
-  overflow: hidden;
+  margin: 0;
+  overflow-x: hidden;
+}
+
+html,
+body {
+  background: #050706;
+}
+
+body {
+  overscroll-behavior-y: none;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
 }
 
 html::-webkit-scrollbar,

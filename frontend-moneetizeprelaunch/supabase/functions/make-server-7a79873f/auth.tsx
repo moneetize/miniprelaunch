@@ -383,7 +383,9 @@ export async function listAllUsers() {
           id: user.id,
           email: user.email,
           created_at: user.created_at,
-          name: user.user_metadata?.name
+          name: user.user_metadata?.name,
+          user_metadata: user.user_metadata || {},
+          app_metadata: user.app_metadata || {}
         })),
         total: data.users.length
       },

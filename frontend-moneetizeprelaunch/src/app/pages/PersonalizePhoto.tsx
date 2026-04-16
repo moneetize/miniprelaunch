@@ -84,7 +84,7 @@ export function PersonalizePhoto() {
         {/* Dynamic Island */}
         <div className="absolute top-6 left-1/2 -translate-x-1/2 w-28 sm:w-32 h-7 sm:h-8 bg-black rounded-full z-40" />
 
-        <div className="pt-20 sm:pt-24 pb-12 px-6 sm:px-8 min-h-screen flex flex-col items-center justify-between">
+        <div className="pt-20 sm:pt-24 pb-12 px-6 sm:px-8 min-h-[100dvh] flex flex-col items-center justify-between">
           <div className="w-full max-w-md flex flex-col items-center flex-1 justify-center">
             {/* Logo */}
             <motion.div

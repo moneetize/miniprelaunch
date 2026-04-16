@@ -93,15 +93,24 @@ export function ShareInvites() {
         message: getInviteMessage(),
       });
       const queuedCount = result.smsDeliveries?.filter((delivery) => delivery.status === 'queued').length || 0;
+      const failedDeliveries = result.smsDeliveries?.filter((delivery) => delivery.status === 'failed') || [];
+      const sentCount = Math.max(0, validPhoneNumbers.length - failedDeliveries.length);
+      const firstFailure = failedDeliveries[0]?.error;
 
       setSentPhones(validPhoneNumbers);
       setSentEmails([]);
-      setSuccessMessage(
-        queuedCount
-          ? `${validPhoneNumbers.length} SMS invite${validPhoneNumbers.length > 1 ? 's' : ''} queued. You earned ${result.pointsEarned} points.`
-          : `${validPhoneNumbers.length} SMS invite${validPhoneNumbers.length > 1 ? 's' : ''} sent. You earned ${result.pointsEarned} points.`,
-      );
-      setPhoneNumbers(['', '']);
+      if (failedDeliveries.length === validPhoneNumbers.length) {
+        setError(firstFailure ? `SMS delivery failed: ${firstFailure}` : 'SMS delivery failed. Check AWS SNS SMS setup and try again.');
+      } else {
+        setSuccessMessage(
+          failedDeliveries.length
+            ? `${sentCount} SMS invite${sentCount === 1 ? '' : 's'} sent, ${failedDeliveries.length} failed. You earned ${result.pointsEarned} points.`
+            : queuedCount
+              ? `${validPhoneNumbers.length} SMS invite${validPhoneNumbers.length > 1 ? 's' : ''} queued. You earned ${result.pointsEarned} points.`
+              : `${validPhoneNumbers.length} SMS invite${validPhoneNumbers.length > 1 ? 's' : ''} sent. You earned ${result.pointsEarned} points.`,
+        );
+        setPhoneNumbers(['', '']);
+      }
     } catch (err) {
       console.error('Send SMS invites error:', err);
       setError(err instanceof Error ? err.message : 'Failed to send SMS invites. Please try again.');
@@ -135,15 +144,24 @@ export function ShareInvites() {
         message: getInviteMessage(),
       });
       const queuedCount = result.emailDeliveries?.filter((delivery) => delivery.status === 'queued').length || 0;
+      const failedDeliveries = result.emailDeliveries?.filter((delivery) => delivery.status === 'failed') || [];
+      const sentCount = Math.max(0, validEmails.length - failedDeliveries.length);
+      const firstFailure = failedDeliveries[0]?.error;
 
       setSentEmails(validEmails);
       setSentPhones([]);
-      setSuccessMessage(
-        queuedCount
-          ? `${validEmails.length} email invite${validEmails.length > 1 ? 's' : ''} queued. You earned ${result.pointsEarned} points.`
-          : `${validEmails.length} email invite${validEmails.length > 1 ? 's' : ''} sent. You earned ${result.pointsEarned} points.`,
-      );
-      setEmails(['', '']);
+      if (failedDeliveries.length === validEmails.length) {
+        setError(firstFailure ? `Email delivery failed: ${firstFailure}` : 'Email delivery failed. Check email provider setup and try again.');
+      } else {
+        setSuccessMessage(
+          failedDeliveries.length
+            ? `${sentCount} email invite${sentCount === 1 ? '' : 's'} sent, ${failedDeliveries.length} failed. You earned ${result.pointsEarned} points.`
+            : queuedCount
+              ? `${validEmails.length} email invite${validEmails.length > 1 ? 's' : ''} queued. You earned ${result.pointsEarned} points.`
+              : `${validEmails.length} email invite${validEmails.length > 1 ? 's' : ''} sent. You earned ${result.pointsEarned} points.`,
+        );
+        setEmails(['', '']);
+      }
     } catch (err) {
       console.error('Send invites error:', err);
       setError(err instanceof Error ? err.message : 'Failed to send invites. Please try again.');

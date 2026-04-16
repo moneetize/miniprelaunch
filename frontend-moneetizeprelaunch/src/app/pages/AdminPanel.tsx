@@ -946,7 +946,7 @@ export function AdminPanel() {
 
   if (isCheckingAdmin) {
     return (
-      <div className="min-h-screen w-full bg-[#050706] flex items-center justify-center px-4 text-white">
+      <div className="min-h-[100dvh] w-full bg-[#050706] flex items-center justify-center px-4 text-white">
         <motion.div
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -964,7 +964,7 @@ export function AdminPanel() {
 
   if (!isAdmin) {
     return (
-      <div className="min-h-screen w-full bg-[#050706] flex items-center justify-center px-4 text-white">
+      <div className="min-h-[100dvh] w-full bg-[#050706] flex items-center justify-center px-4 text-white">
         <motion.div
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}

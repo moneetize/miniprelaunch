@@ -77,7 +77,7 @@ export function ProductDetailPage() {
 
   if (!product || !performance) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-[#0a0e1a] text-white">
+      <div className="flex h-[100dvh] w-full items-center justify-center bg-[#0a0e1a] text-white">
         Loading product...
       </div>
     );
@@ -87,7 +87,7 @@ export function ProductDetailPage() {
   const productDescription = product.description.length > 310 ? `${product.description.slice(0, 310)}...` : product.description;
 
   return (
-    <div className="h-screen w-full overflow-y-auto bg-[#0a0e1a] text-white [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+    <div className="h-[100dvh] w-full overflow-y-auto bg-[#0a0e1a] text-white [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
       <div className="mx-auto min-h-full w-full max-w-md pb-32">
         <div className="sticky top-0 z-30 bg-[#0a0e1a]/84 pb-3 backdrop-blur-md">
           <div className="flex h-11 items-center justify-between px-4 text-sm text-white">

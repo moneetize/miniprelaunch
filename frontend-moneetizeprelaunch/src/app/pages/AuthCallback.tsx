@@ -38,7 +38,7 @@ export function AuthCallback() {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen bg-black text-white flex items-center justify-center px-6">
+    <div className="min-h-[100dvh] bg-black text-white flex items-center justify-center px-6">
       <div className="max-w-md text-center rounded-3xl border border-white/10 bg-white/5 p-8 shadow-2xl">
         {error ? (
           <>

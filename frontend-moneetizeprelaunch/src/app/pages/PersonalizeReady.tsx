@@ -85,7 +85,7 @@ export function PersonalizeReady() {
           <span className="text-sm font-medium">Change Photo</span>
         </motion.button>
 
-        <div className="pt-20 sm:pt-24 pb-12 px-6 sm:px-8 min-h-screen flex flex-col items-center justify-between">
+        <div className="pt-20 sm:pt-24 pb-12 px-6 sm:px-8 min-h-[100dvh] flex flex-col items-center justify-between">
           <div className="w-full max-w-md flex flex-col items-center flex-1 justify-center">
             {/* Logo */}
             <motion.div

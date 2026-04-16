@@ -527,7 +527,7 @@ export function MerchMarketplace() {
   };
 
   return (
-    <div className="h-screen w-full overflow-y-auto bg-[#050706] text-white [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div className="h-[100dvh] w-full overflow-y-auto bg-[#050706] text-white [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       <header className="sticky top-0 z-30 border-b border-white/10 bg-[#050706]/95 backdrop-blur-md">
         <div className="mx-auto grid min-h-[68px] w-full max-w-3xl grid-cols-[48px_minmax(0,1fr)_48px] items-center gap-3 px-4">
           <button

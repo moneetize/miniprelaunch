@@ -1177,7 +1177,7 @@ export function ScratchAndWin() {
       </AnimatePresence>
 
       {/* Main Content */}
-      <div className="flex min-h-screen flex-col items-center justify-start gap-7 px-4 pb-28 pt-[88px]">
+      <div className="flex min-h-[100dvh] flex-col items-center justify-start gap-7 px-4 pb-28 pt-[88px]">
         <motion.section
           initial={{ scale: 0.96, opacity: 0, y: 14 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}

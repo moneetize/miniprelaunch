@@ -32,6 +32,7 @@ const DEFAULT_USER_USDT = 0;
 const SCRATCH_HISTORY_LIMIT = 50;
 const RECOMMENDED_FRIENDS_KEY = 'network:recommended_friends';
 const PROFILE_SETTINGS_PREFIX = 'profile_settings:';
+const MAX_PROFILE_PHOTO_LENGTH = 120000;
 const NETWORK_FOLLOWS_PREFIX = 'network_follows:';
 const POINTS_HISTORY_PREFIX = 'points_history:';
 const CHAT_THREADS_PREFIX = 'chat_thread:';
@@ -934,6 +935,7 @@ const dispatchSmsNotification = async (sms: {
     }
 
     const messageId = details.match(/<MessageId>(.*?)<\/MessageId>/)?.[1] || '';
+    await queueSmsNotification({ ...sms, to: phoneNumber, status: 'sent', provider: 'aws-sns', messageId });
     return { status: 'sent' as const, provider: 'aws-sns', messageId };
   } catch (error) {
     await queueSmsNotification({
@@ -1023,6 +1025,16 @@ const isAdminMetadata = (metadata?: Record<string, unknown>) => {
     `${metadata.isAdmin}`.toLowerCase() === 'true' ||
     roles.some(role => `${role}`.toLowerCase() === 'admin')
   );
+};
+
+const isNetworkVisibleUser = (user: any, currentUserId = '') => {
+  const email = `${user?.email || ''}`.trim().toLowerCase();
+
+  if (!user?.id || user.id === currentUserId) return false;
+  if (email === ADMIN_NOTIFICATION_EMAIL || email.startsWith('admin@')) return false;
+  if (isAdminMetadata(user.user_metadata) || isAdminMetadata(user.app_metadata)) return false;
+
+  return true;
 };
 
 const requireAdmin = async (c: any) => {
@@ -1148,6 +1160,14 @@ app.put("/make-server-7a79873f/profile/settings", async (c) => {
     const body = await c.req.json();
     const settings = normalizeProfileSettings(body?.settings || body, currentUser.user);
     const requestedHandle = settings.handle.trim().toLowerCase();
+
+    if (settings.photo && settings.photo.length > MAX_PROFILE_PHOTO_LENGTH) {
+      return c.json({
+        success: false,
+        error: 'Profile photo is too large. Choose a smaller image or try again.',
+      }, 413);
+    }
+
     const usersResult = await auth.listAllUsers();
 
     if (usersResult.success && usersResult.data?.users) {
@@ -1167,10 +1187,12 @@ app.put("/make-server-7a79873f/profile/settings", async (c) => {
       }
     }
 
-    await Promise.all([
-      kv.set(`${PROFILE_SETTINGS_PREFIX}${currentUser.user.id}`, settings),
-      auth.updateProfile(getUserAccessToken(c), { name: settings.name }),
-    ]);
+    await kv.set(`${PROFILE_SETTINGS_PREFIX}${currentUser.user.id}`, settings);
+
+    const profileUpdateResult = await auth.updateProfile(getUserAccessToken(c), { name: settings.name });
+    if (!profileUpdateResult.success) {
+      console.warn('Supabase auth metadata sync skipped after profile settings save:', profileUpdateResult.error);
+    }
 
     return c.json({
       success: true,
@@ -1328,7 +1350,7 @@ app.get("/make-server-7a79873f/network/profiles", async (c) => {
 
     const profiles = await Promise.all(
       result.data.users
-        .filter((user: any) => user.id !== currentUserId)
+        .filter((user: any) => isNetworkVisibleUser(user, currentUserId))
         .map(async (user: any, index: number) => {
           const [storedPoints, storedSettings, storedFollowRecord] = await Promise.all([
             kv.get(`user_points:${user.id}`),
@@ -2451,12 +2473,12 @@ app.post("/make-server-7a79873f/invites/send", async (c) => {
         inviterId: currentUser.user.id,
         inviterEmail: currentUser.user.email,
         inviterName,
-        status: 'pending',
+        status: deliveryRecord.delivery.status === 'failed' ? 'failed' : 'pending',
         deliveryStatus: deliveryRecord.delivery.status,
         deliveryProvider: deliveryRecord.type === 'sms' ? 'aws-sns' : 'resend',
         deliveryError: 'error' in deliveryRecord.delivery ? deliveryRecord.delivery.error : undefined,
         deliveryMessageId: 'messageId' in deliveryRecord.delivery ? deliveryRecord.delivery.messageId : undefined,
-        points: alreadyInvited ? 0 : INVITE_POINTS_PER_RECIPIENT,
+        points: alreadyInvited || deliveryRecord.delivery.status === 'failed' ? 0 : INVITE_POINTS_PER_RECIPIENT,
         sentAt,
         updatedAt: sentAt,
       };

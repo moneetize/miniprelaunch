@@ -483,7 +483,7 @@ export function PortfolioPage() {
   );
 
   return (
-    <div className="h-screen w-full overflow-y-auto bg-[#0a0e1a] text-white [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+    <div className="h-[100dvh] w-full overflow-y-auto bg-[#0a0e1a] text-white [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
       <div className="mx-auto min-h-full w-full max-w-md pb-32">
         {renderHeader()}
         {!expandedBreakdown && renderChart()}

@@ -2030,7 +2030,7 @@ export function ProfileFeedsScreen() {
   };
 
   return (
-    <div className="relative h-screen w-full flex flex-col bg-[#0a0e1a] overflow-hidden">
+    <div className="relative h-[100dvh] w-full flex flex-col bg-[#0a0e1a] overflow-hidden">
       <div className="max-w-2xl mx-auto w-full flex flex-col h-full">
         {/* Fixed Header */}
         <div className="flex-shrink-0">
