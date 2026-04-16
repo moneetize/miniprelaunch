@@ -829,6 +829,21 @@ const saveMarketplaceCatalog = async (products: any[]) => {
   return normalizedProducts;
 };
 
+const mergeMarketplaceCatalog = (storedCatalog: any[], seededCatalog: any[]) => {
+  if (!seededCatalog.length) return storedCatalog;
+  if (!storedCatalog.length) return seededCatalog;
+
+  const storedById = new Map(storedCatalog.map((product: any) => [product.id, product]));
+  const seededIds = new Set(seededCatalog.map((product: any) => product.id));
+  const mergedSeeded = seededCatalog.map((product: any) => ({
+    ...product,
+    ...storedById.get(product.id),
+  }));
+  const customStoredProducts = storedCatalog.filter((product: any) => !seededIds.has(product.id));
+
+  return normalizeMarketplaceProducts([...mergedSeeded, ...customStoredProducts]);
+};
+
 const appendPointsTransaction = async ({
   userId,
   amount,
@@ -1448,90 +1463,102 @@ const buildSnsPublishBody = (phoneNumber: string, message: string) => {
   return params.toString();
 };
 
+const getTwilioSender = () => {
+  const messagingServiceSid = `${Deno.env.get('TWILIO_MESSAGING_SERVICE_SID') || ''}`.trim();
+  const fromNumber = normalizePhoneNumber(
+    `${Deno.env.get('TWILIO_FROM_NUMBER') || Deno.env.get('TWILIO_PHONE_NUMBER') || ''}`,
+  );
+
+  return { messagingServiceSid, fromNumber };
+};
+
+const dispatchTwilioSmsNotification = async (sms: {
+  to: string;
+  message: string;
+}) => {
+  const phoneNumber = normalizePhoneNumber(sms.to);
+  const accountSid = `${Deno.env.get('TWILIO_ACCOUNT_SID') || ''}`.trim();
+  const authToken = `${Deno.env.get('TWILIO_AUTH_TOKEN') || ''}`.trim();
+  const { messagingServiceSid, fromNumber } = getTwilioSender();
+
+  if (!phoneNumber) {
+    await queueSmsNotification({ ...sms, status: 'failed', provider: 'twilio', reason: 'Invalid E.164 phone number' });
+    return { status: 'failed' as const, provider: 'twilio', error: 'Invalid E.164 phone number' };
+  }
+
+  if (!accountSid || !authToken || (!messagingServiceSid && !fromNumber)) {
+    await queueSmsNotification({
+      ...sms,
+      to: phoneNumber,
+      status: 'queued',
+      provider: 'twilio',
+      reason: 'Twilio credentials or sender are not configured',
+    });
+    return { status: 'queued' as const, provider: 'twilio' };
+  }
+
+  const params = new URLSearchParams();
+  params.set('To', phoneNumber);
+  params.set('Body', sms.message.slice(0, 1500));
+
+  if (messagingServiceSid) {
+    params.set('MessagingServiceSid', messagingServiceSid);
+  } else {
+    params.set('From', fromNumber);
+  }
+
+  try {
+    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages.json`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${btoa(`${accountSid}:${authToken}`)}`,
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+      },
+      body: params.toString(),
+    });
+    const details = await response.text();
+    const parsed = (() => {
+      try {
+        return details ? JSON.parse(details) : {};
+      } catch {
+        return {};
+      }
+    })();
+
+    if (!response.ok) {
+      const errorMessage = `${parsed?.message || details || response.statusText || 'Twilio SMS delivery failed'}`;
+      await queueSmsNotification({ ...sms, to: phoneNumber, status: 'failed', provider: 'twilio', error: errorMessage });
+      return { status: 'failed' as const, provider: 'twilio', error: errorMessage };
+    }
+
+    const messageId = `${parsed?.sid || ''}`;
+    await queueSmsNotification({ ...sms, to: phoneNumber, status: 'sent', provider: 'twilio', messageId });
+    return { status: 'sent' as const, provider: 'twilio', messageId };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown Twilio SMS error';
+    await queueSmsNotification({
+      ...sms,
+      to: phoneNumber,
+      status: 'failed',
+      provider: 'twilio',
+      error: errorMessage,
+    });
+    return { status: 'failed' as const, provider: 'twilio', error: errorMessage };
+  }
+};
+
 const dispatchSmsNotification = async (sms: {
   to: string;
   message: string;
 }) => {
   const phoneNumber = normalizePhoneNumber(sms.to);
-  const accessKeyId = Deno.env.get('AWS_ACCESS_KEY_ID');
-  const secretAccessKey = Deno.env.get('AWS_SECRET_ACCESS_KEY');
-  const region = Deno.env.get('AWS_REGION') || Deno.env.get('AWS_DEFAULT_REGION') || 'us-east-1';
-  const sessionToken = Deno.env.get('AWS_SESSION_TOKEN');
 
   if (!phoneNumber) {
-    await queueSmsNotification({ ...sms, status: 'failed', reason: 'Invalid E.164 phone number' });
-    return { status: 'failed' as const, error: 'Invalid E.164 phone number' };
+    await queueSmsNotification({ ...sms, status: 'failed', provider: 'twilio', reason: 'Invalid E.164 phone number' });
+    return { status: 'failed' as const, provider: 'twilio', error: 'Invalid E.164 phone number' };
   }
 
-  if (!accessKeyId || !secretAccessKey) {
-    await queueSmsNotification({ ...sms, to: phoneNumber, status: 'queued', reason: 'AWS SNS credentials are not configured' });
-    return { status: 'queued' as const };
-  }
-
-  const service = 'sns';
-  const host = `sns.${region}.amazonaws.com`;
-  const endpoint = `https://${host}/`;
-  const body = buildSnsPublishBody(phoneNumber, sms.message.slice(0, 1500));
-  const { amzDate, dateStamp } = formatAwsDate();
-  const headers: Record<string, string> = {
-    'content-type': 'application/x-www-form-urlencoded; charset=utf-8',
-    host,
-    'x-amz-date': amzDate,
-  };
-
-  if (sessionToken) headers['x-amz-security-token'] = sessionToken;
-
-  const signedHeaderNames = Object.keys(headers).sort();
-  const canonicalHeaders = signedHeaderNames.map((name) => `${name}:${headers[name].trim()}\n`).join('');
-  const signedHeaders = signedHeaderNames.join(';');
-  const payloadHash = await sha256Hex(body);
-  const canonicalRequest = [
-    'POST',
-    '/',
-    '',
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash,
-  ].join('\n');
-  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
-  const stringToSign = [
-    'AWS4-HMAC-SHA256',
-    amzDate,
-    credentialScope,
-    await sha256Hex(canonicalRequest),
-  ].join('\n');
-  const signingKey = await getAwsSignatureKey(secretAccessKey, dateStamp, region, service);
-  const signature = await hmacHex(signingKey, stringToSign);
-  const authorization = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
-
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        ...headers,
-        Authorization: authorization,
-      },
-      body,
-    });
-    const details = await response.text();
-
-    if (!response.ok) {
-      await queueSmsNotification({ ...sms, to: phoneNumber, status: 'failed', error: details });
-      return { status: 'failed' as const, error: details };
-    }
-
-    const messageId = details.match(/<MessageId>(.*?)<\/MessageId>/)?.[1] || '';
-    await queueSmsNotification({ ...sms, to: phoneNumber, status: 'sent', provider: 'aws-sns', messageId });
-    return { status: 'sent' as const, provider: 'aws-sns', messageId };
-  } catch (error) {
-    await queueSmsNotification({
-      ...sms,
-      to: phoneNumber,
-      status: 'failed',
-      error: error instanceof Error ? error.message : 'Unknown SMS error',
-    });
-    return { status: 'failed' as const, error: error instanceof Error ? error.message : 'Unknown SMS error' };
-  }
+  return dispatchTwilioSmsNotification({ ...sms, to: phoneNumber });
 };
 
 const publicScratchTicket = (ticket: typeof scratchTickets[number]) => {
@@ -2632,8 +2659,13 @@ app.post("/make-server-7a79873f/marketplace/order", async (c) => {
       const currentPointBalance = parseStoredNumber(await kv.get(userPointsKey), DEFAULT_USER_POINTS);
       let catalog = await getMarketplaceCatalog();
 
-      if (!catalog.length && seededCatalog.length) {
-        catalog = await saveMarketplaceCatalog(seededCatalog);
+      if (seededCatalog.length) {
+        const mergedCatalog = mergeMarketplaceCatalog(catalog, seededCatalog);
+        const storedIds = new Set(catalog.map((product: any) => product.id));
+        const hasNewSeededProducts = seededCatalog.some((product: any) => !storedIds.has(product.id));
+        catalog = (!catalog.length || hasNewSeededProducts)
+          ? await saveMarketplaceCatalog(mergedCatalog)
+          : mergedCatalog;
       }
 
       const catalogById = new Map(catalog.map((product: any) => [product.id, product]));
