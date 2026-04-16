@@ -8,6 +8,23 @@ import { sendInvitesFromServer } from '../services/inviteService';
 import { INVITE_POINTS_PER_RECIPIENT } from '../utils/inviteSync';
 
 const MAX_INVITES_PER_METHOD = 5;
+const SMS_PHONE_EXAMPLE = '+15551234567';
+
+const normalizePhoneForSms = (phone: string) => {
+  const trimmed = `${phone || ''}`.trim();
+  if (!trimmed) return '';
+
+  const digits = trimmed.replace(/\D/g, '');
+  if (!digits) return '';
+
+  if (trimmed.startsWith('+')) return `+${digits}`;
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+
+  return `+${digits}`;
+};
+
+const isSmsPhoneNumber = (phone: string) => /^\+[1-9]\d{7,14}$/.test(normalizePhoneForSms(phone));
 
 export function ShareInvites() {
   const navigate = useNavigate();
@@ -23,11 +40,6 @@ export function ShareInvites() {
 
   const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
-  const validatePhone = (phone: string) => {
-    const cleaned = phone.replace(/\D/g, '');
-    return cleaned.length >= 10 && cleaned.length <= 15;
-  };
-
   const getInviteMessage = () =>
     `Hey! I invited you to Moneetize. Start here and scratch to win rewards: ${inviteLink}`;
 
@@ -39,6 +51,14 @@ export function ShareInvites() {
   const handlePhoneChange = (index: number, value: string) => {
     setPhoneNumbers((current) => current.map((phone, phoneIndex) => (phoneIndex === index ? value : phone)));
     setError(null);
+  };
+
+  const handlePhoneBlur = (index: number) => {
+    setPhoneNumbers((current) => current.map((phone, phoneIndex) => {
+      if (phoneIndex !== index) return phone;
+      const normalizedPhone = normalizePhoneForSms(phone);
+      return normalizedPhone && isSmsPhoneNumber(normalizedPhone) ? normalizedPhone : phone.trim();
+    }));
   };
 
   const handleRemoveEmail = (index: number) => {
@@ -72,15 +92,17 @@ export function ShareInvites() {
     setError(null);
     setSuccessMessage(null);
 
-    const validPhoneNumbers = phoneNumbers.map((phone) => phone.trim()).filter(Boolean);
+    const enteredPhoneNumbers = phoneNumbers.map((phone) => phone.trim()).filter(Boolean);
+    const invalidPhoneNumbers = enteredPhoneNumbers.filter((phone) => !isSmsPhoneNumber(phone));
+    const validPhoneNumbers = [...new Set(enteredPhoneNumbers.map(normalizePhoneForSms).filter(Boolean))];
 
-    if (validPhoneNumbers.length === 0) {
+    if (enteredPhoneNumbers.length === 0) {
       setError('Please enter at least one phone number');
       return;
     }
 
-    if (validPhoneNumbers.some((phone) => !validatePhone(phone))) {
-      setError('Please enter valid phone numbers with a country code, like +1234567890');
+    if (invalidPhoneNumbers.length) {
+      setError(`Please enter valid phone numbers like ${SMS_PHONE_EXAMPLE}. US numbers can also be typed as 555-123-4567.`);
       return;
     }
 
@@ -353,7 +375,7 @@ export function ShareInvites() {
                   </span>
                   <div className="min-w-0">
                     <h2 className="text-sm font-black text-white">SMS</h2>
-                    <p className="text-[11px] font-semibold text-white/40">Send up to 5</p>
+                    <p className="text-[11px] font-semibold text-white/40">Example: {SMS_PHONE_EXAMPLE}</p>
                   </div>
                 </div>
                 <button
@@ -373,9 +395,12 @@ export function ShareInvites() {
                     <MessageSquare className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/34" />
                     <input
                       type="tel"
-                      placeholder={`Phone ${index + 1}`}
+                      inputMode="tel"
+                      autoComplete="tel"
+                      placeholder={SMS_PHONE_EXAMPLE}
                       value={phone}
                       onChange={(event) => handlePhoneChange(index, event.target.value)}
+                      onBlur={() => handlePhoneBlur(index)}
                       className="h-12 w-full rounded-full border border-white/8 bg-white/[0.06] pl-11 pr-11 text-sm font-semibold text-white outline-none transition-colors placeholder:text-white/30 focus:border-emerald-200/42"
                     />
                     {phone && (
