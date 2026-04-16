@@ -33,13 +33,14 @@ import {
   DollarSign,
   TrendingUp,
   Check,
+  Shield,
   Shirt,
   Car
 } from 'lucide-react';
 import { safeGetItem, safeSetItem } from '../utils/storage';
 import { clearProfilePhoto, getStoredProfileSettings, markProfileCompleted, notifyProfileSettingsUpdated, saveProfilePhoto, writeStoredProfileSettings, type StoredProfileSettings } from '../utils/profileSettings';
 import { loadRecommendedFriends, syncCurrentUserNetworkProfile } from '../services/networkService';
-import { logoutUser, updateUserProfile } from '../services/authService';
+import { isUserAdmin, logoutUser, updateUserProfile } from '../services/authService';
 import { hydrateRemoteProfileSettings, saveRemoteProfileSettings } from '../services/profilePersistenceService';
 
 // Import AI agent avatars - the original two plus generated variants in the settings selector.
@@ -282,6 +283,7 @@ export function SettingsScreen() {
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [handleSuggestions, setHandleSuggestions] = useState<string[]>([]);
   const [isCheckingHandle, setIsCheckingHandle] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -318,6 +320,7 @@ export function SettingsScreen() {
     // Determine auth method
     const method = localStorage.getItem('authMethod') || 'email';
     setAuthMethod(method);
+    setIsAdmin(isUserAdmin());
 
     void hydrateRemoteProfileSettings()
       .then((settings) => {
@@ -918,6 +921,19 @@ export function SettingsScreen() {
             </div>
             <ChevronRight className="w-4 h-4 text-gray-400" />
           </button>
+
+          {isAdmin && (
+            <button
+              onClick={() => navigate('/admin-panel')}
+              className="w-full rounded-2xl border border-blue-300/25 bg-blue-400/10 p-4 flex items-center justify-between hover:bg-blue-400/15 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <Shield className="w-5 h-5 text-blue-100" />
+                <span className="text-white text-sm font-black">Admin Panel</span>
+              </div>
+              <ChevronRight className="w-4 h-4 text-blue-100/70" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -1176,6 +1192,19 @@ export function SettingsScreen() {
                 </span>
                 <ChevronRight className="h-3.5 w-3.5 text-white/42" />
               </button>
+
+              {isAdmin && (
+                <button
+                  onClick={() => navigate('/admin-panel')}
+                  className="flex w-full items-center justify-between rounded-full border border-blue-300/20 bg-blue-300/10 px-4 py-3 text-left transition-colors hover:bg-blue-300/15"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <Shield className="h-3.5 w-3.5 text-blue-100" />
+                    <span className="text-[12px] font-black text-white">Admin Panel</span>
+                  </span>
+                  <ChevronRight className="h-3.5 w-3.5 text-blue-100/70" />
+                </button>
+              )}
             </div>
           </div>
 

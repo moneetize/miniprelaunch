@@ -66,7 +66,7 @@ export function ShareInvites() {
   const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
   const getInviteMessage = () =>
-    `Hey! I invited you to Moneetize. Start here and scratch to win rewards: ${inviteLink}`;
+    `Hey! I invited you to Moneetize. Start here and scratch to win rewards: ${inviteLink} Reply STOP to opt out.`;
 
   const handleEmailChange = (index: number, value: string) => {
     setEmails((current) => current.map((email, emailIndex) => (emailIndex === index ? value : email)));

@@ -47,6 +47,7 @@ import { AdminPanel } from "./pages/AdminPanel";
 import { QRCodeScreen } from "./pages/QRCodeScreen";
 import { ConnectionRequest } from "./pages/ConnectionRequest";
 import { FollowListsPage } from "./pages/FollowListsPage";
+import { PrivacyPolicyPage, TermsAndConditionsPage } from "./pages/LegalPages";
 
 export const router = createBrowserRouter([
   {
@@ -105,6 +106,8 @@ export const router = createBrowserRouter([
       { path: "qr-code", Component: QRCodeScreen },
       { path: "connection-request", Component: ConnectionRequest },
       { path: "follow-lists", Component: FollowListsPage },
+      { path: "privacy-policy", Component: PrivacyPolicyPage },
+      { path: "terms-and-conditions", Component: TermsAndConditionsPage },
     ],
   },
 ]);

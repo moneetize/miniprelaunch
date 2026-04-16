@@ -36,7 +36,7 @@ const NETWORK_FOLLOWS_PREFIX = 'network_follows:';
 const EARLY_ACCESS_REQUESTS_KEY = 'early_access_requests';
 const EMAIL_QUEUE_KEY = 'email_notifications';
 const MARKETPLACE_ORDERS_KEY = 'marketplace_orders';
-const EARLY_ACCESS_POINTS_AWARD = 25;
+const EARLY_ACCESS_POINTS_AWARD = 2;
 const ADMIN_NOTIFICATION_EMAIL = 'admin@moneetize.com';
 
 const defaultRecommendedFriends = [

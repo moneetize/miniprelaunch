@@ -191,7 +191,7 @@ export function TeamView() {
   const aiAgentTone = getAgentAvatarTone(selectedAvatar);
   const getPendingInviteLabel = (member: TeamMember) => member.email || member.phone || member.contact || member.name;
   const getInviteMessage = (inviteUrl: string) =>
-    `Hey! I invited you to Moneetize. Start here and scratch to win rewards: ${inviteUrl}`;
+    `Hey! I invited you to Moneetize. Start here and scratch to win rewards: ${inviteUrl} Reply STOP to opt out.`;
   const getSmsUrl = (recipient: string, message: string) => {
     const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
     const separator = /iPad|iPhone|iPod/i.test(userAgent) ? '&' : '?';

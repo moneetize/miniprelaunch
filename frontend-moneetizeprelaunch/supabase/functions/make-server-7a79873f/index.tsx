@@ -53,7 +53,7 @@ const INVITEE_ACTIVATION_REFERRER_PREFIX = 'invite_activation_referrer:';
 const INVITEE_ACTIVATION_AWARDED_PREFIX = 'invite_activation_awarded:';
 const TEAM_MILESTONES_PREFIX = 'team_milestones:';
 const NETWORK_POINTS_PREFIX = 'network_points:';
-const EARLY_ACCESS_POINTS_AWARD = 25;
+const EARLY_ACCESS_POINTS_AWARD = 2;
 const INVITE_POINTS_PER_RECIPIENT = 2;
 const INVITEE_ACTIVATION_POINTS = 2;
 const TEAM_OF_THREE_POINTS = 3;
@@ -68,6 +68,11 @@ const MAX_SCRATCH_OPPORTUNITIES = 5;
 const MAX_RELEASE_TEAM_INVITES = 5;
 const GUARANTEED_CASH_WINS = 2;
 const ADMIN_NOTIFICATION_EMAIL = 'admin@moneetize.com';
+const ADMIN_EMAILS = new Set([
+  ADMIN_NOTIFICATION_EMAIL,
+  'nathan@moneetize.com',
+  'gloryvee@gmail.com',
+]);
 const CHAT_THREAD_LIMIT = 100;
 const QUEUE_LIMIT = 500;
 
@@ -1652,11 +1657,13 @@ const isAdminMetadata = (metadata?: Record<string, unknown>) => {
   );
 };
 
+const isAdminEmail = (email?: string) => ADMIN_EMAILS.has(`${email || ''}`.trim().toLowerCase());
+
 const isNetworkVisibleUser = (user: any, currentUserId = '') => {
   const email = `${user?.email || ''}`.trim().toLowerCase();
 
   if (!user?.id || user.id === currentUserId) return false;
-  if (email === ADMIN_NOTIFICATION_EMAIL || email.startsWith('admin@')) return false;
+  if (isAdminEmail(email) || email.startsWith('admin@')) return false;
   if (isAdminMetadata(user.user_metadata) || isAdminMetadata(user.app_metadata)) return false;
 
   return true;
@@ -1675,7 +1682,7 @@ const requireAdmin = async (c: any) => {
     return { response: c.json({ success: false, error: 'Unauthorized' }, 401) };
   }
 
-  if (!isAdminMetadata(user.user_metadata) && !isAdminMetadata(user.app_metadata)) {
+  if (!isAdminEmail(user.email) && !isAdminMetadata(user.user_metadata) && !isAdminMetadata(user.app_metadata)) {
     return { response: c.json({ success: false, error: 'Admin access required' }, 403) };
   }
 
@@ -3228,7 +3235,8 @@ app.post("/make-server-7a79873f/invites/send", async (c) => {
     }
 
     const inviteUrl = `${body?.inviteLink || body?.inviteUrl || ''}`.trim();
-    const inviteMessage = `${body?.message || `Hey! I invited you to Moneetize. Start here and scratch to win rewards: ${inviteUrl}`}`.trim().slice(0, 1500);
+    const rawInviteMessage = `${body?.message || `Hey! I invited you to Moneetize. Start here and scratch to win rewards: ${inviteUrl}`}`.trim();
+    const inviteMessage = `${rawInviteMessage}${/stop to opt out/i.test(rawInviteMessage) ? '' : ' Reply STOP to opt out.'}`.slice(0, 1500);
     const inviterName = getUserDisplayName(currentUser.user);
     const sentAt = new Date().toISOString();
     const inviteHistoryKey = `${INVITE_HISTORY_PREFIX}${currentUser.user.id}`;

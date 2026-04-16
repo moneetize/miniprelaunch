@@ -79,6 +79,11 @@ type SupabaseUserResult = {
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-7a79873f/auth`;
 const SUPABASE_AUTH_URL = `https://${projectId}.supabase.co/auth/v1`;
+const ADMIN_EMAILS = new Set([
+  'admin@moneetize.com',
+  'nathan@moneetize.com',
+  'gloryvee@gmail.com',
+]);
 const USER_SCOPED_STORAGE_KEYS = [
   'userPhoto',
   'userPhotoOwnerId',
@@ -144,8 +149,13 @@ function hasAdminRole(metadata?: AuthMetadata) {
   return roles.some(role => `${role}`.toLowerCase() === 'admin');
 }
 
+function isAdminEmail(email?: string) {
+  return ADMIN_EMAILS.has(`${email || ''}`.trim().toLowerCase());
+}
+
 function getMetadataIsAdmin(user?: BackendAuthResult['data']['user'] | SupabaseUserResult) {
   return Boolean(
+    isAdminEmail(user?.email) ||
     isAdminValue(user?.isAdmin) ||
     isAdminValue(user?.user_metadata?.isAdmin) ||
     isAdminValue(user?.app_metadata?.isAdmin) ||
@@ -763,7 +773,11 @@ export function getCurrentUserName(): string | null {
  * Check if current user is admin.
  */
 export function isUserAdmin(): boolean {
-  return safeGetItem('isAdmin') === 'true' || sessionStorage.getItem('isAdmin') === 'true';
+  return (
+    isAdminEmail(safeGetItem('user_email')) ||
+    safeGetItem('isAdmin') === 'true' ||
+    sessionStorage.getItem('isAdmin') === 'true'
+  );
 }
 
 /**
