@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
 import { AlertCircle, Check, CheckCircle, ChevronLeft, Copy, Mail, MessageSquare, Plus, X } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
@@ -38,6 +38,7 @@ export function ShareInvites() {
   const [sentEmails, setSentEmails] = useState<string[]>([]);
   const [sentPhones, setSentPhones] = useState<string[]>([]);
   const [scratchCredits, setScratchCredits] = useState<ScratchCredits | null>(() => getStoredScratchCredits());
+  const [hasInviteConsent, setHasInviteConsent] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,6 +131,11 @@ export function ShareInvites() {
       return;
     }
 
+    if (!hasInviteConsent) {
+      setError('Please confirm these contacts agreed to receive this Moneetize invite.');
+      return;
+    }
+
     if (invalidPhoneNumbers.length) {
       setError(`Please enter valid phone numbers like ${SMS_PHONE_EXAMPLE}. US numbers can also be typed as 555-123-4567.`);
       return;
@@ -184,6 +190,11 @@ export function ShareInvites() {
 
     if (validEmails.length === 0) {
       setError('Please enter at least one email address');
+      return;
+    }
+
+    if (!hasInviteConsent) {
+      setError('Please confirm these contacts agreed to receive this Moneetize invite.');
       return;
     }
 
@@ -495,6 +506,31 @@ export function ShareInvites() {
             </motion.div>
           </div>
 
+          <label className="mt-5 flex items-start gap-3 rounded-[1.1rem] border border-white/8 bg-white/[0.04] p-3.5">
+            <input
+              type="checkbox"
+              checked={hasInviteConsent}
+              onChange={(event) => {
+                setHasInviteConsent(event.target.checked);
+                setError(null);
+              }}
+              className="mt-1 h-4 w-4 shrink-0 accent-emerald-300"
+            />
+            <span className="text-[11px] font-semibold leading-relaxed text-white/58">
+              I confirm these contacts agreed to receive this Moneetize Pre-game invite. They can reply{' '}
+              <strong className="text-white/86">STOP</strong> to opt out or <strong className="text-white/86">HELP</strong> for help.
+              See our{' '}
+              <Link to="/privacy-policy" className="text-emerald-200/80 underline-offset-2 hover:underline">
+                Privacy Policy
+              </Link>{' '}
+              and{' '}
+              <Link to="/terms-and-conditions" className="text-emerald-200/80 underline-offset-2 hover:underline">
+                Terms
+              </Link>
+              .
+            </span>
+          </label>
+
           <motion.div
             initial={{ y: 14, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -503,7 +539,7 @@ export function ShareInvites() {
           >
             <button
               onClick={handleSendInvites}
-              disabled={isLoading || filledEmailsCount === 0}
+              disabled={isLoading || filledEmailsCount === 0 || !hasInviteConsent}
               className="flex h-[52px] w-full items-center justify-center gap-2 rounded-full bg-white px-5 text-sm font-black text-black shadow-[0_16px_38px_rgba(0,0,0,0.34)] transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-35"
             >
               {isLoading ? (
@@ -525,7 +561,7 @@ export function ShareInvites() {
 
             <button
               onClick={handleSendSMS}
-              disabled={isLoading || filledPhonesCount === 0}
+              disabled={isLoading || filledPhonesCount === 0 || !hasInviteConsent}
               className="flex h-[52px] w-full items-center justify-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-5 text-sm font-black text-white shadow-[0_16px_38px_rgba(0,0,0,0.25)] transition-colors hover:bg-white/12 disabled:cursor-not-allowed disabled:opacity-35"
             >
               <MessageSquare className="h-[18px] w-[18px]" />
