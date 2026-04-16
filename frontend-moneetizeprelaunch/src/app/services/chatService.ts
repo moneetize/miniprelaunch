@@ -314,10 +314,14 @@ export async function sendThreadMessage(threadId: string, message: ChatMessage, 
 
 export function createFallbackAgentReply(prompt: string): ChatMessage {
   const createdAt = new Date().toISOString();
-  const normalizedPrompt = prompt.toLowerCase();
-  const content = normalizedPrompt.includes('invest') || normalizedPrompt.includes('market') || normalizedPrompt.includes('stock')
-    ? 'Share your goal, timeline, and risk comfort. I can help compare options, explain the tradeoffs, and turn the decision into a clear checklist.'
-    : 'Tell me what you want to work through. I can help with money questions, rewards, marketplace redemptions, invites, profile setup, and launch-team strategy.';
+  const trimmedPrompt = prompt.trim();
+  const normalizedPrompt = trimmedPrompt.toLowerCase();
+  const isVaguePrompt = /^(anything|any thing|whatever|surprise me|help|hi|hello|hey)$/i.test(normalizedPrompt);
+  const content = isVaguePrompt
+    ? 'Absolutely. You can ask me anything: money basics, investing concepts, rewards, merch redemptions, business ideas, writing help, or how to move through the app. A useful starting point: pick one goal for this week, then ask me to break it into a simple plan.'
+    : normalizedPrompt.includes('invest') || normalizedPrompt.includes('market') || normalizedPrompt.includes('stock') || normalizedPrompt.includes('crypto')
+      ? `Here is a practical way to think about it: start with the goal, time horizon, risk level, liquidity, fees, and what would make you change course. For "${trimmedPrompt}", I can help compare options and build a clear checklist.`
+      : `Here is a direct starting point for "${trimmedPrompt}": break it into what you know, what decision you need to make, and the next action you can take. Ask me a follow-up and I can go deeper from there.`;
 
   return {
     id: `agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

@@ -878,6 +878,7 @@ export function ScratchAndWin() {
   };
 
   const handleRewardsSliderPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
 
     const slider = event.currentTarget;
@@ -892,6 +893,7 @@ export function ScratchAndWin() {
   };
 
   const handleRewardsSliderPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') return;
     const slider = event.currentTarget;
     const drag = rewardsSliderDragRef.current;
     if (!drag.isDragging) return;
@@ -905,6 +907,7 @@ export function ScratchAndWin() {
   };
 
   const handleRewardsSliderPointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') return;
     const slider = event.currentTarget;
     if (slider.hasPointerCapture(event.pointerId)) {
       slider.releasePointerCapture(event.pointerId);

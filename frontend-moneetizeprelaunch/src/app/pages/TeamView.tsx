@@ -8,6 +8,7 @@ import { getStoredProfileSettings, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTIN
 import { buildInviteLink } from '../utils/invitationLinks';
 import { getAgentAvatarTone, getSelectedAvatarImage } from '../utils/avatarUtils';
 import { hydrateRemoteProfileSettings } from '../services/profilePersistenceService';
+import { loadInviteTeam } from '../services/inviteService';
 import {
   deletePendingInvite,
   getPendingTeamInviteMembers,
@@ -53,7 +54,9 @@ export function TeamView() {
   const [userPhoto, setUserPhoto] = useState('');
   const [selectedAvatar, setSelectedAvatar] = useState('blueAvatar');
   const [removedMemberIds, setRemovedMemberIds] = useState<Array<number | string>>([]);
+  const [acceptedInviteMembers, setAcceptedInviteMembers] = useState<TeamMember[]>([]);
   const [pendingInviteMembers, setPendingInviteMembers] = useState<TeamMember[]>([]);
+  const [teamLimit, setTeamLimit] = useState(5);
   const [inviteActionMessage, setInviteActionMessage] = useState('');
 
   useEffect(() => {
@@ -88,6 +91,54 @@ export function TeamView() {
         }))
       );
     };
+    const refreshInviteTeam = () => {
+      void loadInviteTeam()
+        .then((team) => {
+          if (!team) return;
+
+          setTeamLimit(team.maxAccepted || 5);
+          setAcceptedInviteMembers((team.members || []).map((member) => ({
+            id: member.id,
+            name: member.name,
+            email: member.email,
+            phone: member.phone,
+            contact: member.contact,
+            handle: member.handle || '',
+            points: member.points || 0,
+            avatar: member.avatar || '',
+            inviteUrl: member.inviteUrl,
+            sentAt: member.sentAt,
+            status: 'active' as const,
+          })));
+
+          if (team.pending?.length) {
+            setPendingInviteMembers((currentPending) => {
+              const localIds = new Set(currentPending.map((invite) => String(invite.id)));
+              const remotePending = (team.pending || [])
+                .filter((invite) => !localIds.has(String(invite.id)))
+                .map((invite) => ({
+                  id: invite.id,
+                  name: invite.name,
+                  email: invite.email,
+                  phone: invite.phone,
+                  contact: invite.contact,
+                  handle: invite.handle || '',
+                  points: 0,
+                  avatar: '',
+                  inviteType: invite.type,
+                  inviteUrl: invite.inviteUrl,
+                  sentAt: invite.sentAt,
+                  status: 'pending' as const,
+                }));
+
+              return [...currentPending, ...remotePending];
+            });
+          }
+        })
+        .catch((error) => {
+          console.warn('Invite team sync skipped:', error);
+        });
+    };
 
     setUserPointsState(points);
     applyProfileSettings();
@@ -99,6 +150,7 @@ export function TeamView() {
         console.warn('Remote team profile hydration skipped:', error);
       });
     refreshPendingInviteMembers();
+    refreshInviteTeam();
 
     const syncPointBalance = () => setUserPointsState(getUserPoints());
     const handleProfileSettingsUpdated = () => applyProfileSettings();
@@ -108,6 +160,7 @@ export function TeamView() {
       }
       if (!event.key || ['sentInvites', 'pendingInvitations', 'pendingTeamInvites'].includes(event.key)) {
         refreshPendingInviteMembers();
+        refreshInviteTeam();
       }
       if (!event.key || event.key === 'teamName') {
         applyProfileSettings();
@@ -119,13 +172,17 @@ export function TeamView() {
 
     window.addEventListener(PROFILE_SETTINGS_UPDATED_EVENT, handleProfileSettingsUpdated);
     window.addEventListener(POINTS_UPDATED_EVENT, syncPointBalance);
-    window.addEventListener(INVITES_UPDATED_EVENT, refreshPendingInviteMembers);
+    const handleInvitesUpdated = () => {
+      refreshPendingInviteMembers();
+      refreshInviteTeam();
+    };
+    window.addEventListener(INVITES_UPDATED_EVENT, handleInvitesUpdated);
     window.addEventListener('storage', handleStorageChange);
 
     return () => {
       window.removeEventListener(PROFILE_SETTINGS_UPDATED_EVENT, handleProfileSettingsUpdated);
       window.removeEventListener(POINTS_UPDATED_EVENT, syncPointBalance);
-      window.removeEventListener(INVITES_UPDATED_EVENT, refreshPendingInviteMembers);
+      window.removeEventListener(INVITES_UPDATED_EVENT, handleInvitesUpdated);
       window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
@@ -224,15 +281,14 @@ export function TeamView() {
       status: 'active',
       isCurrentUser: true,
     },
-    { id: 1, name: 'Russell Westbrook', handle: '@russell', points: 42, debt: 'Debt: $ 8 000', avatar: 'https://images.unsplash.com/photo-1629507208649-70919ca33793?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMG1hbiUyMHBvcnRyYWl0fGVufDF8fHx8MTc3NDA4MzYxOXww&ixlib=rb-4.1.0&q=80&w=1080', status: 'active' },
-    { id: 2, name: 'Alex McKein', handle: '@alex', points: 40, debt: 'Debt: $ 8 000', avatar: 'https://images.unsplash.com/photo-1768853972795-2739a9685567?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjB3b21hbiUyMGF0aGxldGUlMjBwb3J0cmFpdHxlbnwxfHx8fDE3NzQxNDA1NDh8MA&ixlib=rb-4.1.0&q=80&w=1080', status: 'active' },
-    { id: 3, name: 'Bill Winston', handle: '@bill', points: 35, debt: 'Debt: $ 8 000', avatar: 'https://images.unsplash.com/photo-1758876204244-930299843f07?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjB5b3VuZyUyMG1hbiUyMHNtaWxpbmd8ZW58MXx8fHwxNzc0MTQwNTQ5fDA&ixlib=rb-4.1.0&q=80&w=1080', status: 'active' },
-    { id: 4, name: 'Jim Kerry', handle: '@jim', points: 27, avatar: 'https://images.unsplash.com/photo-1769636929132-e4e7b50cfac0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMGZlbWFsZSUyMGJ1c2luZXNzfGVufDF8fHx8MTc3NDEyNTQ5OXww&ixlib=rb-4.1.0&q=80&w=1080', status: 'active', canRemove: true },
+    ...acceptedInviteMembers.slice(0, teamLimit),
     ...pendingInviteMembers,
   ];
   const visibleTeamMembers = teamMembers.filter((member) => !removedMemberIds.includes(member.id));
-  const sortedTeam = [...visibleTeamMembers].sort((a, b) => b.points - a.points);
-  const displayedTeamProgress = visibleTeamMembers.reduce((total, member) => total + (member.points || 0), 0);
+  const activeTeamMembers = visibleTeamMembers.filter((member) => member.status !== 'pending');
+  const pendingTeamMembers = visibleTeamMembers.filter((member) => member.status === 'pending');
+  const sortedTeam = [...activeTeamMembers].sort((a, b) => b.points - a.points);
+  const displayedTeamProgress = activeTeamMembers.reduce((total, member) => total + (member.points || 0), 0);
 
   const renderStatusBar = () => (
     <div className="h-11 flex items-center justify-between px-4 text-white text-sm">
@@ -410,7 +466,7 @@ export function TeamView() {
                 })}
               </div>
 
-              {sortedTeam.slice(3).map((member, index) => (
+              {[...sortedTeam.slice(3), ...pendingTeamMembers].map((member, index) => (
                 <div
                   key={member.id}
                   className="mb-3 flex min-h-[62px] items-center gap-3 rounded-[1rem] border border-white/10 bg-white/[0.08] px-5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"

@@ -2,6 +2,7 @@ import { getInviteInitials } from './invitationLinks';
 import { safeGetItem, safeSetItem } from './storage';
 
 export const INVITE_POINTS_PER_RECIPIENT = 2;
+export const MAX_RELEASE_TEAM_INVITES = 5;
 export const SENT_INVITES_STORAGE_KEY = 'sentInvites';
 export const PENDING_INVITATIONS_STORAGE_KEY = 'pendingInvitations';
 export const PENDING_TEAM_INVITES_STORAGE_KEY = 'pendingTeamInvites';

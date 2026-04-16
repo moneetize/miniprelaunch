@@ -14,6 +14,21 @@ export interface InviteSendResult {
   smsDeliveries?: Array<{ to: string; status: 'sent' | 'queued' | 'failed'; error?: string }>;
 }
 
+export interface InviteTeamMember {
+  id: string;
+  name: string;
+  handle?: string;
+  email?: string;
+  phone?: string;
+  contact?: string;
+  avatar?: string;
+  points: number;
+  status: 'active' | 'pending';
+  type?: 'email' | 'sms';
+  inviteUrl?: string;
+  sentAt?: string;
+}
+
 interface InviteResponse {
   success?: boolean;
   data?: InviteSendResult;
@@ -38,6 +53,19 @@ interface TrackUrlInviteResponse {
         canScratch: boolean;
       };
     } | null;
+  };
+  error?: string;
+}
+
+interface InviteTeamResponse {
+  success?: boolean;
+  data?: {
+    members?: InviteTeamMember[];
+    pending?: InviteTeamMember[];
+    acceptedCount?: number;
+    pendingCount?: number;
+    teamProgressPoints?: number;
+    maxAccepted?: number;
   };
   error?: string;
 }
@@ -115,6 +143,24 @@ export async function sendInvitesFromServer({
   if (smsRecipients.length) recordSentInvites(smsRecipients, 'sms', inviteLink);
 
   return result.data;
+}
+
+export async function loadInviteTeam() {
+  if (!getAccessToken()) {
+    return null;
+  }
+
+  const response = await fetch(`${INVITES_API_URL}/team`, {
+    method: 'GET',
+    headers: authHeaders(),
+  });
+  const result = await readJson<InviteTeamResponse>(response);
+
+  if (!response.ok || !result.success) {
+    throw new Error(result.error || 'Failed to load invite team.');
+  }
+
+  return result.data || null;
 }
 
 export async function trackUrlInviteOpen({

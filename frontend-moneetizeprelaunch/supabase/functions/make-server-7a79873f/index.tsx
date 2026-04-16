@@ -65,6 +65,7 @@ const MAX_FOLLOW_POINTS_TOTAL = 10;
 const MAX_USER_POINTS = 150;
 const INITIAL_SCRATCH_CREDITS = 1;
 const MAX_SCRATCH_OPPORTUNITIES = 5;
+const MAX_RELEASE_TEAM_INVITES = 5;
 const GUARANTEED_CASH_WINS = 2;
 const ADMIN_NOTIFICATION_EMAIL = 'admin@moneetize.com';
 const CHAT_THREAD_LIMIT = 100;
@@ -1184,10 +1185,14 @@ const upsertChatThreadIndex = async (userId: string, thread: Record<string, unkn
 
 const createAgentFallbackReply = (prompt: string) => {
   const createdAt = new Date().toISOString();
-  const lowerPrompt = prompt.toLowerCase();
-  const content = lowerPrompt.includes('invest') || lowerPrompt.includes('market') || lowerPrompt.includes('stock') || lowerPrompt.includes('crypto')
-    ? 'Tell me your goal, timeline, and risk comfort. I can help compare the tradeoffs, explain market terms, and turn the options into a clear next-step checklist.'
-    : 'Tell me what you want to work through. I can help with money questions, rewards, marketplace redemptions, profile setup, and launch-team strategy.';
+  const normalizedPrompt = prompt.trim();
+  const lowerPrompt = normalizedPrompt.toLowerCase();
+  const isVaguePrompt = /^(anything|any thing|whatever|surprise me|help|hi|hello|hey)$/i.test(lowerPrompt);
+  const content = isVaguePrompt
+    ? 'Absolutely. You can ask me anything: money basics, investing concepts, rewards, merch redemptions, business ideas, or how to move through the app. A useful starting point: pick one goal for this week, then ask me to break it into a simple plan.'
+    : lowerPrompt.includes('invest') || lowerPrompt.includes('market') || lowerPrompt.includes('stock') || lowerPrompt.includes('crypto')
+      ? `Here is a practical way to think about it: start with the goal, time horizon, risk level, and how much flexibility you need. For "${normalizedPrompt}", I would compare the upside, downside, liquidity, fees, and what would make you change course before putting money at risk.`
+      : `Here is a direct starting point for "${normalizedPrompt}": break it into what you know, what decision you need to make, and the next action you can take. Ask me a follow-up and I can go deeper from there.`;
 
   return {
     id: crypto.randomUUID(),
@@ -1236,8 +1241,11 @@ const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
     const agentInstructions = [
       'You are the Moneetize personal AI agent.',
       'Respond naturally and directly, like a helpful ChatGPT-style assistant inside the app.',
-      'Help with budgeting, markets, investing concepts, portfolio thinking, rewards, merch redemption, invites, profile setup, and app navigation.',
+      'Answer broad general questions across normal user topics, not only finance or app questions.',
+      'Help with budgeting, markets, investing concepts, portfolio thinking, rewards, merch redemption, invites, profile setup, app navigation, planning, writing, explanations, and brainstorming.',
       'For financial topics, be useful and concrete: explain options, risks, tradeoffs, and questions to ask. Do not promise returns, invent live prices, or claim to be a licensed advisor.',
+      'Do not gate normal answers behind repeated intake questions. Ask for more details only when the user is asking for personalized advice and the missing detail materially changes the answer.',
+      'If the user says something vague like "anything", give a useful answer and a few suggested directions instead of asking the same question back.',
       'Keep caveats brief and only when they matter. Avoid repetitive warnings, alarmist language, and canned disclaimers.',
       'Use concise paragraphs, ask follow-up questions only when needed, and keep the conversation moving.',
     ].join(' ');
@@ -1262,6 +1270,7 @@ const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
             ...recentMessages,
           ],
           max_output_tokens: 900,
+          temperature: 0.7,
         }),
       });
 
@@ -3101,6 +3110,93 @@ app.post("/make-server-7a79873f/admin/delete-by-email", async (c) => {
 });
 
 // Invites Routes
+app.get("/make-server-7a79873f/invites/team", async (c) => {
+  try {
+    const currentUser = await verifyCurrentUser(c);
+    if ('response' in currentUser) return currentUser.response;
+
+    const inviteHistoryKey = `${INVITE_HISTORY_PREFIX}${currentUser.user.id}`;
+    const history = parseStoredJsonArray(await kv.get(inviteHistoryKey));
+    const usersResult = await auth.listAllUsers();
+    const users = usersResult.success && usersResult.data?.users ? usersResult.data.users : [];
+    const usersById = new Map(users.map((user: any) => [user.id, user]));
+    const usersByEmail = new Map(users.map((user: any) => [`${user.email || ''}`.toLowerCase(), user]));
+    const formatInviteName = (value: string) => (
+      `${value || 'Moneetize Member'}`
+        .split('@')[0]
+        .replace(/[._-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/\b\w/g, (match) => match.toUpperCase()) || 'Moneetize Member'
+    );
+    const uniqueRecords = (records: any[]) => {
+      const seen = new Set<string>();
+      return records.filter((record) => {
+        const key = `${record?.inviteeId || record?.inviteeEmail || record?.email || record?.phone || record?.contact || record?.visitorId || record?.id || ''}`.trim().toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    };
+
+    const acceptedRecords = uniqueRecords(history.filter((invite: any) => invite?.status === 'accepted'))
+      .slice(0, MAX_RELEASE_TEAM_INVITES);
+    const pendingRecords = uniqueRecords(history.filter((invite: any) => (
+      invite?.status === 'pending' ||
+      invite?.deliveryStatus === 'queued' ||
+      invite?.deliveryStatus === 'sent' ||
+      invite?.deliveryStatus === 'opened'
+    ))).slice(0, 50);
+
+    const members = await Promise.all(acceptedRecords.map(async (invite: any, index: number) => {
+      const inviteeId = `${invite?.inviteeId || ''}`.trim();
+      const inviteeEmail = `${invite?.inviteeEmail || invite?.email || ''}`.trim().toLowerCase();
+      const user = (inviteeId && usersById.get(inviteeId)) || (inviteeEmail && usersByEmail.get(inviteeEmail));
+      const storedSettings = user?.id ? await kv.get(`${PROFILE_SETTINGS_PREFIX}${user.id}`) : null;
+      const settings = normalizeProfileSettings(storedSettings || {}, user || { email: inviteeEmail });
+      const storedPoints = user?.id ? await kv.get(`user_points:${user.id}`) : null;
+
+      return {
+        id: user?.id || inviteeId || inviteeEmail || invite?.contact || invite?.id || `accepted-${index}`,
+        name: settings.name || formatInviteName(inviteeEmail || invite?.contact),
+        handle: settings.handle || formatUserHandle(settings.name || formatInviteName(inviteeEmail || invite?.contact)),
+        email: inviteeEmail || user?.email || '',
+        avatar: settings.photo || '',
+        points: parseStoredNumber(storedPoints, 0),
+        status: 'active',
+        acceptedAt: invite?.updatedAt || invite?.sentAt || '',
+      };
+    }));
+    const pending = pendingRecords.map((invite: any, index: number) => ({
+      id: invite?.id || `pending-${index}`,
+      type: invite?.type === 'sms' ? 'sms' : 'email',
+      contact: invite?.contact || invite?.email || invite?.phone || '',
+      email: invite?.email || '',
+      phone: invite?.phone || '',
+      name: formatInviteName(invite?.contact || invite?.email || invite?.phone || ''),
+      inviteUrl: invite?.inviteUrl || '',
+      sentAt: invite?.sentAt || '',
+      status: 'pending',
+    }));
+    const teamProgressPoints = members.reduce((total, member) => total + (member.points || 0), 0);
+
+    return c.json({
+      success: true,
+      data: {
+        members,
+        pending,
+        acceptedCount: members.length,
+        pendingCount: pending.length,
+        teamProgressPoints,
+        maxAccepted: MAX_RELEASE_TEAM_INVITES,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Invite team endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to load invite team' }, 500);
+  }
+});
+
 app.post("/make-server-7a79873f/invites/send", async (c) => {
   try {
     const currentUser = await verifyCurrentUser(c);
@@ -3118,8 +3214,8 @@ app.post("/make-server-7a79873f/invites/send", async (c) => {
       return c.json({ success: false, error: 'Add at least one email address or phone number.' }, 400);
     }
 
-    if (emails.length + phones.length > 10) {
-      return c.json({ success: false, error: 'Maximum 10 invites allowed at a time' }, 400);
+    if (emails.length + phones.length > MAX_RELEASE_TEAM_INVITES) {
+      return c.json({ success: false, error: `Maximum ${MAX_RELEASE_TEAM_INVITES} invites allowed at a time for this release` }, 400);
     }
 
     if (invalidEmails.length || invalidPhones.length) {
@@ -3189,7 +3285,7 @@ app.post("/make-server-7a79873f/invites/send", async (c) => {
         inviterName,
         status: deliveryRecord.delivery.status === 'failed' ? 'failed' : 'pending',
         deliveryStatus: deliveryRecord.delivery.status,
-        deliveryProvider: deliveryRecord.type === 'sms' ? 'aws-sns' : 'resend',
+        deliveryProvider: deliveryRecord.type === 'sms' ? 'twilio' : 'resend',
         deliveryError: 'error' in deliveryRecord.delivery ? deliveryRecord.delivery.error : undefined,
         deliveryMessageId: 'messageId' in deliveryRecord.delivery ? deliveryRecord.delivery.messageId : undefined,
         points: 0,
@@ -3301,6 +3397,25 @@ app.post("/make-server-7a79873f/invites/track-url", async (c) => {
     ));
     const userPointsKey = `user_points:${inviterId}`;
     const currentPoints = parseStoredNumber(await kv.get(userPointsKey), DEFAULT_USER_POINTS);
+    const acceptedInvitees = getUniqueAcceptedInvitees(history);
+    const isNewAcceptedInvitee = Boolean(invitedUser?.id && !acceptedInvitees.has(invitedUser.id));
+
+    if (isNewAcceptedInvitee && acceptedInvitees.size >= MAX_RELEASE_TEAM_INVITES) {
+      return c.json({
+        success: true,
+        data: {
+          tracked: false,
+          pointsEarned: 0,
+          newTotalPoints: currentPoints,
+          scratchUnlock: {
+            unlocked: false,
+            reason: 'team_full',
+            message: 'This release team already has five accepted invites.',
+            credits: await loadScratchCreditState(inviterId).then((state) => state.credits),
+          },
+        },
+      }, 200);
+    }
 
     if (alreadyTracked) {
       return c.json({

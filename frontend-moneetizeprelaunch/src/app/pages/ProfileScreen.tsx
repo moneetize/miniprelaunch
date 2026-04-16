@@ -530,7 +530,6 @@ export function ProfileScreen() {
 
   const totalUsdtWon = Math.max(balance, getScratchHistoryUsdtTotal(scratchHistory));
   const displayBalance = formatUsdtBalance(totalUsdtWon);
-  const displayNetworkingPoints = teamMembers.reduce((total, member) => total + (member.points || 0), 0);
   const availableScratchCredits = scratchCredits?.available || 0;
   const hasScratchOpportunity = availableScratchCredits > 0;
   const userInitials = userName
@@ -669,6 +668,13 @@ export function ProfileScreen() {
   );
   const followingCount = candidateNetworkProfiles.filter((profile) => isNetworkProfileFollowing(profile)).length;
   const followersCount = candidateNetworkProfiles.filter((profile) => profile.followsMe).length;
+  const displayNetworkingPoints = Math.min(
+    10,
+    candidateNetworkProfiles.reduce((total, profile) => {
+      if (!isNetworkProfileFollowing(profile)) return total;
+      return total + 1 + (profile.followsMe ? 2 : 0);
+    }, 0),
+  );
 
   const handleToggleNetworkFollow = (profile: NetworkProfile) => {
     if (profile.isCurrentUser) return;

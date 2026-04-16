@@ -5,10 +5,9 @@ import { AlertCircle, Check, CheckCircle, ChevronLeft, Copy, Mail, MessageSquare
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import { buildInviteLink } from '../utils/invitationLinks';
 import { sendInvitesFromServer } from '../services/inviteService';
-import { INVITE_POINTS_PER_RECIPIENT } from '../utils/inviteSync';
+import { INVITE_POINTS_PER_RECIPIENT, MAX_RELEASE_TEAM_INVITES } from '../utils/inviteSync';
 import { getStoredScratchCredits, loadScratchProfile, type ScratchCredits } from '../services/scratchService';
 
-const MAX_INVITES_PER_METHOD = 5;
 const SMS_PHONE_EXAMPLE = '+15551234567';
 
 const normalizePhoneForSms = (phone: string) => {
@@ -96,11 +95,15 @@ export function ShareInvites() {
   };
 
   const handleAddEmail = () => {
-    setEmails((current) => (current.length < MAX_INVITES_PER_METHOD ? [...current, ''] : current));
+    setEmails((current) => (
+      current.length + phoneNumbers.length < MAX_RELEASE_TEAM_INVITES ? [...current, ''] : current
+    ));
   };
 
   const handleAddPhone = () => {
-    setPhoneNumbers((current) => (current.length < MAX_INVITES_PER_METHOD ? [...current, ''] : current));
+    setPhoneNumbers((current) => (
+      emails.length + current.length < MAX_RELEASE_TEAM_INVITES ? [...current, ''] : current
+    ));
   };
 
   const handleCopyLink = async () => {
@@ -129,6 +132,11 @@ export function ShareInvites() {
 
     if (invalidPhoneNumbers.length) {
       setError(`Please enter valid phone numbers like ${SMS_PHONE_EXAMPLE}. US numbers can also be typed as 555-123-4567.`);
+      return;
+    }
+
+    if (validPhoneNumbers.length > MAX_RELEASE_TEAM_INVITES) {
+      setError(`Only ${MAX_RELEASE_TEAM_INVITES} invites can be sent at a time for this release.`);
       return;
     }
 
@@ -184,6 +192,11 @@ export function ShareInvites() {
       return;
     }
 
+    if (validEmails.length > MAX_RELEASE_TEAM_INVITES) {
+      setError(`Only ${MAX_RELEASE_TEAM_INVITES} invites can be sent at a time for this release.`);
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -224,6 +237,7 @@ export function ShareInvites() {
   const filledPhonesCount = phoneNumbers.filter((phone) => phone.trim() !== '').length;
   const potentialPoints = (filledEmailsCount + filledPhonesCount) * INVITE_POINTS_PER_RECIPIENT;
   const availableScratchCredits = scratchCredits?.available || 0;
+  const totalInviteSlots = emails.length + phoneNumbers.length;
 
   return (
     <div className="absolute inset-0 h-full w-full overflow-y-auto bg-[#060708] text-white [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
@@ -326,7 +340,7 @@ export function ShareInvites() {
           <div className="mb-5 grid grid-cols-2 gap-2.5">
             <div className="rounded-[1.1rem] border border-white/8 bg-white/[0.045] px-4 py-3">
               <p className="text-[11px] font-bold text-white/42">Ready Now</p>
-              <p className="mt-1 text-xl font-black text-white">{filledEmailsCount + filledPhonesCount}/{MAX_INVITES_PER_METHOD * 2}</p>
+              <p className="mt-1 text-xl font-black text-white">{filledEmailsCount + filledPhonesCount}/{MAX_RELEASE_TEAM_INVITES}</p>
               <p className="text-[11px] font-semibold text-white/36">invites</p>
             </div>
             <div className="rounded-[1.1rem] border border-emerald-300/18 bg-emerald-300/[0.055] px-4 py-3">
@@ -385,13 +399,13 @@ export function ShareInvites() {
                   </span>
                   <div className="min-w-0">
                     <h2 className="text-sm font-black text-white">Email</h2>
-                    <p className="text-[11px] font-semibold text-white/40">Send up to 5</p>
+                    <p className="text-[11px] font-semibold text-white/40">Five total invites for this release</p>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={handleAddEmail}
-                  disabled={emails.length >= MAX_INVITES_PER_METHOD}
+                  disabled={totalInviteSlots >= MAX_RELEASE_TEAM_INVITES}
                   className="flex h-8 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 text-[11px] font-black text-white/78 transition-colors hover:bg-white/12 disabled:cursor-not-allowed disabled:opacity-35"
                 >
                   <Plus className="h-3.5 w-3.5" />
@@ -443,7 +457,7 @@ export function ShareInvites() {
                 <button
                   type="button"
                   onClick={handleAddPhone}
-                  disabled={phoneNumbers.length >= MAX_INVITES_PER_METHOD}
+                  disabled={totalInviteSlots >= MAX_RELEASE_TEAM_INVITES}
                   className="flex h-8 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 text-[11px] font-black text-white/78 transition-colors hover:bg-white/12 disabled:cursor-not-allowed disabled:opacity-35"
                 >
                   <Plus className="h-3.5 w-3.5" />
@@ -511,7 +525,7 @@ export function ShareInvites() {
 
             <button
               onClick={handleSendSMS}
-              disabled={filledPhonesCount === 0}
+              disabled={isLoading || filledPhonesCount === 0}
               className="flex h-[52px] w-full items-center justify-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-5 text-sm font-black text-white shadow-[0_16px_38px_rgba(0,0,0,0.25)] transition-colors hover:bg-white/12 disabled:cursor-not-allowed disabled:opacity-35"
             >
               <MessageSquare className="h-[18px] w-[18px]" />
@@ -527,7 +541,7 @@ export function ShareInvites() {
           >
             <p className="text-[11px] font-black uppercase tracking-[0.16em] text-white/36">Team Sync</p>
             <p className="mt-1 text-xs font-semibold leading-relaxed text-white/54">
-              Sent email and SMS invites stay in the pending invite list.
+              Email, SMS, and copied-link accepts build your five-member release team.
             </p>
           </motion.div>
         </motion.section>

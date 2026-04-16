@@ -268,6 +268,7 @@ export function MerchMarketplace() {
   });
 
   const handleSliderPointerDown = (key: SliderKey, event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     if (isInteractiveTarget(event.target)) return;
 
@@ -282,6 +283,7 @@ export function MerchMarketplace() {
   };
 
   const handleSliderPointerMove = (key: SliderKey, event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') return;
     const slider = event.currentTarget;
     const drag = sliderDragRef.current[key];
     if (!drag.isDragging) return;
@@ -292,6 +294,7 @@ export function MerchMarketplace() {
   };
 
   const handleSliderPointerEnd = (key: SliderKey, event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') return;
     const slider = event.currentTarget;
     if (slider.hasPointerCapture(event.pointerId)) {
       slider.releasePointerCapture(event.pointerId);

@@ -528,6 +528,7 @@ function WinningsScreen() {
   };
 
   const handleWinningsSliderPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     if (isInteractiveTarget(event.target)) return;
 
@@ -543,6 +544,7 @@ function WinningsScreen() {
   };
 
   const handleWinningsSliderPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') return;
     const slider = event.currentTarget;
     const drag = winningsSliderDragRef.current;
     if (!drag.isDragging) return;
@@ -556,6 +558,7 @@ function WinningsScreen() {
   };
 
   const handleWinningsSliderPointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') return;
     const slider = event.currentTarget;
     if (slider.hasPointerCapture(event.pointerId)) {
       slider.releasePointerCapture(event.pointerId);

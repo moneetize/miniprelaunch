@@ -1,5 +1,5 @@
 import { projectId, publicAnonKey } from '/utils/supabase/info';
-import { getUserPoints } from '../utils/pointsManager';
+import { getUserPoints, setUserPoints } from '../utils/pointsManager';
 import { safeGetItem, safeSetItem } from '../utils/storage';
 
 export interface RecommendedFriendProfile {
@@ -28,6 +28,10 @@ type NetworkFollowStatesResponse = {
   success?: boolean;
   data?: {
     states?: Record<string, boolean>;
+    pointsAward?: {
+      pointsAwarded?: number;
+      newTotalPoints?: number | null;
+    } | null;
   };
   error?: string;
 };
@@ -277,6 +281,11 @@ export async function saveNetworkFollowState(
 
   if (!response.ok || !result.success) {
     throw new Error(result.error || 'Failed to save network follow state.');
+  }
+
+  const remotePointBalance = result.data?.pointsAward?.newTotalPoints;
+  if (typeof remotePointBalance === 'number') {
+    setUserPoints(remotePointBalance);
   }
 
   return result.data?.states || { [targetProfileId]: following };
