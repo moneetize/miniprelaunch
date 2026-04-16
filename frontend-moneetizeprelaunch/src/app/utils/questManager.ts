@@ -1,4 +1,6 @@
 import { addUserPoints } from './pointsManager';
+import { syncGameplayQuestCompletion } from '../services/gameplayService';
+import { safeGetItem } from './storage';
 
 export interface Quest {
   id: number;
@@ -84,8 +86,21 @@ export function completeQuest(questId: number): boolean {
   quest.completed = true;
   quest.completedAt = new Date().toISOString();
   
-  // Award points
-  addUserPoints(quest.points, `quest-${quest.type}`);
+  if (safeGetItem('access_token')) {
+    syncGameplayQuestCompletion({
+      questId,
+      title: quest.title.replace(/\s+/g, ' '),
+      points: quest.points,
+      source: `quest-${quest.type}`,
+      progress: quest.requirement || 1,
+      completed: true,
+    }).catch((error) => {
+      console.error('Remote gameplay quest sync failed; using local points fallback:', error);
+      addUserPoints(quest.points, `quest-${quest.type}`);
+    });
+  } else {
+    addUserPoints(quest.points, `quest-${quest.type}`);
+  }
   
   saveQuests(quests);
   

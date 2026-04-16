@@ -4,8 +4,8 @@ import { AnimatePresence, motion } from 'motion/react';
 import { AlertCircle, Check, CheckCircle, ChevronLeft, Copy, Mail, MessageSquare, Plus, X } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import { buildInviteLink } from '../utils/invitationLinks';
-import { INVITE_POINTS_PER_RECIPIENT, recordSentInvites, type InviteDeliveryType } from '../utils/inviteSync';
-import { addUserPoints } from '../utils/pointsManager';
+import { sendInvitesFromServer } from '../services/inviteService';
+import { INVITE_POINTS_PER_RECIPIENT } from '../utils/inviteSync';
 
 const MAX_INVITES_PER_METHOD = 5;
 
@@ -30,25 +30,6 @@ export function ShareInvites() {
 
   const getInviteMessage = () =>
     `Hey! I invited you to Moneetize. Start here and scratch to win rewards: ${inviteLink}`;
-
-  const getSmsUrl = (recipients: string[], message: string) => {
-    const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-    const separator = /iPad|iPhone|iPod/i.test(userAgent) ? '&' : '?';
-    const cleanedRecipients = recipients.map((phone) => phone.replace(/[^\d+]/g, '')).join(',');
-
-    return `sms:${cleanedRecipients}${separator}body=${encodeURIComponent(message)}`;
-  };
-
-  const awardInvitePoints = async (inviteCount: number) => {
-    const pointsEarned = inviteCount * INVITE_POINTS_PER_RECIPIENT;
-    await addUserPoints(pointsEarned, 'referral');
-    return pointsEarned;
-  };
-
-  const syncInviteRecords = async (recipients: string[], type: InviteDeliveryType) => {
-    recordSentInvites(recipients, type, inviteLink);
-    return awardInvitePoints(recipients.length);
-  };
 
   const handleEmailChange = (index: number, value: string) => {
     setEmails((current) => current.map((email, emailIndex) => (emailIndex === index ? value : email)));
@@ -103,14 +84,30 @@ export function ShareInvites() {
       return;
     }
 
-    const pointsEarned = await syncInviteRecords(validPhoneNumbers, 'sms');
-    const smsUrl = getSmsUrl(validPhoneNumbers, getInviteMessage());
+    setIsLoading(true);
 
-    setSentPhones(validPhoneNumbers);
-    setSentEmails([]);
-    setSuccessMessage(`SMS composer opened for ${validPhoneNumbers.length} invite${validPhoneNumbers.length > 1 ? 's' : ''}. You earned ${pointsEarned} points.`);
-    setPhoneNumbers(['', '']);
-    window.location.href = smsUrl;
+    try {
+      const result = await sendInvitesFromServer({
+        phones: validPhoneNumbers,
+        inviteLink,
+        message: getInviteMessage(),
+      });
+      const queuedCount = result.smsDeliveries?.filter((delivery) => delivery.status === 'queued').length || 0;
+
+      setSentPhones(validPhoneNumbers);
+      setSentEmails([]);
+      setSuccessMessage(
+        queuedCount
+          ? `${validPhoneNumbers.length} SMS invite${validPhoneNumbers.length > 1 ? 's' : ''} queued. You earned ${result.pointsEarned} points.`
+          : `${validPhoneNumbers.length} SMS invite${validPhoneNumbers.length > 1 ? 's' : ''} sent. You earned ${result.pointsEarned} points.`,
+      );
+      setPhoneNumbers(['', '']);
+    } catch (err) {
+      console.error('Send SMS invites error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to send SMS invites. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSendInvites = async () => {
@@ -132,15 +129,21 @@ export function ShareInvites() {
     setIsLoading(true);
 
     try {
-      const inviteMessage = getInviteMessage();
-      const pointsEarned = await syncInviteRecords(validEmails, 'email');
-      const mailtoUrl = `mailto:${validEmails.map(encodeURIComponent).join(',')}?subject=${encodeURIComponent('Your Moneetize invite')}&body=${encodeURIComponent(inviteMessage)}`;
+      const result = await sendInvitesFromServer({
+        emails: validEmails,
+        inviteLink,
+        message: getInviteMessage(),
+      });
+      const queuedCount = result.emailDeliveries?.filter((delivery) => delivery.status === 'queued').length || 0;
 
       setSentEmails(validEmails);
       setSentPhones([]);
-      setSuccessMessage(`Email composer opened for ${validEmails.length} invite${validEmails.length > 1 ? 's' : ''}. You earned ${pointsEarned} points.`);
+      setSuccessMessage(
+        queuedCount
+          ? `${validEmails.length} email invite${validEmails.length > 1 ? 's' : ''} queued. You earned ${result.pointsEarned} points.`
+          : `${validEmails.length} email invite${validEmails.length > 1 ? 's' : ''} sent. You earned ${result.pointsEarned} points.`,
+      );
       setEmails(['', '']);
-      window.location.href = mailtoUrl;
     } catch (err) {
       console.error('Send invites error:', err);
       setError(err instanceof Error ? err.message : 'Failed to send invites. Please try again.');

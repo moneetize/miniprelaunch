@@ -1,5 +1,6 @@
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { safeGetItem, safeSetItem } from '../utils/storage';
+import { setUserPoints } from '../utils/pointsManager';
 
 export type MarketplaceProductStatus = 'active' | 'draft';
 
@@ -43,6 +44,9 @@ export interface MarketplaceOrder {
   userEmail?: string;
   emailDelivery?: MarketplaceEmailDelivery;
   emailNotifications?: MarketplaceEmailNotification[];
+  pointsBalanceBefore?: number;
+  pointsBalanceAfter?: number;
+  inventoryReserved?: boolean;
   createdAt: string;
   updatedAt?: string;
 }
@@ -429,6 +433,15 @@ interface MarketplaceOrderResponse {
   data?: {
     order?: MarketplaceOrder;
     orders?: MarketplaceOrder[];
+    products?: MarketplaceProduct[];
+  };
+  error?: string;
+}
+
+interface MarketplaceProductsResponse {
+  success?: boolean;
+  data?: {
+    products?: MarketplaceProduct[];
   };
   error?: string;
 }
@@ -436,6 +449,58 @@ interface MarketplaceOrderResponse {
 async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text();
   return text ? (JSON.parse(text) as T) : ({} as T);
+}
+
+function authHeaders() {
+  const accessToken = safeGetItem('access_token');
+
+  return {
+    Authorization: `Bearer ${publicAnonKey}`,
+    apikey: publicAnonKey,
+    'Content-Type': 'application/json',
+    ...(accessToken ? { 'x-user-token': accessToken } : {}),
+  };
+}
+
+export async function loadMarketplaceProductsFromServer() {
+  const localProducts = loadMarketplaceProducts();
+
+  try {
+    const response = await fetch(`${MARKETPLACE_API_URL}/marketplace/products`, {
+      method: 'GET',
+      headers: authHeaders(),
+    });
+    const result = await readJson<MarketplaceProductsResponse>(response);
+
+    if (!response.ok || !result.success || !result.data?.products?.length) {
+      return localProducts;
+    }
+
+    return saveMarketplaceProducts(result.data.products);
+  } catch {
+    return localProducts;
+  }
+}
+
+export async function saveMarketplaceProductsToServer(products: MarketplaceProduct[]) {
+  const localProducts = saveMarketplaceProducts(products);
+  const accessToken = safeGetItem('access_token');
+  if (!accessToken) {
+    throw new Error('Admin login is required to save marketplace products.');
+  }
+
+  const response = await fetch(`${MARKETPLACE_API_URL}/admin/marketplace-products`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify({ products: localProducts }),
+  });
+  const result = await readJson<MarketplaceProductsResponse>(response);
+
+  if (!response.ok || !result.success || !result.data?.products) {
+    throw new Error(result.error || 'Failed to save marketplace products to the server.');
+  }
+
+  return saveMarketplaceProducts(result.data.products);
 }
 
 export async function submitMarketplaceOrder(order: MarketplaceOrder) {
@@ -446,35 +511,38 @@ export async function submitMarketplaceOrder(order: MarketplaceOrder) {
     updatedAt: new Date().toISOString(),
   };
 
-  saveMarketplaceOrder(queuedOrder);
-
   const accessToken = safeGetItem('access_token');
   if (!accessToken) {
-    return queuedOrder;
+    return saveMarketplaceOrder(queuedOrder);
   }
 
   try {
     const response = await fetch(`${MARKETPLACE_API_URL}/marketplace/order`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${publicAnonKey}`,
-        apikey: publicAnonKey,
-        'Content-Type': 'application/json',
-        'x-user-token': accessToken,
-      },
-      body: JSON.stringify(queuedOrder),
+      headers: authHeaders(),
+      body: JSON.stringify({
+        ...queuedOrder,
+        catalog: loadMarketplaceProducts(),
+      }),
     });
     const result = await readJson<MarketplaceOrderResponse>(response);
 
     if (!response.ok || !result.success || !result.data?.order) {
-      console.warn('Marketplace order email dispatch was queued locally:', result.error || response.statusText);
-      return queuedOrder;
+      throw new Error(result.error || response.statusText || 'Marketplace order failed.');
+    }
+
+    if (typeof result.data.order.pointsBalanceAfter === 'number') {
+      setUserPoints(result.data.order.pointsBalanceAfter);
+    }
+
+    if (result.data.products?.length) {
+      saveMarketplaceProducts(result.data.products);
     }
 
     return saveMarketplaceOrder(result.data.order);
   } catch (error) {
-    console.warn('Marketplace order email dispatch failed; local order remains queued.', error);
-    return queuedOrder;
+    console.warn('Marketplace order failed before redemption was confirmed.', error);
+    throw error;
   }
 }
 
@@ -486,12 +554,7 @@ export async function loadMarketplaceOrdersFromServer() {
   try {
     const response = await fetch(`${MARKETPLACE_API_URL}/admin/marketplace-orders`, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${publicAnonKey}`,
-        apikey: publicAnonKey,
-        'Content-Type': 'application/json',
-        'x-user-token': accessToken,
-      },
+      headers: authHeaders(),
     });
     const result = await readJson<MarketplaceOrderResponse>(response);
 

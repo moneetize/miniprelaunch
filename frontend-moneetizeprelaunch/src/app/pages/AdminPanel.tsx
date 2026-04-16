@@ -30,9 +30,11 @@ import { loadProductCatalog, saveProductCatalog } from '../services/productServi
 import { grantEarlyAccessRequest, loadEarlyAccessRequests, type EarlyAccessRequest } from '../services/earlyAccessService';
 import {
   loadMarketplaceProducts,
+  loadMarketplaceProductsFromServer,
   loadMarketplaceOrders,
   loadMarketplaceOrdersFromServer,
   saveMarketplaceProducts,
+  saveMarketplaceProductsToServer,
   MARKETPLACE_ORDERS_UPDATED_EVENT,
   type MarketplaceOrder,
   type MarketplaceProduct,
@@ -206,6 +208,9 @@ export function AdminPanel() {
   const loadMarketplaceCatalog = () => {
     setMarketplaceProducts(loadMarketplaceProducts());
     setMarketplaceOrders(loadMarketplaceOrders());
+    void loadMarketplaceProductsFromServer().then(setMarketplaceProducts).catch((error) => {
+      console.error('Failed to load marketplace catalog from server:', error);
+    });
   };
 
   const loadMarketplaceOrdersQueue = async () => {
@@ -238,7 +243,7 @@ export function AdminPanel() {
     setActiveAdminTab('marketplace');
   };
 
-  const handleMarketplaceSave = () => {
+  const handleMarketplaceSave = async () => {
     if (!marketplaceDraft.name.trim() || !marketplaceDraft.description.trim()) {
       alert('Please add a marketplace product name and description.');
       return;
@@ -260,25 +265,40 @@ export function AdminPanel() {
       ? marketplaceProducts.map((product) => (product.id === editingMarketplaceId ? nextProduct : product))
       : [nextProduct, ...marketplaceProducts];
 
-    setMarketplaceProducts(saveMarketplaceProducts(updatedProducts));
-    resetMarketplaceForm();
-  };
-
-  const handleMarketplaceDelete = (productId: string) => {
-    if (!confirm('Delete this marketplace product?')) return;
-    setMarketplaceProducts(saveMarketplaceProducts(marketplaceProducts.filter((product) => product.id !== productId)));
-    if (editingMarketplaceId === productId) {
+    try {
+      setMarketplaceProducts(await saveMarketplaceProductsToServer(updatedProducts));
       resetMarketplaceForm();
+    } catch (error) {
+      console.error('Failed to save marketplace product:', error);
+      alert(error instanceof Error ? error.message : 'Failed to save marketplace product');
     }
   };
 
-  const handleMarketplaceInventoryChange = (productId: string, nextInventory: number) => {
+  const handleMarketplaceDelete = async (productId: string) => {
+    if (!confirm('Delete this marketplace product?')) return;
+    try {
+      setMarketplaceProducts(await saveMarketplaceProductsToServer(marketplaceProducts.filter((product) => product.id !== productId)));
+      if (editingMarketplaceId === productId) {
+        resetMarketplaceForm();
+      }
+    } catch (error) {
+      console.error('Failed to delete marketplace product:', error);
+      alert(error instanceof Error ? error.message : 'Failed to delete marketplace product');
+    }
+  };
+
+  const handleMarketplaceInventoryChange = async (productId: string, nextInventory: number) => {
     const normalizedInventory = Math.max(0, Math.round(Number(nextInventory) || 0));
     const updatedProducts = marketplaceProducts.map((product) => (
       product.id === productId ? { ...product, inventory: normalizedInventory } : product
     ));
 
     setMarketplaceProducts(saveMarketplaceProducts(updatedProducts));
+    saveMarketplaceProductsToServer(updatedProducts)
+      .then(setMarketplaceProducts)
+      .catch((error) => {
+        console.error('Failed to sync marketplace inventory:', error);
+      });
 
     if (editingMarketplaceId === productId) {
       setMarketplaceDraft((current) => ({ ...current, inventory: normalizedInventory }));

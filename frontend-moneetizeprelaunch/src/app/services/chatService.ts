@@ -30,6 +30,23 @@ type ChatMessagesResponse = {
   error?: string;
 };
 
+type ChatThreadsResponse = {
+  success?: boolean;
+  data?: {
+    threads?: Array<{
+      threadId: string;
+      type?: 'agent' | 'member' | 'team';
+      name?: string;
+      handle?: string;
+      avatar?: string;
+      lastMessage?: string;
+      lastMessageAt?: string;
+      updatedAt?: string;
+    }>;
+  };
+  error?: string;
+};
+
 const CHAT_API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-7a79873f/chat`;
 const CHAT_THREAD_STORAGE_PREFIX = 'moneetizeChatThread:';
 
@@ -111,6 +128,40 @@ export async function loadTeamChatContacts(): Promise<ChatPreview[]> {
   }
 }
 
+async function loadRemoteThreadIndex() {
+  if (!getAccessToken()) return [];
+
+  try {
+    const response = await fetch(`${CHAT_API_URL}/threads`, {
+      method: 'GET',
+      headers: authHeaders(),
+    });
+    const result = await readJson<ChatThreadsResponse>(response);
+
+    if (!response.ok || !result.success || !result.data?.threads) return [];
+    return result.data.threads;
+  } catch {
+    return [];
+  }
+}
+
+function applyRemoteThreadIndex(chats: ChatPreview[], threads: Awaited<ReturnType<typeof loadRemoteThreadIndex>>) {
+  if (!threads.length) return chats;
+
+  const threadsById = new Map(threads.map((thread) => [thread.threadId, thread]));
+
+  return chats.map((chat) => {
+    const thread = threadsById.get(getThreadId(chat));
+    if (!thread) return chat;
+
+    return {
+      ...chat,
+      lastMessage: thread.lastMessage || chat.lastMessage,
+      timestamp: thread.updatedAt || thread.lastMessageAt ? 'now' : chat.timestamp,
+    };
+  });
+}
+
 export async function loadChatPreviews(tab: 'all' | 'members' | 'teams' = 'all') {
   const contacts = await loadTeamChatContacts();
   const profile = getStoredProfileSettings();
@@ -120,10 +171,11 @@ export async function loadChatPreviews(tab: 'all' | 'members' | 'teams' = 'all')
     handle: profile.handle,
     lastMessage: contacts.length ? `${contacts[0].name}: Tap to start the team thread.` : teamChatPreview.lastMessage,
   };
+  const remoteThreads = await loadRemoteThreadIndex();
 
-  if (tab === 'members') return contacts;
-  if (tab === 'teams') return [teamPreview];
-  return [agentChatPreview, ...contacts, teamPreview];
+  if (tab === 'members') return applyRemoteThreadIndex(contacts, remoteThreads);
+  if (tab === 'teams') return applyRemoteThreadIndex([teamPreview], remoteThreads);
+  return applyRemoteThreadIndex([agentChatPreview, ...contacts, teamPreview], remoteThreads);
 }
 
 export async function getChatPreviewById(id?: string, isTeam = false): Promise<ChatPreview> {
@@ -206,7 +258,7 @@ export async function loadThreadMessages(threadId: string, fallback: ChatMessage
   }
 }
 
-export async function sendThreadMessage(threadId: string, message: ChatMessage) {
+export async function sendThreadMessage(threadId: string, message: ChatMessage, metadata?: Partial<ChatPreview>) {
   const nextMessages = [...loadLocalThreadMessages(threadId), message];
   saveLocalThreadMessages(threadId, nextMessages);
 
@@ -216,7 +268,7 @@ export async function sendThreadMessage(threadId: string, message: ChatMessage) 
     const response = await fetch(`${CHAT_API_URL}/thread/${encodeURIComponent(threadId)}`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, metadata }),
     });
     const result = await readJson<ChatMessagesResponse>(response);
 

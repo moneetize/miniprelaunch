@@ -5,7 +5,7 @@ import { CheckCircle, ChevronLeft, Minus, Plus, Search, ShoppingBag, Trash2, X }
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import {
   loadMarketplaceProducts,
-  saveMarketplaceProducts,
+  loadMarketplaceProductsFromServer,
   submitMarketplaceOrder,
   MARKETPLACE_ADMIN_EMAIL,
   MARKETPLACE_PRODUCTS_UPDATED_EVENT,
@@ -13,7 +13,7 @@ import {
   type MarketplaceOrderItem,
   type MarketplaceProduct,
 } from '../services/marketplaceService';
-import { getUserPoints, POINTS_UPDATED_EVENT, subtractUserPoints } from '../utils/pointsManager';
+import { getUserPoints, POINTS_UPDATED_EVENT } from '../utils/pointsManager';
 import { getStoredProfileSettings, isStoredProfileComplete, PROFILE_SETTINGS_UPDATED_EVENT, type StoredProfileSettings } from '../utils/profileSettings';
 import { safeGetItem, safeSetItem } from '../utils/storage';
 
@@ -185,6 +185,7 @@ export function MerchMarketplace() {
     const syncProducts = () => setProducts(loadMarketplaceProducts());
     window.addEventListener(MARKETPLACE_PRODUCTS_UPDATED_EVENT, syncProducts);
     window.addEventListener('storage', syncProducts);
+    void loadMarketplaceProductsFromServer().then(setProducts);
 
     return () => {
       window.removeEventListener(MARKETPLACE_PRODUCTS_UPDATED_EVENT, syncProducts);
@@ -461,15 +462,6 @@ export function MerchMarketplace() {
 
     setIsSubmittingOrder(true);
 
-    const result = await subtractUserPoints(cartTotal, 'marketplace-redemption');
-    setUserPoints(result.newTotal);
-
-    if (!result.success) {
-      setMessage(`You need ${formatPoints(cartTotal - result.newTotal)} more points to redeem this cart.`);
-      setIsSubmittingOrder(false);
-      return;
-    }
-
     const createdAt = new Date().toISOString();
     const orderNumber = `MNTZ-${Date.now().toString().slice(-6)}`;
     const order: MarketplaceOrder = {
@@ -513,30 +505,25 @@ export function MerchMarketplace() {
       updatedAt: createdAt,
     };
 
-    const savedOrder = await submitMarketplaceOrder(order);
-
-    const nextProducts = products.map((product) => {
-      const redeemedQuantity = cartItems
-        .filter((item) => item.productId === product.id)
-        .reduce((total, item) => total + item.quantity, 0);
-
-      return redeemedQuantity > 0
-        ? { ...product, inventory: Math.max(0, product.inventory - redeemedQuantity) }
-        : product;
-    });
-
-    setProducts(saveMarketplaceProducts(nextProducts));
-    setCartItems([]);
-    setLatestOrder(savedOrder);
-    setMessage(
-      savedOrder.emailDelivery === 'sent'
-        ? `Order ${savedOrder.orderNumber || orderNumber} placed. Confirmations were sent.`
-        : savedOrder.emailDelivery === 'failed'
-          ? `Order ${savedOrder.orderNumber || orderNumber} placed. Email confirmation needs retry.`
-          : `Order ${savedOrder.orderNumber || orderNumber} placed. Email confirmations are queued.`,
-    );
-    setIsCheckoutOpen(false);
-    setIsSubmittingOrder(false);
+    try {
+      const savedOrder = await submitMarketplaceOrder(order);
+      setProducts(loadMarketplaceProducts());
+      setUserPoints(getUserPoints());
+      setCartItems([]);
+      setLatestOrder(savedOrder);
+      setMessage(
+        savedOrder.emailDelivery === 'sent'
+          ? `Order ${savedOrder.orderNumber || orderNumber} placed. Confirmations were sent.`
+          : savedOrder.emailDelivery === 'failed'
+            ? `Order ${savedOrder.orderNumber || orderNumber} placed. Email confirmation needs retry.`
+            : `Order ${savedOrder.orderNumber || orderNumber} placed. Email confirmations are queued.`,
+      );
+      setIsCheckoutOpen(false);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Order could not be placed. Please try again.');
+    } finally {
+      setIsSubmittingOrder(false);
+    }
   };
 
   return (

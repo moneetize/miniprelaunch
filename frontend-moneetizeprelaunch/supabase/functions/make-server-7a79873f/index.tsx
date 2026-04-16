@@ -35,13 +35,21 @@ const PROFILE_SETTINGS_PREFIX = 'profile_settings:';
 const NETWORK_FOLLOWS_PREFIX = 'network_follows:';
 const POINTS_HISTORY_PREFIX = 'points_history:';
 const CHAT_THREADS_PREFIX = 'chat_thread:';
+const CHAT_INDEX_PREFIX = 'chat_index:';
 const EARLY_ACCESS_REQUESTS_KEY = 'early_access_requests';
 const EMAIL_QUEUE_KEY = 'email_notifications';
+const SMS_QUEUE_KEY = 'sms_notifications';
 const MARKETPLACE_ORDERS_KEY = 'marketplace_orders';
+const MARKETPLACE_PRODUCTS_KEY = 'marketplace_products';
+const MARKETPLACE_ORDER_LOCK_KEY = 'lock:marketplace_order';
+const MARKETPLACE_ORDER_LOCK_TTL_MS = 12000;
+const INVITE_HISTORY_PREFIX = 'invite_history:';
+const GAMEPLAY_PROGRESS_PREFIX = 'gameplay_progress:';
 const EARLY_ACCESS_POINTS_AWARD = 25;
 const INVITE_POINTS_PER_RECIPIENT = 20;
 const ADMIN_NOTIFICATION_EMAIL = 'admin@moneetize.com';
 const CHAT_THREAD_LIMIT = 100;
+const QUEUE_LIMIT = 500;
 
 const defaultRecommendedFriends = [
   {
@@ -347,7 +355,30 @@ const parseStoredJsonArray = (value: unknown) => {
   return [];
 };
 
+const parseStoredJsonObject = (value: unknown) => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, any>;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, any> : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+};
+
 const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+const normalizePhoneNumber = (phone: string) => {
+  const cleaned = `${phone || ''}`.trim().replace(/[^\d+]/g, '');
+  if (!cleaned) return '';
+  if (cleaned.startsWith('+')) return /^\+[1-9]\d{7,14}$/.test(cleaned) ? cleaned : '';
+
+  const digits = cleaned.replace(/\D/g, '');
+  const e164 = digits.length === 10 ? `+1${digits}` : `+${digits}`;
+  return /^\+[1-9]\d{7,14}$/.test(e164) ? e164 : '';
+};
 
 const escapeHtml = (value: unknown) => `${value ?? ''}`.replace(/[&<>"']/g, (char) => ({
   '&': '&amp;',
@@ -356,6 +387,68 @@ const escapeHtml = (value: unknown) => `${value ?? ''}`.replace(/[&<>"']/g, (cha
   '"': '&quot;',
   "'": '&#39;',
 }[char] || char));
+
+const serviceClient = async () => {
+  const { createClient } = await import('npm:@supabase/supabase-js');
+  return createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+  );
+};
+
+const acquireKvLock = async (lockKey: string, ttlMs = MARKETPLACE_ORDER_LOCK_TTL_MS) => {
+  const token = crypto.randomUUID();
+  const now = Date.now();
+  const existingLock = parseStoredJsonObject(await kv.get(lockKey));
+  const existingExpiresAt = parseStoredNumber(existingLock.expiresAt, 0);
+
+  if (existingExpiresAt > now) return null;
+  if (existingExpiresAt > 0 && existingExpiresAt <= now) {
+    try {
+      await kv.del(lockKey);
+    } catch {
+      // Another request may have cleared the stale lock first.
+    }
+  }
+
+  const supabase = await serviceClient();
+  const { error } = await supabase.from('kv_store_7a79873f').insert({
+    key: lockKey,
+    value: {
+      token,
+      expiresAt: now + ttlMs,
+      createdAt: new Date(now).toISOString(),
+    },
+  });
+
+  if (error) return null;
+  return token;
+};
+
+const releaseKvLock = async (lockKey: string, token: string | null) => {
+  if (!token) return;
+  try {
+    const lock = parseStoredJsonObject(await kv.get(lockKey));
+    if (lock.token === token) await kv.del(lockKey);
+  } catch {
+    // Lock cleanup should not mask the work that already succeeded.
+  }
+};
+
+const withKvLock = async <T,>(lockKey: string, work: () => Promise<T>, ttlMs = MARKETPLACE_ORDER_LOCK_TTL_MS) => {
+  const token = await acquireKvLock(lockKey, ttlMs);
+  if (!token) {
+    const error = new Error('Resource is busy. Please retry in a moment.');
+    (error as any).status = 409;
+    throw error;
+  }
+
+  try {
+    return await work();
+  } finally {
+    await releaseKvLock(lockKey, token);
+  }
+};
 
 const normalizeMarketplaceOrderItems = (items: unknown) => {
   if (!Array.isArray(items)) return [];
@@ -371,6 +464,75 @@ const normalizeMarketplaceOrderItems = (items: unknown) => {
       logo: `${item?.logo || 'Default'}`,
     }))
     .filter((item) => item.name);
+};
+
+const normalizeMarketplaceProducts = (products: unknown) => {
+  if (!Array.isArray(products)) return [];
+
+  return products
+    .map((product: any) => ({
+      id: `${product?.id || ''}`.trim(),
+      name: `${product?.name || ''}`.trim(),
+      description: `${product?.description || ''}`.trim(),
+      pointsPrice: Math.max(0, Math.round(parseStoredNumber(product?.pointsPrice, 0))),
+      image: `${product?.image || ''}`.trim(),
+      sourceUrl: `${product?.sourceUrl || ''}`.trim(),
+      variantImages: product?.variantImages && typeof product.variantImages === 'object' && !Array.isArray(product.variantImages)
+        ? product.variantImages
+        : {},
+      category: `${product?.category || 'Merch'}`.trim(),
+      colorVariants: normalizeStringArray(product?.colorVariants, ['Default']),
+      logoVariants: normalizeStringArray(product?.logoVariants, ['Default']),
+      inventory: Math.max(0, Math.round(parseStoredNumber(product?.inventory, 0))),
+      featured: product?.featured === true,
+      badge: product?.badge === 'HOT' || product?.badge === 'SALE' || product?.badge === 'NEW' ? product.badge : undefined,
+      status: product?.status === 'draft' ? 'draft' : 'active',
+      updatedAt: `${product?.updatedAt || new Date().toISOString()}`,
+    }))
+    .filter((product) => product.id && product.name);
+};
+
+const getMarketplaceCatalog = async () => normalizeMarketplaceProducts(await kv.get(MARKETPLACE_PRODUCTS_KEY));
+
+const saveMarketplaceCatalog = async (products: any[]) => {
+  const normalizedProducts = normalizeMarketplaceProducts(products);
+  await kv.set(MARKETPLACE_PRODUCTS_KEY, JSON.stringify(normalizedProducts));
+  return normalizedProducts;
+};
+
+const appendPointsTransaction = async ({
+  userId,
+  amount,
+  type,
+  source,
+  oldBalance,
+  newBalance,
+  metadata = {},
+}: {
+  userId: string;
+  amount: number;
+  type: 'add' | 'subtract';
+  source: string;
+  oldBalance: number;
+  newBalance: number;
+  metadata?: Record<string, unknown>;
+}) => {
+  const historyKey = `${POINTS_HISTORY_PREFIX}${userId}`;
+  const history = parseStoredJsonArray(await kv.get(historyKey));
+  const createdAt = new Date().toISOString();
+  const transaction = {
+    id: crypto.randomUUID(),
+    type,
+    amount,
+    source,
+    oldBalance,
+    newBalance,
+    createdAt,
+    ...metadata,
+  };
+
+  await kv.set(historyKey, JSON.stringify([transaction, ...history].slice(0, 250)));
+  return transaction;
 };
 
 const formatMarketplaceAddress = (address: any) => [
@@ -458,6 +620,31 @@ const normalizeChatMessage = (message: any, currentUser: any) => {
     createdAt,
     role: message?.role === 'agent' || message?.role === 'member' || message?.role === 'system' ? message.role : 'user',
   };
+};
+
+const upsertChatThreadIndex = async (userId: string, thread: Record<string, unknown>) => {
+  const indexKey = `${CHAT_INDEX_PREFIX}${userId}`;
+  const currentThreads = parseStoredJsonArray(await kv.get(indexKey));
+  const threadId = `${thread.threadId || ''}`;
+  if (!threadId) return currentThreads;
+
+  const updatedThread = {
+    threadId,
+    type: `${thread.type || (threadId.startsWith('agent:') ? 'agent' : threadId.startsWith('team:') ? 'team' : 'member')}`,
+    name: `${thread.name || 'Chat'}`,
+    handle: `${thread.handle || ''}`,
+    avatar: `${thread.avatar || ''}`,
+    lastMessage: `${thread.lastMessage || ''}`.slice(0, 220),
+    lastMessageAt: `${thread.lastMessageAt || new Date().toISOString()}`,
+    updatedAt: new Date().toISOString(),
+  };
+  const nextThreads = [
+    updatedThread,
+    ...currentThreads.filter((existingThread: any) => existingThread?.threadId !== threadId),
+  ].slice(0, 100);
+
+  await kv.set(indexKey, JSON.stringify(nextThreads));
+  return nextThreads;
 };
 
 const createAgentFallbackReply = (prompt: string) => {
@@ -553,7 +740,7 @@ const queueEmailNotification = async (email: Record<string, unknown>) => {
     queuedAt: new Date().toISOString(),
   };
 
-  await kv.set(EMAIL_QUEUE_KEY, JSON.stringify([notification, ...queuedNotifications].slice(0, 100)));
+  await kv.set(EMAIL_QUEUE_KEY, JSON.stringify([notification, ...queuedNotifications].slice(0, QUEUE_LIMIT)));
 
   return notification;
 };
@@ -578,6 +765,7 @@ const dispatchEmailNotification = async (email: {
       headers: {
         Authorization: `Bearer ${resendApiKey}`,
         'Content-Type': 'application/json',
+        'User-Agent': 'moneetize-pregame/1.0',
       },
       body: JSON.stringify({
         from: fromEmail,
@@ -602,6 +790,159 @@ const dispatchEmailNotification = async (email: {
       error: error instanceof Error ? error.message : 'Unknown email error',
     });
     return { status: 'failed' as const, error: error instanceof Error ? error.message : 'Unknown email error' };
+  }
+};
+
+const queueSmsNotification = async (sms: Record<string, unknown>) => {
+  const queuedNotifications = parseStoredJsonArray(await kv.get(SMS_QUEUE_KEY));
+  const notification = {
+    id: crypto.randomUUID(),
+    ...sms,
+    queuedAt: new Date().toISOString(),
+  };
+
+  await kv.set(SMS_QUEUE_KEY, JSON.stringify([notification, ...queuedNotifications].slice(0, QUEUE_LIMIT)));
+  return notification;
+};
+
+const toHex = (buffer: ArrayBuffer) => [...new Uint8Array(buffer)]
+  .map((byte) => byte.toString(16).padStart(2, '0'))
+  .join('');
+
+const sha256Hex = async (value: string) => toHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
+
+const hmacRaw = async (key: string | Uint8Array, value: string) => {
+  const keyBytes = typeof key === 'string' ? new TextEncoder().encode(key) : key;
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    keyBytes,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(value));
+  return new Uint8Array(signature);
+};
+
+const hmacHex = async (key: Uint8Array, value: string) => toHex(await hmacRaw(key, value));
+
+const getAwsSignatureKey = async (secretKey: string, dateStamp: string, region: string, service: string) => {
+  const dateKey = await hmacRaw(`AWS4${secretKey}`, dateStamp);
+  const dateRegionKey = await hmacRaw(dateKey, region);
+  const dateRegionServiceKey = await hmacRaw(dateRegionKey, service);
+  return hmacRaw(dateRegionServiceKey, 'aws4_request');
+};
+
+const formatAwsDate = (date = new Date()) => {
+  const iso = date.toISOString().replace(/[:-]|\.\d{3}/g, '');
+  return {
+    amzDate: iso,
+    dateStamp: iso.slice(0, 8),
+  };
+};
+
+const buildSnsPublishBody = (phoneNumber: string, message: string) => {
+  const params = new URLSearchParams();
+  params.set('Action', 'Publish');
+  params.set('Version', '2010-03-31');
+  params.set('PhoneNumber', phoneNumber);
+  params.set('Message', message);
+  params.set('MessageAttributes.entry.1.Name', 'AWS.SNS.SMS.SMSType');
+  params.set('MessageAttributes.entry.1.Value.DataType', 'String');
+  params.set('MessageAttributes.entry.1.Value.StringValue', 'Transactional');
+
+  const senderId = `${Deno.env.get('AWS_SNS_SMS_SENDER_ID') || ''}`.trim();
+  if (senderId) {
+    params.set('MessageAttributes.entry.2.Name', 'AWS.SNS.SMS.SenderID');
+    params.set('MessageAttributes.entry.2.Value.DataType', 'String');
+    params.set('MessageAttributes.entry.2.Value.StringValue', senderId.slice(0, 11));
+  }
+
+  return params.toString();
+};
+
+const dispatchSmsNotification = async (sms: {
+  to: string;
+  message: string;
+}) => {
+  const phoneNumber = normalizePhoneNumber(sms.to);
+  const accessKeyId = Deno.env.get('AWS_ACCESS_KEY_ID');
+  const secretAccessKey = Deno.env.get('AWS_SECRET_ACCESS_KEY');
+  const region = Deno.env.get('AWS_REGION') || Deno.env.get('AWS_DEFAULT_REGION') || 'us-east-1';
+  const sessionToken = Deno.env.get('AWS_SESSION_TOKEN');
+
+  if (!phoneNumber) {
+    await queueSmsNotification({ ...sms, status: 'failed', reason: 'Invalid E.164 phone number' });
+    return { status: 'failed' as const, error: 'Invalid E.164 phone number' };
+  }
+
+  if (!accessKeyId || !secretAccessKey) {
+    await queueSmsNotification({ ...sms, to: phoneNumber, status: 'queued', reason: 'AWS SNS credentials are not configured' });
+    return { status: 'queued' as const };
+  }
+
+  const service = 'sns';
+  const host = `sns.${region}.amazonaws.com`;
+  const endpoint = `https://${host}/`;
+  const body = buildSnsPublishBody(phoneNumber, sms.message.slice(0, 1500));
+  const { amzDate, dateStamp } = formatAwsDate();
+  const headers: Record<string, string> = {
+    'content-type': 'application/x-www-form-urlencoded; charset=utf-8',
+    host,
+    'x-amz-date': amzDate,
+  };
+
+  if (sessionToken) headers['x-amz-security-token'] = sessionToken;
+
+  const signedHeaderNames = Object.keys(headers).sort();
+  const canonicalHeaders = signedHeaderNames.map((name) => `${name}:${headers[name].trim()}\n`).join('');
+  const signedHeaders = signedHeaderNames.join(';');
+  const payloadHash = await sha256Hex(body);
+  const canonicalRequest = [
+    'POST',
+    '/',
+    '',
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash,
+  ].join('\n');
+  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
+  const stringToSign = [
+    'AWS4-HMAC-SHA256',
+    amzDate,
+    credentialScope,
+    await sha256Hex(canonicalRequest),
+  ].join('\n');
+  const signingKey = await getAwsSignatureKey(secretAccessKey, dateStamp, region, service);
+  const signature = await hmacHex(signingKey, stringToSign);
+  const authorization = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        ...headers,
+        Authorization: authorization,
+      },
+      body,
+    });
+    const details = await response.text();
+
+    if (!response.ok) {
+      await queueSmsNotification({ ...sms, to: phoneNumber, status: 'failed', error: details });
+      return { status: 'failed' as const, error: details };
+    }
+
+    const messageId = details.match(/<MessageId>(.*?)<\/MessageId>/)?.[1] || '';
+    return { status: 'sent' as const, provider: 'aws-sns', messageId };
+  } catch (error) {
+    await queueSmsNotification({
+      ...sms,
+      to: phoneNumber,
+      status: 'failed',
+      error: error instanceof Error ? error.message : 'Unknown SMS error',
+    });
+    return { status: 'failed' as const, error: error instanceof Error ? error.message : 'Unknown SMS error' };
   }
 };
 
@@ -1131,7 +1472,139 @@ app.post("/make-server-7a79873f/points/adjust", async (c) => {
   }
 });
 
+// Gameplay routes
+app.get("/make-server-7a79873f/gameplay/progress", async (c) => {
+  try {
+    const currentUser = await verifyCurrentUser(c);
+    if ('response' in currentUser) return currentUser.response;
+
+    const progress = parseStoredJsonObject(await kv.get(`${GAMEPLAY_PROGRESS_PREFIX}${currentUser.user.id}`));
+
+    return c.json({
+      success: true,
+      data: {
+        progress: {
+          userId: currentUser.user.id,
+          quests: progress.quests || {},
+          updatedAt: progress.updatedAt || '',
+        },
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Gameplay progress load endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to load gameplay progress' }, 500);
+  }
+});
+
+app.post("/make-server-7a79873f/gameplay/progress", async (c) => {
+  try {
+    const currentUser = await verifyCurrentUser(c);
+    if ('response' in currentUser) return currentUser.response;
+
+    const body = await c.req.json();
+    const questId = `${body?.questId || ''}`.trim();
+    const completed = body?.completed === true;
+    const progressValue = Math.max(0, Math.round(parseStoredNumber(body?.progress, completed ? 1 : 0)));
+    const points = Math.max(0, Math.round(parseStoredNumber(body?.points, 0)));
+    const source = `${body?.source || `quest-${questId}`}`.trim().slice(0, 80) || `quest-${questId}`;
+    const title = `${body?.title || questId || 'Gameplay activity'}`.trim();
+
+    if (!questId) {
+      return c.json({ success: false, error: 'Quest id is required' }, 400);
+    }
+
+    const progressKey = `${GAMEPLAY_PROGRESS_PREFIX}${currentUser.user.id}`;
+    const userPointsKey = `user_points:${currentUser.user.id}`;
+    const storedProgress = parseStoredJsonObject(await kv.get(progressKey));
+    const quests = parseStoredJsonObject(storedProgress.quests);
+    const previousQuest = parseStoredJsonObject(quests[questId]);
+    const wasCompleted = previousQuest.completed === true;
+    const completedAt = completed
+      ? `${previousQuest.completedAt || new Date().toISOString()}`
+      : '';
+    const currentPoints = parseStoredNumber(await kv.get(userPointsKey), DEFAULT_USER_POINTS);
+    const pointsAwarded = completed && !wasCompleted ? points : 0;
+    const newTotalPoints = currentPoints + pointsAwarded;
+    const nextQuest = {
+      ...previousQuest,
+      id: questId,
+      title,
+      source,
+      progress: Math.max(progressValue, parseStoredNumber(previousQuest.progress, 0)),
+      completed: completed || wasCompleted,
+      points,
+      pointsAwarded: parseStoredNumber(previousQuest.pointsAwarded, 0) + pointsAwarded,
+      completedAt,
+      updatedAt: new Date().toISOString(),
+    };
+    const nextProgress = {
+      userId: currentUser.user.id,
+      quests: {
+        ...quests,
+        [questId]: nextQuest,
+      },
+      updatedAt: new Date().toISOString(),
+    };
+
+    const writes = [
+      kv.set(progressKey, nextProgress),
+    ];
+
+    let transaction = null;
+    if (pointsAwarded > 0) {
+      transaction = await appendPointsTransaction({
+        userId: currentUser.user.id,
+        type: 'add',
+        amount: pointsAwarded,
+        source,
+        oldBalance: currentPoints,
+        newBalance: newTotalPoints,
+        metadata: {
+          questId,
+          title,
+        },
+      });
+      writes.push(kv.set(userPointsKey, newTotalPoints.toString()));
+    }
+
+    await Promise.all(writes);
+
+    return c.json({
+      success: true,
+      data: {
+        progress: nextProgress,
+        quest: nextQuest,
+        pointsAwarded,
+        newTotalPoints,
+        transaction,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Gameplay progress save endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to save gameplay progress' }, 500);
+  }
+});
+
 // Chat routes
+app.get("/make-server-7a79873f/chat/threads", async (c) => {
+  try {
+    const currentUser = await verifyCurrentUser(c);
+    if ('response' in currentUser) return currentUser.response;
+
+    const threads = parseStoredJsonArray(await kv.get(`${CHAT_INDEX_PREFIX}${currentUser.user.id}`));
+
+    return c.json({
+      success: true,
+      data: {
+        threads: threads.sort((a: any, b: any) => `${b.updatedAt || b.lastMessageAt || ''}`.localeCompare(`${a.updatedAt || a.lastMessageAt || ''}`)),
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Chat threads load endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to load chat threads' }, 500);
+  }
+});
+
 app.get("/make-server-7a79873f/chat/thread/:threadId", async (c) => {
   try {
     const currentUser = await verifyCurrentUser(c);
@@ -1160,6 +1633,7 @@ app.post("/make-server-7a79873f/chat/thread/:threadId", async (c) => {
     const threadId = normalizeChatThreadId(c.req.param('threadId'));
     const body = await c.req.json();
     const message = normalizeChatMessage(body?.message, currentUser.user);
+    const metadata = body?.metadata && typeof body.metadata === 'object' ? body.metadata : {};
 
     if (!message.content) {
       return c.json({ success: false, error: 'Message content is required' }, 400);
@@ -1169,7 +1643,18 @@ app.post("/make-server-7a79873f/chat/thread/:threadId", async (c) => {
     const messages = parseStoredJsonArray(await kv.get(threadKey));
     const nextMessages = [...messages, message].slice(-CHAT_THREAD_LIMIT);
 
-    await kv.set(threadKey, JSON.stringify(nextMessages));
+    await Promise.all([
+      kv.set(threadKey, JSON.stringify(nextMessages)),
+      upsertChatThreadIndex(currentUser.user.id, {
+        threadId,
+        type: metadata.type,
+        name: metadata.name,
+        handle: metadata.handle,
+        avatar: metadata.avatar,
+        lastMessage: message.content,
+        lastMessageAt: message.createdAt,
+      }),
+    ]);
 
     return c.json({
       success: true,
@@ -1204,7 +1689,16 @@ app.post("/make-server-7a79873f/chat/agent", async (c) => {
     const threadKey = `${CHAT_THREADS_PREFIX}${threadId}`;
     const nextMessages = [...incomingMessages, reply].slice(-CHAT_THREAD_LIMIT);
 
-    await kv.set(threadKey, JSON.stringify(nextMessages));
+    await Promise.all([
+      kv.set(threadKey, JSON.stringify(nextMessages)),
+      upsertChatThreadIndex(currentUser.user.id, {
+        threadId,
+        type: 'agent',
+        name: 'Your Agent',
+        lastMessage: reply.content,
+        lastMessageAt: reply.createdAt,
+      }),
+    ]);
 
     return c.json({
       success: true,
@@ -1336,7 +1830,49 @@ app.get("/make-server-7a79873f/scratch/profile", async (c) => {
   }
 });
 
-// Marketplace order routes
+// Marketplace catalog and order routes
+app.get("/make-server-7a79873f/marketplace/products", async (c) => {
+  try {
+    const products = await getMarketplaceCatalog();
+
+    return c.json({
+      success: true,
+      data: {
+        products,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Marketplace products load endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to load marketplace products' }, 500);
+  }
+});
+
+app.put("/make-server-7a79873f/admin/marketplace-products", async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if ('response' in admin) return admin.response;
+
+    const body = await c.req.json();
+    const products = normalizeMarketplaceProducts(body?.products);
+
+    if (!products.length) {
+      return c.json({ success: false, error: 'At least one marketplace product is required' }, 400);
+    }
+
+    const savedProducts = await saveMarketplaceCatalog(products);
+
+    return c.json({
+      success: true,
+      data: {
+        products: savedProducts,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Marketplace products save endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to save marketplace products' }, 500);
+  }
+});
+
 app.post("/make-server-7a79873f/marketplace/order", async (c) => {
   try {
     const currentUser = await verifyCurrentUser(c);
@@ -1383,40 +1919,115 @@ app.post("/make-server-7a79873f/marketplace/order", async (c) => {
       return c.json({ success: false, error: 'Complete shipping address is required' }, 400);
     }
 
-    const userPointsKey = `user_points:${currentUser.user.id}`;
-    const currentPointBalance = parseStoredNumber(await kv.get(userPointsKey), DEFAULT_USER_POINTS);
-    if (currentPointBalance < pointsTotal) {
-      return c.json({
-        success: false,
-        error: `You need ${pointsTotal - currentPointBalance} more points to checkout.`,
-      }, 402);
-    }
-
-    const nextPointBalance = Math.max(0, currentPointBalance - pointsTotal);
     const now = new Date().toISOString();
     const orderNumber = `${body?.orderNumber || `MNTZ-${Date.now().toString().slice(-6)}`}`.trim();
-    const order = {
-      id: `${body?.id || crypto.randomUUID()}`,
-      orderNumber,
-      userId: currentUser.user.id,
-      userEmail: currentUser.user.email,
-      items,
-      pointsTotal,
-      paymentMethod: 'points',
-      customer,
-      shippingAddress,
-      status: 'pending',
-      adminEmail: ADMIN_NOTIFICATION_EMAIL,
-      pointsBalanceAfter: nextPointBalance,
-      createdAt: `${body?.createdAt || now}`,
-      updatedAt: now,
-    };
+    const seededCatalog = normalizeMarketplaceProducts(body?.catalog);
+
+    const savedOrder = await withKvLock(MARKETPLACE_ORDER_LOCK_KEY, async () => {
+      const userPointsKey = `user_points:${currentUser.user.id}`;
+      const currentPointBalance = parseStoredNumber(await kv.get(userPointsKey), DEFAULT_USER_POINTS);
+      let catalog = await getMarketplaceCatalog();
+
+      if (!catalog.length && seededCatalog.length) {
+        catalog = await saveMarketplaceCatalog(seededCatalog);
+      }
+
+      const catalogById = new Map(catalog.map((product: any) => [product.id, product]));
+      const quantityByProduct = items.reduce((counts, item) => {
+        counts[item.productId] = (counts[item.productId] || 0) + item.quantity;
+        return counts;
+      }, {} as Record<string, number>);
+
+      for (const item of items) {
+        const product = catalogById.get(item.productId);
+        if (!product || product.status !== 'active') {
+          const error = new Error(`${item.name || 'This item'} is no longer available.`);
+          (error as any).status = 409;
+          throw error;
+        }
+
+        const neededQuantity = quantityByProduct[item.productId] || 0;
+        if (neededQuantity > product.inventory) {
+          const error = new Error(`${product.name} only has ${product.inventory} left in inventory.`);
+          (error as any).status = 409;
+          throw error;
+        }
+      }
+
+      const authoritativeItems = items.map((item) => {
+        const product = catalogById.get(item.productId);
+        return {
+          ...item,
+          name: product?.name || item.name,
+          pointsPrice: product?.pointsPrice ?? item.pointsPrice,
+        };
+      });
+      const authoritativePointsTotal = authoritativeItems.reduce((total, item) => total + item.pointsPrice * item.quantity, 0);
+
+      if (currentPointBalance < authoritativePointsTotal) {
+        const error = new Error(`You need ${authoritativePointsTotal - currentPointBalance} more points to checkout.`);
+        (error as any).status = 402;
+        throw error;
+      }
+
+      const nextPointBalance = Math.max(0, currentPointBalance - authoritativePointsTotal);
+      const nextCatalog = catalog.map((product: any) => (
+        quantityByProduct[product.id]
+          ? { ...product, inventory: Math.max(0, product.inventory - quantityByProduct[product.id]), updatedAt: now }
+          : product
+      ));
+      const order = {
+        id: `${body?.id || crypto.randomUUID()}`,
+        orderNumber,
+        userId: currentUser.user.id,
+        userEmail: currentUser.user.email,
+        items: authoritativeItems,
+        pointsTotal: authoritativePointsTotal,
+        requestedPointsTotal: pointsTotal,
+        paymentMethod: 'points',
+        customer,
+        shippingAddress,
+        status: 'pending',
+        adminEmail: ADMIN_NOTIFICATION_EMAIL,
+        pointsBalanceBefore: currentPointBalance,
+        pointsBalanceAfter: nextPointBalance,
+        inventoryReserved: true,
+        createdAt: `${body?.createdAt || now}`,
+        updatedAt: now,
+        emailDelivery: 'queued',
+        emailNotifications: [],
+      };
+      const orders = parseStoredJsonArray(await kv.get(MARKETPLACE_ORDERS_KEY));
+      const transaction = await appendPointsTransaction({
+        userId: currentUser.user.id,
+        type: 'subtract',
+        amount: authoritativePointsTotal,
+        source: 'marketplace-redemption',
+        oldBalance: currentPointBalance,
+        newBalance: nextPointBalance,
+        metadata: {
+          orderId: order.id,
+          orderNumber,
+        },
+      });
+
+      await Promise.all([
+        kv.set(userPointsKey, nextPointBalance.toString()),
+        kv.set(MARKETPLACE_PRODUCTS_KEY, JSON.stringify(nextCatalog)),
+        kv.set(
+          MARKETPLACE_ORDERS_KEY,
+          JSON.stringify([order, ...orders.filter((existingOrder: any) => existingOrder?.id !== order.id)].slice(0, 250)),
+        ),
+      ]);
+
+      return { ...order, pointsTransaction: transaction };
+    });
 
     const addressText = formatMarketplaceAddress(shippingAddress);
-    const itemLines = items.map((item) => (
+    const itemLines = savedOrder.items.map((item: any) => (
       `${item.quantity}x ${item.name} (${item.color} / ${item.logo}) - ${item.pointsPrice * item.quantity} pts`
     )).join('\n');
-    const itemRows = items.map((item) => `
+    const itemRows = savedOrder.items.map((item: any) => `
       <tr>
         <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;">${escapeHtml(item.quantity)}x ${escapeHtml(item.name)}<br><span style="color:#6b7280;">${escapeHtml(item.color)} / ${escapeHtml(item.logo)}</span></td>
         <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;text-align:right;">${escapeHtml(item.pointsPrice * item.quantity)} pts</td>
@@ -1426,32 +2037,32 @@ app.post("/make-server-7a79873f/marketplace/order", async (c) => {
     const adminEmail = await dispatchEmailNotification({
       to: ADMIN_NOTIFICATION_EMAIL,
       subject: `New Moneetize marketplace order ${orderNumber}`,
-      text: `Order: ${orderNumber}\nCustomer: ${customer.name}\nEmail: ${customer.email}\nShipping: ${addressText}\n\nItems:\n${itemLines}\n\nTotal: ${pointsTotal} pts`,
+      text: `Order: ${orderNumber}\nCustomer: ${customer.name}\nEmail: ${customer.email}\nShipping: ${addressText}\n\nItems:\n${itemLines}\n\nTotal: ${savedOrder.pointsTotal} pts`,
       html: `
         <h2>New marketplace order ${escapeHtml(orderNumber)}</h2>
         <p><strong>Customer:</strong> ${escapeHtml(customer.name)}<br><strong>Email:</strong> ${escapeHtml(customer.email)}${customer.phone ? `<br><strong>Phone:</strong> ${escapeHtml(customer.phone)}` : ''}</p>
         <p><strong>Shipping:</strong> ${escapeHtml(addressText)}</p>
         <table style="width:100%;border-collapse:collapse;">${itemRows}</table>
-        <p><strong>Total:</strong> ${escapeHtml(pointsTotal)} pts</p>
+        <p><strong>Total:</strong> ${escapeHtml(savedOrder.pointsTotal)} pts</p>
       `,
     });
 
     const customerEmail = await dispatchEmailNotification({
       to: customer.email,
       subject: `Your Moneetize marketplace order ${orderNumber}`,
-      text: `Hi ${customer.name},\n\nWe received your Moneetize marketplace order ${orderNumber}.\n\nItems:\n${itemLines}\n\nTotal: ${pointsTotal} pts\nShipping to: ${addressText}\n\nMoneetize`,
+      text: `Hi ${customer.name},\n\nWe received your Moneetize marketplace order ${orderNumber}.\n\nItems:\n${itemLines}\n\nTotal: ${savedOrder.pointsTotal} pts\nShipping to: ${addressText}\n\nMoneetize`,
       html: `
         <p>Hi ${escapeHtml(customer.name)},</p>
         <p>We received your Moneetize marketplace order <strong>${escapeHtml(orderNumber)}</strong>.</p>
         <table style="width:100%;border-collapse:collapse;">${itemRows}</table>
-        <p><strong>Total:</strong> ${escapeHtml(pointsTotal)} pts</p>
+        <p><strong>Total:</strong> ${escapeHtml(savedOrder.pointsTotal)} pts</p>
         <p><strong>Shipping to:</strong> ${escapeHtml(addressText)}</p>
         <p>Moneetize</p>
       `,
     });
 
-    const savedOrder = {
-      ...order,
+    const emailUpdatedOrder = {
+      ...savedOrder,
       emailDelivery: adminEmail.status === 'sent' && customerEmail.status === 'sent'
         ? 'sent'
         : adminEmail.status === 'failed' || customerEmail.status === 'failed'
@@ -1471,25 +2082,23 @@ app.post("/make-server-7a79873f/marketplace/order", async (c) => {
           ...customerEmail,
         },
       ],
+      updatedAt: new Date().toISOString(),
     };
 
     const orders = parseStoredJsonArray(await kv.get(MARKETPLACE_ORDERS_KEY));
-    await Promise.all([
-      kv.set(userPointsKey, nextPointBalance.toString()),
-      kv.set(
-        MARKETPLACE_ORDERS_KEY,
-        JSON.stringify([savedOrder, ...orders.filter((existingOrder: any) => existingOrder?.id !== savedOrder.id)].slice(0, 100)),
-      ),
-    ]);
+    await kv.set(
+      MARKETPLACE_ORDERS_KEY,
+      JSON.stringify([emailUpdatedOrder, ...orders.filter((existingOrder: any) => existingOrder?.id !== emailUpdatedOrder.id)].slice(0, 250)),
+    );
 
-    return c.json({ success: true, data: { order: savedOrder } }, 200);
+    return c.json({ success: true, data: { order: emailUpdatedOrder, products: await getMarketplaceCatalog() } }, 200);
   } catch (error) {
     console.error('Marketplace order endpoint error:', error);
     return c.json({
       success: false,
-      error: 'Failed to submit marketplace order',
+      error: error instanceof Error && error.message ? error.message : 'Failed to submit marketplace order',
       details: error instanceof Error ? error.message : 'Unknown error'
-    }, 500);
+    }, (error as any)?.status || 500);
   }
 });
 
@@ -1758,6 +2367,152 @@ app.post("/make-server-7a79873f/admin/delete-by-email", async (c) => {
 // Invites Routes
 app.post("/make-server-7a79873f/invites/send", async (c) => {
   try {
+    const currentUser = await verifyCurrentUser(c);
+    if ('response' in currentUser) return currentUser.response;
+
+    const body = await c.req.json();
+    const rawEmails = Array.isArray(body?.emails) ? body.emails : [];
+    const rawPhones = Array.isArray(body?.phones) ? body.phones : [];
+    const emails = [...new Set(rawEmails.map((email: unknown) => `${email || ''}`.trim().toLowerCase()).filter(Boolean))];
+    const phones = [...new Set(rawPhones.map((phone: unknown) => normalizePhoneNumber(`${phone || ''}`)).filter(Boolean))];
+    const invalidEmails = rawEmails.map((email: unknown) => `${email || ''}`.trim()).filter((email: string) => email && !isValidEmail(email));
+    const invalidPhones = rawPhones.map((phone: unknown) => `${phone || ''}`.trim()).filter((phone: string) => phone && !normalizePhoneNumber(phone));
+
+    if (!emails.length && !phones.length) {
+      return c.json({ success: false, error: 'Add at least one email address or phone number.' }, 400);
+    }
+
+    if (emails.length + phones.length > 10) {
+      return c.json({ success: false, error: 'Maximum 10 invites allowed at a time' }, 400);
+    }
+
+    if (invalidEmails.length || invalidPhones.length) {
+      return c.json({
+        success: false,
+        error: 'Some invite recipients are invalid',
+        invalidEmails,
+        invalidPhones,
+      }, 400);
+    }
+
+    const inviteUrl = `${body?.inviteLink || body?.inviteUrl || ''}`.trim();
+    const inviteMessage = `${body?.message || `Hey! I invited you to Moneetize. Start here and scratch to win rewards: ${inviteUrl}`}`.trim().slice(0, 1500);
+    const inviterName = getUserDisplayName(currentUser.user);
+    const sentAt = new Date().toISOString();
+    const inviteHistoryKey = `${INVITE_HISTORY_PREFIX}${currentUser.user.id}`;
+    const history = parseStoredJsonArray(await kv.get(inviteHistoryKey));
+    const existingContacts = new Set(history.map((invite: any) => `${invite?.type || 'email'}:${`${invite?.email || invite?.phone || invite?.contact || ''}`.trim().toLowerCase()}`));
+
+    const emailDeliveries = await Promise.all(emails.map(async (email) => {
+      const delivery = await dispatchEmailNotification({
+        to: email,
+        subject: `${inviterName} invited you to Moneetize`,
+        text: inviteMessage,
+        html: `
+          <p>${escapeHtml(inviterName)} invited you to Moneetize.</p>
+          <p>${escapeHtml(inviteMessage)}</p>
+          ${inviteUrl ? `<p><a href="${escapeHtml(inviteUrl)}">Start your scratch and win</a></p>` : ''}
+        `,
+      });
+
+      return {
+        type: 'email' as const,
+        email,
+        contact: email,
+        delivery,
+      };
+    }));
+    const smsDeliveries = await Promise.all(phones.map(async (phone) => {
+      const delivery = await dispatchSmsNotification({
+        to: phone,
+        message: inviteMessage,
+      });
+
+      return {
+        type: 'sms' as const,
+        phone,
+        contact: phone,
+        delivery,
+      };
+    }));
+    const deliveries = [...emailDeliveries, ...smsDeliveries];
+    const records = deliveries.map((deliveryRecord) => {
+      const contact = deliveryRecord.contact;
+      const contactKey = `${deliveryRecord.type}:${contact.toLowerCase()}`;
+      const alreadyInvited = existingContacts.has(contactKey);
+
+      return {
+        id: crypto.randomUUID(),
+        type: deliveryRecord.type,
+        email: deliveryRecord.type === 'email' ? contact : undefined,
+        phone: deliveryRecord.type === 'sms' ? contact : undefined,
+        contact,
+        inviteUrl,
+        inviterId: currentUser.user.id,
+        inviterEmail: currentUser.user.email,
+        inviterName,
+        status: 'pending',
+        deliveryStatus: deliveryRecord.delivery.status,
+        deliveryProvider: deliveryRecord.type === 'sms' ? 'aws-sns' : 'resend',
+        deliveryError: 'error' in deliveryRecord.delivery ? deliveryRecord.delivery.error : undefined,
+        deliveryMessageId: 'messageId' in deliveryRecord.delivery ? deliveryRecord.delivery.messageId : undefined,
+        points: alreadyInvited ? 0 : INVITE_POINTS_PER_RECIPIENT,
+        sentAt,
+        updatedAt: sentAt,
+      };
+    });
+    const pointsEarned = records.reduce((total, record) => total + record.points, 0);
+    const userPointsKey = `user_points:${currentUser.user.id}`;
+    const currentPoints = parseStoredNumber(await kv.get(userPointsKey), DEFAULT_USER_POINTS);
+    const newTotalPoints = currentPoints + pointsEarned;
+    const writes = [
+      kv.set(inviteHistoryKey, JSON.stringify([...records, ...history].slice(0, 500))),
+    ];
+
+    let transaction = null;
+    if (pointsEarned > 0) {
+      transaction = await appendPointsTransaction({
+        userId: currentUser.user.id,
+        type: 'add',
+        amount: pointsEarned,
+        source: 'referral',
+        oldBalance: currentPoints,
+        newBalance: newTotalPoints,
+        metadata: {
+          inviteCount: records.length,
+        },
+      });
+      writes.push(kv.set(userPointsKey, newTotalPoints.toString()));
+    }
+
+    await Promise.all(writes);
+
+    return c.json({
+      success: true,
+      data: {
+        invitesSent: records.length,
+        records,
+        emailDeliveries: emailDeliveries.map((entry) => ({ to: entry.email, ...entry.delivery })),
+        smsDeliveries: smsDeliveries.map((entry) => ({ to: entry.phone, ...entry.delivery })),
+        pointsEarned,
+        newTotalPoints,
+        transaction,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Send invites endpoint error:', error);
+    return c.json({
+      success: false,
+      error: 'Failed to send invites',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+});
+
+app.post("/make-server-7a79873f/invites/send-legacy", async (c) => {
+  try {
+    return c.json({ success: false, error: 'Legacy invite endpoint disabled. Use /invites/send.' }, 410);
+
     const accessToken = getUserAccessToken(c);
     
     console.log('Send invites endpoint - has token:', !!accessToken);

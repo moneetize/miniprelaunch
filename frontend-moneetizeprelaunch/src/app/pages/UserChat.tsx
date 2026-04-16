@@ -137,7 +137,7 @@ export function UserChat() {
     const nextMessages = [...messages, nextMessage];
     setMessages(nextMessages);
     setInputValue('');
-    void sendThreadMessage(threadId, nextMessage).then(setMessages);
+    void sendThreadMessage(threadId, nextMessage, chat).then(setMessages);
   };
 
   const renderHeaderAvatar = () => {
