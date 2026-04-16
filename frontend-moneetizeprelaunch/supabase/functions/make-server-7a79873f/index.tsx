@@ -47,7 +47,7 @@ const MARKETPLACE_ORDER_LOCK_TTL_MS = 12000;
 const INVITE_HISTORY_PREFIX = 'invite_history:';
 const GAMEPLAY_PROGRESS_PREFIX = 'gameplay_progress:';
 const EARLY_ACCESS_POINTS_AWARD = 25;
-const INVITE_POINTS_PER_RECIPIENT = 20;
+const INVITE_POINTS_PER_RECIPIENT = 5;
 const ADMIN_NOTIFICATION_EMAIL = 'admin@moneetize.com';
 const CHAT_THREAD_LIMIT = 100;
 const QUEUE_LIMIT = 500;
@@ -2478,7 +2478,7 @@ app.post("/make-server-7a79873f/invites/send", async (c) => {
         deliveryProvider: deliveryRecord.type === 'sms' ? 'aws-sns' : 'resend',
         deliveryError: 'error' in deliveryRecord.delivery ? deliveryRecord.delivery.error : undefined,
         deliveryMessageId: 'messageId' in deliveryRecord.delivery ? deliveryRecord.delivery.messageId : undefined,
-        points: alreadyInvited || deliveryRecord.delivery.status === 'failed' ? 0 : INVITE_POINTS_PER_RECIPIENT,
+        points: alreadyInvited ? 0 : INVITE_POINTS_PER_RECIPIENT,
         sentAt,
         updatedAt: sentAt,
       };
@@ -2526,6 +2526,134 @@ app.post("/make-server-7a79873f/invites/send", async (c) => {
     return c.json({
       success: false,
       error: 'Failed to send invites',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+});
+
+app.post("/make-server-7a79873f/invites/track-url", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const inviterId = `${body?.inviterId || ''}`.trim().slice(0, 160);
+    const inviterName = `${body?.inviterName || 'A friend'}`.trim().slice(0, 80) || 'A friend';
+    const promptId = `${body?.promptId || 'mini_scratch_v1'}`.trim().slice(0, 80) || 'mini_scratch_v1';
+    const inviteUrl = `${body?.inviteUrl || ''}`.trim().slice(0, 1200);
+    const visitorId = `${body?.visitorId || ''}`
+      .trim()
+      .replace(/[^a-zA-Z0-9:_-]/g, '')
+      .slice(0, 140);
+
+    if (!inviterId) {
+      return c.json({ success: false, error: 'Inviter ID is required' }, 400);
+    }
+
+    if (!visitorId) {
+      return c.json({ success: false, error: 'Visitor ID is required' }, 400);
+    }
+
+    let invitedUser = null;
+    const accessToken = getUserAccessToken(c);
+    if (accessToken) {
+      try {
+        invitedUser = await auth.verifyToken(accessToken);
+      } catch (error) {
+        console.warn('Unable to verify invite visitor token:', error);
+      }
+    }
+
+    if (invitedUser?.id === inviterId) {
+      const currentPoints = parseStoredNumber(await kv.get(`user_points:${inviterId}`), DEFAULT_USER_POINTS);
+      return c.json({
+        success: true,
+        data: {
+          tracked: false,
+          pointsEarned: 0,
+          newTotalPoints: currentPoints,
+        },
+      }, 200);
+    }
+
+    const inviteHistoryKey = `${INVITE_HISTORY_PREFIX}${inviterId}`;
+    const history = parseStoredJsonArray(await kv.get(inviteHistoryKey));
+    const inviteeIdentity = invitedUser?.id || visitorId;
+    const eventKey = `url:${promptId}:${inviteeIdentity}`;
+    const alreadyTracked = history.some((invite: any) => (
+      invite?.eventKey === eventKey ||
+      (
+        invite?.type === 'url' &&
+        invite?.promptId === promptId &&
+        (invite?.inviteeId === invitedUser?.id || invite?.visitorId === visitorId)
+      )
+    ));
+    const userPointsKey = `user_points:${inviterId}`;
+    const currentPoints = parseStoredNumber(await kv.get(userPointsKey), DEFAULT_USER_POINTS);
+
+    if (alreadyTracked) {
+      return c.json({
+        success: true,
+        data: {
+          tracked: false,
+          pointsEarned: 0,
+          newTotalPoints: currentPoints,
+        },
+      }, 200);
+    }
+
+    const trackedAt = new Date().toISOString();
+    const pointsEarned = INVITE_POINTS_PER_RECIPIENT;
+    const newTotalPoints = currentPoints + pointsEarned;
+    const record = {
+      id: crypto.randomUUID(),
+      type: 'url',
+      eventKey,
+      contact: inviteeIdentity,
+      inviteUrl,
+      inviterId,
+      inviterName,
+      inviteeId: invitedUser?.id,
+      inviteeEmail: invitedUser?.email,
+      visitorId,
+      promptId,
+      status: invitedUser ? 'accepted' : 'pending',
+      deliveryStatus: 'opened',
+      deliveryProvider: 'invite-url',
+      points: pointsEarned,
+      sentAt: trackedAt,
+      updatedAt: trackedAt,
+    };
+    const transaction = await appendPointsTransaction({
+      userId: inviterId,
+      type: 'add',
+      amount: pointsEarned,
+      source: 'referral',
+      oldBalance: currentPoints,
+      newBalance: newTotalPoints,
+      metadata: {
+        inviteType: 'url',
+        promptId,
+        inviteeId: invitedUser?.id,
+      },
+    });
+
+    await Promise.all([
+      kv.set(inviteHistoryKey, JSON.stringify([record, ...history].slice(0, 500))),
+      kv.set(userPointsKey, newTotalPoints.toString()),
+    ]);
+
+    return c.json({
+      success: true,
+      data: {
+        tracked: true,
+        pointsEarned,
+        newTotalPoints,
+        transaction,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Track invite URL endpoint error:', error);
+    return c.json({
+      success: false,
+      error: 'Failed to track invite link',
       details: error instanceof Error ? error.message : 'Unknown error'
     }, 500);
   }

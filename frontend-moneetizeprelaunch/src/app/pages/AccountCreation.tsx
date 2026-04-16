@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { AtSign, Eye, EyeOff, Lock } from 'lucide-react';
 import SembolVariants from '../../imports/SembolVariants';
 import { registerUser } from '../services/authService';
 import { startScratchTeaser } from '../utils/flowManager';
+import { resolveInvitationContext } from '../utils/invitationLinks';
 import { safeSetItem } from '../utils/storage';
 
 export function AccountCreation() {
@@ -18,6 +19,10 @@ export function AccountCreation() {
     email: '',
     password: '',
   });
+
+  useEffect(() => {
+    resolveInvitationContext();
+  }, []);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();

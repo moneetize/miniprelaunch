@@ -1930,7 +1930,7 @@ export function ProfileFeedsScreen() {
 
     const firstAvailableQuest = quests.find((quest) => !quest.completed) || quests[0];
     const earnPointActions = [
-      { label: 'Referring\na friend', points: 20, className: 'left-1 top-3 h-[118px] w-[118px] -rotate-[15deg]', path: '/share-invites' },
+      { label: 'Referring\na friend', points: 5, className: 'left-1 top-3 h-[118px] w-[118px] -rotate-[15deg]', path: '/share-invites' },
       { label: 'Sharing\nwith a friend', points: 10, className: 'right-1 top-3 h-[118px] w-[118px] rotate-[16deg]', quest: findQuest('share') },
       { label: 'Signing\nup', points: 10, className: 'left-[-26px] top-[128px] h-[132px] w-[132px] rotate-[4deg]', quest: undefined },
       { label: 'Performing\na first-time action', points: 5, className: 'left-1/2 top-[78px] h-[190px] w-[190px] -translate-x-1/2 rotate-[7deg] z-20', quest: firstAvailableQuest },

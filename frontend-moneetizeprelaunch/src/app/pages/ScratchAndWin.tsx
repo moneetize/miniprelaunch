@@ -12,6 +12,7 @@ import { getDefaultRecommendedFriends, loadRecommendedFriends, type RecommendedF
 import { safeGetItem, safeSetItem } from '../utils/storage';
 import { getScratchTeaserAuthRoute, isScratchTeaserPending, markScratchTeaserPending } from '../utils/flowManager';
 import { buildInviteLink, resolveInvitationContext } from '../utils/invitationLinks';
+import { trackUrlInviteOpen } from '../services/inviteService';
 
 interface Particle {
   id: number;
@@ -446,7 +447,7 @@ export function ScratchAndWin() {
   const [showFinalLevelScreen, setShowFinalLevelScreen] = useState(false);
   const [reward, setReward] = useState<ScratchReward | null>(null);
   const [balances, setBalances] = useState<ScratchBalances | null>(null);
-  const [isPreRegistrationTeaser, setIsPreRegistrationTeaser] = useState(() => !safeGetItem('access_token') || isScratchTeaserPending());
+  const [isPreRegistrationTeaser, setIsPreRegistrationTeaser] = useState(() => isScratchTeaserPending());
   const [recommendedFriends, setRecommendedFriends] = useState<RecommendedFriendProfile[]>(getDefaultRecommendedFriends());
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -481,7 +482,14 @@ export function ScratchAndWin() {
         setIsLoadingTicket(true);
         setTicketError(null);
 
-        const shouldUseTeaser = !safeGetItem('access_token') || isScratchTeaserPending();
+        if (!safeGetItem('access_token')) {
+          markScratchTeaserPending();
+          const nextPath = typeof window !== 'undefined' ? `/sign-up${window.location.search}` : '/sign-up';
+          navigate(nextPath, { replace: true });
+          return;
+        }
+
+        const shouldUseTeaser = isScratchTeaserPending();
 
         if (shouldUseTeaser) {
           markScratchTeaserPending();
@@ -539,6 +547,20 @@ export function ScratchAndWin() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const currentUserId = safeGetItem('user_id') || '';
+    if (!invitationContext.inviterId || invitationContext.inviterId === currentUserId) return;
+
+    void trackUrlInviteOpen({
+      inviterId: invitationContext.inviterId,
+      inviterName: invitationContext.inviterName,
+      promptId: invitationContext.promptId,
+      inviteUrl: typeof window !== 'undefined' ? window.location.href : undefined,
+    }).catch((error) => {
+      console.warn('Invite link tracking skipped:', error);
+    });
+  }, [invitationContext.inviterId, invitationContext.inviterName, invitationContext.promptId]);
 
   useEffect(() => {
     let cancelled = false;

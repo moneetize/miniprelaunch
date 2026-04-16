@@ -120,7 +120,7 @@ export const getCurrentInviterShareProfile = (): InvitationContext => {
   };
 };
 
-export const buildInviteLink = (pathname = '/scratch-and-win') => {
+export const buildInviteLink = (pathname = '/sign-up') => {
   const profile = getCurrentInviterShareProfile();
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://moneetize.com';
   const url = new URL(pathname, origin);

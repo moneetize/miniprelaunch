@@ -18,7 +18,7 @@ interface PointAction {
 }
 
 const pointActions: PointAction[] = [
-  { label: 'Referring\na friend', points: '10', className: 'left-1 top-3 h-[118px] w-[118px] -rotate-[15deg]' },
+  { label: 'Referring\na friend', points: '5', className: 'left-1 top-3 h-[118px] w-[118px] -rotate-[15deg]' },
   { label: 'Sharing\nwith a friend', points: '10', className: 'right-1 top-3 h-[118px] w-[118px] rotate-[16deg]' },
   { label: 'Signing\nup', points: '10', className: 'left-[-26px] top-[128px] h-[132px] w-[132px] rotate-[4deg]' },
   { label: 'Performing\na first-time action', points: '5', className: 'left-1/2 top-[78px] z-20 h-[190px] w-[190px] -translate-x-1/2 rotate-[7deg]' },

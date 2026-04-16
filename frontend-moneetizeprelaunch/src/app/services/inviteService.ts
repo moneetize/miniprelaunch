@@ -1,7 +1,7 @@
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { recordSentInvites, type InviteRecord } from '../utils/inviteSync';
 import { setUserPoints } from '../utils/pointsManager';
-import { safeGetItem } from '../utils/storage';
+import { safeGetItem, safeSetItem } from '../utils/storage';
 
 const INVITES_API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-7a79873f/invites`;
 
@@ -18,6 +18,31 @@ interface InviteResponse {
   success?: boolean;
   data?: InviteSendResult;
   error?: string;
+}
+
+interface TrackUrlInviteResponse {
+  success?: boolean;
+  data?: {
+    tracked: boolean;
+    pointsEarned: number;
+    newTotalPoints?: number;
+  };
+  error?: string;
+}
+
+const INVITE_VISITOR_STORAGE_KEY = 'moneetizeInviteVisitorId';
+
+function getOrCreateInviteVisitorId() {
+  const storedVisitorId = safeGetItem(INVITE_VISITOR_STORAGE_KEY);
+  if (storedVisitorId) return storedVisitorId;
+
+  const nextVisitorId =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+  safeSetItem(INVITE_VISITOR_STORAGE_KEY, nextVisitorId);
+  return nextVisitorId;
 }
 
 function authHeaders() {
@@ -76,6 +101,44 @@ export async function sendInvitesFromServer({
 
   if (emailRecipients.length) recordSentInvites(emailRecipients, 'email', inviteLink);
   if (smsRecipients.length) recordSentInvites(smsRecipients, 'sms', inviteLink);
+
+  return result.data;
+}
+
+export async function trackUrlInviteOpen({
+  inviterId,
+  inviterName,
+  promptId,
+  inviteUrl,
+}: {
+  inviterId?: string;
+  inviterName?: string;
+  promptId?: string;
+  inviteUrl?: string;
+}) {
+  const cleanInviterId = `${inviterId || ''}`.trim();
+  if (!cleanInviterId) return null;
+
+  const response = await fetch(`${INVITES_API_URL}/track-url`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      inviterId: cleanInviterId,
+      inviterName,
+      promptId,
+      inviteUrl,
+      visitorId: getOrCreateInviteVisitorId(),
+    }),
+  });
+  const result = await readJson<TrackUrlInviteResponse>(response);
+
+  if (!response.ok || !result.success || !result.data) {
+    throw new Error(result.error || 'Failed to track invite link.');
+  }
+
+  if (safeGetItem('user_id') === cleanInviterId && typeof result.data.newTotalPoints === 'number') {
+    setUserPoints(result.data.newTotalPoints);
+  }
 
   return result.data;
 }
