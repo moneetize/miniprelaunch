@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import { ChevronLeft, ChevronUp, Search, Users } from 'lucide-react';
 import { loadChatPreviews, type ChatPreview } from '../services/chatService';
-import { getSelectedAvatarImage } from '../utils/avatarUtils';
+import { getAgentAvatarVisual } from '../utils/avatarUtils';
 import { hydrateRemoteProfileSettings } from '../services/profilePersistenceService';
 import { getStoredProfileSettings, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT, type StoredProfileSettings } from '../utils/profileSettings';
 
@@ -18,7 +18,7 @@ export function ChatList() {
   const [isCollapsing, setIsCollapsing] = useState(false);
   const [chats, setChats] = useState<ChatPreview[]>([]);
   const [profileSettings, setProfileSettings] = useState<StoredProfileSettings>(() => getStoredProfileSettings());
-  const agentAvatar = getSelectedAvatarImage(profileSettings.selectedAvatar);
+  const agentAvatar = getAgentAvatarVisual(profileSettings.selectedAvatar);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,9 +92,10 @@ export function ChatList() {
       return (
         <span className="relative block h-12 w-12">
           <motion.span
-            className="absolute inset-0 rounded-full bg-cyan-300/40 blur-lg"
+            className="absolute inset-0 rounded-full blur-lg"
             animate={{ opacity: [0.25, 0.55, 0.25], scale: [0.95, 1.08, 0.95] }}
             transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+            style={{ backgroundColor: agentAvatar.accent }}
           />
           <motion.span
             className="relative block h-12 w-12 overflow-hidden rounded-full border border-white/18 shadow-[0_0_24px_rgba(101,202,255,0.34)]"
@@ -105,7 +106,11 @@ export function ChatList() {
               WebkitMaskImage: 'radial-gradient(circle at center, black 42%, transparent 90%)',
             }}
           >
-            <img src={chat.avatar || agentAvatar} alt={chat.name || profileSettings.agentName || 'Your Agent'} className="h-full w-full object-cover opacity-90" />
+            {agentAvatar.image ? (
+              <img src={agentAvatar.image} alt={chat.name || profileSettings.agentName || 'Your Agent'} className={`h-full w-full object-cover opacity-90 ${agentAvatar.imageClass}`} />
+            ) : (
+              <span className="block h-full w-full opacity-95" style={{ background: agentAvatar.background }} />
+            )}
           </motion.span>
         </span>
       );

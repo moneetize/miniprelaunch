@@ -1006,12 +1006,15 @@ const awardNetworkFollowPoints = async ({
   userId,
   targetProfileId,
   isMutual,
+  clientCurrentPoints,
 }: {
   userId: string;
   targetProfileId: string;
   isMutual: boolean;
+  clientCurrentPoints?: unknown;
 }) => {
   const pointsStateKey = `${NETWORK_POINTS_PREFIX}${userId}`;
+  const pointsKey = `user_points:${userId}`;
   const today = new Date().toISOString().slice(0, 10);
   const pointsState = parseStoredJsonObject(await kv.get(pointsStateKey));
   const events = parseStoredJsonObject(pointsState.events);
@@ -1030,6 +1033,14 @@ const awardNetworkFollowPoints = async ({
 
   if (pointsToAward <= 0) {
     return { pointsAwarded: 0, newTotalPoints: null, events };
+  }
+
+  const storedPoints = parseStoredNumber(await kv.get(pointsKey), DEFAULT_USER_POINTS);
+  const clientPoints = parseStoredNumber(clientCurrentPoints, -1);
+  const baselinePoints = Math.max(storedPoints, clientPoints >= 0 ? clientPoints : storedPoints);
+
+  if (baselinePoints > storedPoints) {
+    await kv.set(pointsKey, baselinePoints.toString());
   }
 
   let remaining = pointsToAward;
@@ -1248,6 +1259,13 @@ const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
       role: message.role === 'user' ? 'user' : 'assistant',
       content: `${message.content || ''}`.slice(0, 4000),
     })).filter((message) => message.content.trim());
+    const openAiMessages = [
+      ...recentMessages,
+      {
+        role: 'user',
+        content: prompt.slice(0, 4000),
+      },
+    ];
 
     const modelCandidates = [
       `${Deno.env.get('OPENAI_MODEL') || ''}`.trim(),
@@ -1283,7 +1301,7 @@ const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
               role: 'system',
               content: agentInstructions,
             },
-            ...recentMessages,
+            ...openAiMessages,
           ],
           max_tokens: 900,
           temperature: 0.7,
@@ -1314,7 +1332,7 @@ const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
               role: 'system',
               content: agentInstructions,
             },
-            ...recentMessages,
+            ...openAiMessages,
           ],
           max_output_tokens: 900,
           temperature: 0.7,
@@ -2128,6 +2146,7 @@ app.put("/make-server-7a79873f/network/follows", async (c) => {
         userId: currentUser.user.id,
         targetProfileId,
         isMutual: targetFollowStates[currentUser.user.id] === true,
+        clientCurrentPoints: body?.currentPoints,
       });
     }
 
@@ -2166,7 +2185,10 @@ app.post("/make-server-7a79873f/points/adjust", async (c) => {
 
     const pointsKey = `user_points:${currentUser.user.id}`;
     const historyKey = `${POINTS_HISTORY_PREFIX}${currentUser.user.id}`;
-    const currentPoints = parseStoredNumber(await kv.get(pointsKey), DEFAULT_USER_POINTS);
+    const storedPoints = parseStoredNumber(await kv.get(pointsKey), DEFAULT_USER_POINTS);
+    const expectedLocalTotal = parseStoredNumber(body?.expectedLocalTotal, -1);
+    const clientBaseline = expectedLocalTotal >= amount ? expectedLocalTotal - amount : -1;
+    const currentPoints = Math.max(storedPoints, clientBaseline >= 0 ? clientBaseline : storedPoints);
     const pointsAwarded = getCappedPointAward(currentPoints, amount);
     const nextPoints = currentPoints + pointsAwarded;
 

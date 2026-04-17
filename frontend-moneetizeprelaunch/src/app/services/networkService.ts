@@ -35,6 +35,7 @@ type NetworkFollowStatesResponse = {
   };
   error?: string;
 };
+type NetworkFollowAward = NonNullable<NetworkFollowStatesResponse['data']>['pointsAward'];
 
 const NETWORK_API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-7a79873f/network`;
 const LOCAL_NETWORK_PROFILES_KEY = 'moneetizeRegisteredProfiles';
@@ -268,13 +269,15 @@ export async function loadNetworkFollowStates(): Promise<Record<string, boolean>
 export async function saveNetworkFollowState(
   targetProfileId: string,
   following: boolean,
-): Promise<Record<string, boolean>> {
-  if (!safeGetItem('access_token')) return { [targetProfileId]: following };
+): Promise<{ states: Record<string, boolean>; pointsAward: NetworkFollowAward }> {
+  if (!safeGetItem('access_token')) return { states: { [targetProfileId]: following }, pointsAward: null };
+
+  const visiblePointBalance = getUserPoints();
 
   const response = await fetch(`${NETWORK_API_URL}/follows`, {
     method: 'PUT',
     headers: authHeaders(),
-    body: JSON.stringify({ targetProfileId, following }),
+    body: JSON.stringify({ targetProfileId, following, currentPoints: visiblePointBalance }),
   });
 
   const result = await readJson<NetworkFollowStatesResponse>(response);
@@ -283,10 +286,20 @@ export async function saveNetworkFollowState(
     throw new Error(result.error || 'Failed to save network follow state.');
   }
 
+  const pointsAwarded = Number(result.data?.pointsAward?.pointsAwarded) || 0;
   const remotePointBalance = result.data?.pointsAward?.newTotalPoints;
-  if (typeof remotePointBalance === 'number') {
+  if (pointsAwarded > 0) {
+    const nextVisibleBalance = Math.max(
+      typeof remotePointBalance === 'number' ? remotePointBalance : 0,
+      visiblePointBalance + pointsAwarded,
+    );
+    setUserPoints(nextVisibleBalance);
+  } else if (typeof remotePointBalance === 'number' && remotePointBalance > getUserPoints()) {
     setUserPoints(remotePointBalance);
   }
 
-  return result.data?.states || { [targetProfileId]: following };
+  return {
+    states: result.data?.states || { [targetProfileId]: following },
+    pointsAward: result.data?.pointsAward || null,
+  };
 }

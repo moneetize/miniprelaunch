@@ -824,7 +824,7 @@ export function ProfileScreen() {
   const peopleYouMayKnowProfiles = candidateNetworkProfiles.filter((profile) => !isNetworkProfileFollowing(profile));
   const followingCount = candidateNetworkProfiles.filter((profile) => isNetworkProfileFollowing(profile)).length;
   const followersCount = candidateNetworkProfiles.filter((profile) => profile.followsMe).length;
-  const displayNetworkingPoints = followingCount;
+  const displayNetworkingPoints = userPoints;
   const visibleMyNetworkProfiles = networkListExpanded ? myNetworkProfiles : myNetworkProfiles.slice(0, NETWORK_VISIBLE_LIMIT);
   const visiblePeopleYouMayKnowProfiles = networkListExpanded
     ? peopleYouMayKnowProfiles
@@ -861,7 +861,7 @@ export function ProfileScreen() {
     }
 
     void saveNetworkFollowState(profile.id, nextFollowing)
-      .then((remoteStates) => {
+      .then(({ states: remoteStates, pointsAward }) => {
         setNetworkFollowStates((states) => {
           const nextStates = {
             ...states,
@@ -870,6 +870,9 @@ export function ProfileScreen() {
           safeSetItem(NETWORK_FOLLOW_STATES_KEY, JSON.stringify(nextStates));
           return nextStates;
         });
+        if ((Number(pointsAward?.pointsAwarded) || 0) > 0) {
+          setNetworkListExpanded(true);
+        }
         setUserPoints(getUserPoints());
       })
       .catch((error) => {
