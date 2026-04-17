@@ -73,6 +73,7 @@ const CORE_ADMIN_EMAILS = new Set([
   ADMIN_NOTIFICATION_EMAIL,
   'nathan@moneetize.com',
   'gloryvee@gmail.com',
+  'julia.galmiche@usherbrooke.ca',
 ]);
 const CHAT_THREAD_LIMIT = 100;
 const QUEUE_LIMIT = 500;
@@ -1199,14 +1200,42 @@ const extractOpenAIResponseText = (data: any) => {
   return textParts.join('\n').trim();
 };
 
-const readOpenAIError = async (response: Response) => {
+type OpenAIErrorInfo = {
+  status: number;
+  message: string;
+  code?: string;
+  type?: string;
+};
+
+const formatOpenAIError = (error: OpenAIErrorInfo | null) => {
+  if (!error) return '';
+
+  const parts = [
+    error.status ? `status ${error.status}` : '',
+    error.code ? `code ${error.code}` : '',
+    error.type ? `type ${error.type}` : '',
+    error.message,
+  ].filter(Boolean);
+
+  return parts.join(' | ').slice(0, 700);
+};
+
+const readOpenAIError = async (response: Response): Promise<OpenAIErrorInfo> => {
   const raw = await response.text();
 
   try {
     const parsed = JSON.parse(raw);
-    return `${parsed?.error?.message || parsed?.message || raw || response.statusText}`.slice(0, 700);
+    return {
+      status: response.status,
+      message: `${parsed?.error?.message || parsed?.message || raw || response.statusText}`.slice(0, 700),
+      code: parsed?.error?.code ? `${parsed.error.code}`.slice(0, 120) : undefined,
+      type: parsed?.error?.type ? `${parsed.error.type}`.slice(0, 120) : undefined,
+    };
   } catch {
-    return `${raw || response.statusText}`.slice(0, 700);
+    return {
+      status: response.status,
+      message: `${raw || response.statusText}`.slice(0, 700),
+    };
   }
 };
 
@@ -1238,7 +1267,7 @@ const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
     ].join(' ');
 
     let content = '';
-    let lastOpenAiError = '';
+    let lastOpenAiError: OpenAIErrorInfo | null = null;
 
     for (const model of modelCandidates) {
       const chatCompletionsResponse = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -1269,7 +1298,7 @@ const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
         }
       } else {
         lastOpenAiError = await readOpenAIError(chatCompletionsResponse);
-        console.error('OpenAI chat completions failed for model:', model, lastOpenAiError);
+        console.error('OpenAI chat completions failed for model:', model, formatOpenAIError(lastOpenAiError));
       }
 
       const responsesApiResponse = await fetch('https://api.openai.com/v1/responses', {
@@ -1300,7 +1329,7 @@ const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
         }
       } else {
         lastOpenAiError = await readOpenAIError(responsesApiResponse);
-        console.error('OpenAI responses API failed for model:', model, lastOpenAiError);
+        console.error('OpenAI responses API failed for model:', model, formatOpenAIError(lastOpenAiError));
       }
 
       if (content) {
@@ -1309,18 +1338,19 @@ const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
     }
 
     if (!content) {
-      console.error('OpenAI agent response failed for all configured models:', lastOpenAiError);
-      const lowerError = lastOpenAiError.toLowerCase();
+      const safeError = formatOpenAIError(lastOpenAiError);
+      console.error('OpenAI agent response failed for all configured models:', safeError);
+      const lowerError = safeError.toLowerCase();
       if (lowerError.includes('quota') || lowerError.includes('billing') || lowerError.includes('insufficient')) {
-        throw new Error('OpenAI billing or quota is blocking agent replies.');
+        throw new Error(`OpenAI billing or quota is blocking agent replies. ${safeError}`);
       }
       if (lowerError.includes('api key') || lowerError.includes('invalid') || lowerError.includes('unauthorized')) {
-        throw new Error('OpenAI API key is invalid or unauthorized.');
+        throw new Error(`OpenAI API key is invalid or unauthorized. ${safeError}`);
       }
       if (lowerError.includes('model')) {
-        throw new Error('OpenAI model access failed. Check OPENAI_MODEL or project model access.');
+        throw new Error(`OpenAI model access failed. Check OPENAI_MODEL or project model access. ${safeError}`);
       }
-      throw new Error('OpenAI agent response failed. Check Supabase function logs for the OpenAI API response.');
+      throw new Error(`OpenAI agent response failed. ${safeError || 'Check Supabase function logs for the OpenAI API response.'}`);
     }
 
     const createdAt = new Date().toISOString();

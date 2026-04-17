@@ -4,7 +4,8 @@ import { motion } from 'motion/react';
 import { ChevronLeft, Send } from 'lucide-react';
 import { getSelectedAvatarImage } from '../utils/avatarUtils';
 import { agentChatPreview } from '../utils/chatData';
-import { getStoredProfileSettings } from '../utils/profileSettings';
+import { getStoredProfileSettings, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT, type StoredProfileSettings } from '../utils/profileSettings';
+import { hydrateRemoteProfileSettings } from '../services/profilePersistenceService';
 import {
   createCurrentUserMessage,
   clearLegacyAgentChat,
@@ -26,8 +27,9 @@ export function AgentChat() {
   const [inputValue, setInputValue] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [chatError, setChatError] = useState('');
-  const agentAvatar = getSelectedAvatarImage();
-  const agentName = getStoredProfileSettings().agentName || 'Your Agent';
+  const [agentSettings, setAgentSettings] = useState<StoredProfileSettings>(() => getStoredProfileSettings());
+  const agentAvatar = getSelectedAvatarImage(agentSettings.selectedAvatar);
+  const agentName = agentSettings.agentName || 'Your Agent';
 
   useEffect(() => {
     let cancelled = false;
@@ -43,6 +45,31 @@ export function AgentChat() {
       cancelled = true;
     };
   }, [threadId]);
+
+  useEffect(() => {
+    const refreshAgentSettings = () => setAgentSettings(getStoredProfileSettings());
+
+    refreshAgentSettings();
+    void hydrateRemoteProfileSettings()
+      .then(() => refreshAgentSettings())
+      .catch((error) => {
+        console.warn('Agent chat profile hydration skipped:', error);
+      });
+
+    const handleStorageChange = (event: StorageEvent) => {
+      if (!event.key || PROFILE_SETTINGS_STORAGE_KEYS.includes(event.key)) {
+        refreshAgentSettings();
+      }
+    };
+
+    window.addEventListener(PROFILE_SETTINGS_UPDATED_EVENT, refreshAgentSettings);
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      window.removeEventListener(PROFILE_SETTINGS_UPDATED_EVENT, refreshAgentSettings);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
 
   const handleSend = async (overrideMessage?: string) => {
     const trimmedMessage = (overrideMessage || inputValue).trim();

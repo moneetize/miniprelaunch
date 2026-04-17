@@ -4,6 +4,8 @@ import { motion } from 'motion/react';
 import { ChevronLeft, ChevronUp, Search, Users } from 'lucide-react';
 import { loadChatPreviews, type ChatPreview } from '../services/chatService';
 import { getSelectedAvatarImage } from '../utils/avatarUtils';
+import { hydrateRemoteProfileSettings } from '../services/profilePersistenceService';
+import { getStoredProfileSettings, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT, type StoredProfileSettings } from '../utils/profileSettings';
 
 type MessageTab = 'all' | 'members' | 'teams';
 
@@ -15,7 +17,8 @@ export function ChatList() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isCollapsing, setIsCollapsing] = useState(false);
   const [chats, setChats] = useState<ChatPreview[]>([]);
-  const agentAvatar = getSelectedAvatarImage();
+  const [profileSettings, setProfileSettings] = useState<StoredProfileSettings>(() => getStoredProfileSettings());
+  const agentAvatar = getSelectedAvatarImage(profileSettings.selectedAvatar);
 
   useEffect(() => {
     let cancelled = false;
@@ -26,6 +29,39 @@ export function ChatList() {
 
     return () => {
       cancelled = true;
+    };
+  }, [activeTab]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshProfileSettings = () => {
+      const nextSettings = getStoredProfileSettings();
+      setProfileSettings(nextSettings);
+      void loadChatPreviews(activeTab).then((nextChats) => {
+        if (!cancelled) setChats(nextChats);
+      });
+    };
+
+    void hydrateRemoteProfileSettings()
+      .then(() => refreshProfileSettings())
+      .catch((error) => {
+        console.warn('Messages profile hydration skipped:', error);
+      });
+
+    const handleStorageChange = (event: StorageEvent) => {
+      if (!event.key || PROFILE_SETTINGS_STORAGE_KEYS.includes(event.key)) {
+        refreshProfileSettings();
+      }
+    };
+
+    window.addEventListener(PROFILE_SETTINGS_UPDATED_EVENT, refreshProfileSettings);
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener(PROFILE_SETTINGS_UPDATED_EVENT, refreshProfileSettings);
+      window.removeEventListener('storage', handleStorageChange);
     };
   }, [activeTab]);
 
@@ -69,7 +105,7 @@ export function ChatList() {
               WebkitMaskImage: 'radial-gradient(circle at center, black 42%, transparent 90%)',
             }}
           >
-            <img src={agentAvatar} alt="Your Agent" className="h-full w-full object-cover opacity-90" />
+            <img src={chat.avatar || agentAvatar} alt={chat.name || profileSettings.agentName || 'Your Agent'} className="h-full w-full object-cover opacity-90" />
           </motion.span>
         </span>
       );

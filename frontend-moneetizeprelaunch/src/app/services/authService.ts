@@ -89,6 +89,7 @@ const ADMIN_EMAILS = new Set([
   'admin@moneetize.com',
   'nathan@moneetize.com',
   'gloryvee@gmail.com',
+  'julia.galmiche@usherbrooke.ca',
 ]);
 const USER_SCOPED_STORAGE_KEYS = [
   'userPhoto',

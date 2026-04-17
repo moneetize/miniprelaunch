@@ -1,5 +1,6 @@
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { agentChatPreview, teamChatPreview, teamMemberChats, type ChatPreview } from '../utils/chatData';
+import { getSelectedAvatarImage } from '../utils/avatarUtils';
 import { getPendingTeamInviteMembers } from '../utils/inviteSync';
 import { getStoredProfileSettings } from '../utils/profileSettings';
 import { safeGetItem, safeSetItem } from '../utils/storage';
@@ -201,6 +202,11 @@ function applyRemoteThreadIndex(chats: ChatPreview[], threads: Awaited<ReturnTyp
 export async function loadChatPreviews(tab: 'all' | 'members' | 'teams' = 'all') {
   const contacts = await loadTeamChatContacts();
   const profile = getStoredProfileSettings();
+  const agentPreview: ChatPreview = {
+    ...agentChatPreview,
+    name: profile.agentName || 'Your Agent',
+    avatar: getSelectedAvatarImage(profile.selectedAvatar),
+  };
   const teamPreview: ChatPreview = {
     ...teamChatPreview,
     name: `${profile.name.split(' ')[0] || 'My'} team`,
@@ -211,7 +217,7 @@ export async function loadChatPreviews(tab: 'all' | 'members' | 'teams' = 'all')
 
   if (tab === 'members') return applyRemoteThreadIndex(contacts, remoteThreads);
   if (tab === 'teams') return applyRemoteThreadIndex([teamPreview], remoteThreads);
-  return applyRemoteThreadIndex([agentChatPreview, ...contacts, teamPreview], remoteThreads);
+  return applyRemoteThreadIndex([agentPreview, ...contacts, teamPreview], remoteThreads);
 }
 
 export async function getChatPreviewById(id?: string, isTeam = false): Promise<ChatPreview> {
