@@ -190,6 +190,11 @@ export function TeamView() {
   const aiAgentImage = getSelectedAvatarImage(selectedAvatar);
   const aiAgentTone = getAgentAvatarTone(selectedAvatar);
   const getPendingInviteLabel = (member: TeamMember) => member.email || member.phone || member.contact || member.name;
+  const getMemberInitials = (name: string) => {
+    const cleanName = `${name || 'Moneetize Member'}`.replace(' (You)', '').trim();
+    const parts = cleanName.split(/\s+/).filter(Boolean);
+    return (parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : cleanName.slice(0, 2)).toUpperCase();
+  };
   const getInviteMessage = (inviteUrl: string) =>
     `Hey! I invited you to Moneetize. Start here and scratch to win rewards: ${inviteUrl} Reply STOP to opt out.`;
   const getSmsUrl = (recipient: string, message: string) => {
@@ -289,6 +294,7 @@ export function TeamView() {
   const pendingTeamMembers = visibleTeamMembers.filter((member) => member.status === 'pending');
   const sortedTeam = [...activeTeamMembers].sort((a, b) => b.points - a.points);
   const displayedTeamProgress = activeTeamMembers.reduce((total, member) => total + (member.points || 0), 0);
+  const rosterMembers = activeTeamMembers;
 
   const renderStatusBar = () => (
     <div className="h-11 flex items-center justify-between px-4 text-white text-sm">
@@ -466,66 +472,83 @@ export function TeamView() {
                 })}
               </div>
 
-              {[...sortedTeam.slice(3), ...pendingTeamMembers].map((member, index) => (
-                <div
-                  key={member.id}
-                  className="mb-3 flex min-h-[62px] items-center gap-3 rounded-[1rem] border border-white/10 bg-white/[0.08] px-5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
-                >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center">
-                    <span className="text-base font-black text-white/78">{index + 4}</span>
-                  </div>
-                  <div className="h-11 w-11 shrink-0 overflow-hidden rounded-full bg-white/10">
-                    {member.status === 'pending' ? (
-                      <div className="flex h-full w-full items-center justify-center">
-                        <span className="flex h-4 w-4 items-center justify-center rounded-full border border-white/26 text-[9px] font-black text-white/38">?</span>
-                      </div>
-                    ) : (
-                      member.avatar && <img src={member.avatar} alt={member.name} className="h-full w-full object-cover" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-base font-black text-white">
-                      {member.status === 'pending' ? getPendingInviteLabel(member) : member.name}
-                    </p>
-                  </div>
-                  {member.status === 'pending' ? (
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      <span className="text-sm font-bold text-white/48">Pending...</span>
-                      <button
-                        type="button"
-                        onClick={() => handleResendPendingInvite(member)}
-                        className="flex h-8 w-8 items-center justify-center rounded-full text-[#8ff0a8] transition-colors hover:bg-[#8ff0a8]/10 hover:text-[#b9ffc8]"
-                        aria-label={`Resend invite to ${getPendingInviteLabel(member)}`}
-                      >
-                        <RefreshCw className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeletePendingInvite(member)}
-                        className="flex h-8 w-8 items-center justify-center rounded-full text-red-400/75 transition-colors hover:bg-red-400/10 hover:text-red-300"
-                        aria-label={`Delete pending invite for ${getPendingInviteLabel(member)}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+              <div className="mb-4 flex items-center justify-between px-1">
+                <h3 className="text-lg font-black text-white">Team Members</h3>
+                <span className="text-xs font-bold text-white/42">{rosterMembers.length} active</span>
+              </div>
+
+              <div className="space-y-3">
+                {rosterMembers.map((member) => (
+                  <div
+                    key={`roster-${member.id}`}
+                    className="flex min-h-[62px] items-center gap-3 rounded-[1rem] border border-white/10 bg-white/[0.08] px-5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+                  >
+                    <div className="h-11 w-11 shrink-0 overflow-hidden rounded-full bg-white/10">
+                      {member.avatar ? (
+                        <img src={member.avatar} alt={member.name} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-white/[0.07] text-sm font-black text-white/68">
+                          {getMemberInitials(member.name)}
+                        </div>
+                      )}
                     </div>
-                  ) : (
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-base font-black text-white">
+                        {member.name}
+                      </p>
+                      <p className="truncate text-xs font-bold text-white/42">
+                        {member.isCurrentUser ? 'You' : member.handle || member.email || 'Team member'}
+                      </p>
+                    </div>
                     <div className="flex shrink-0 items-center gap-2">
                       <span className="text-sm font-black text-[#8ff0a8]">{member.points}</span>
                       <img src={gemIcon} alt="Gem" className="h-6 w-6 drop-shadow-[0_0_14px_rgba(134,255,166,0.58)]" />
                     </div>
-                  )}
-                  {member.canRemove && (
+                  </div>
+                ))}
+              </div>
+
+              {pendingTeamMembers.length > 0 && (
+                <div className="mb-4 mt-6 flex items-center justify-between px-1">
+                  <h3 className="text-lg font-black text-white">Pending Invites</h3>
+                  <span className="text-xs font-bold text-white/42">{pendingTeamMembers.length} pending</span>
+                </div>
+              )}
+
+              {pendingTeamMembers.map((member) => (
+                <div
+                  key={member.id}
+                  className="mb-3 flex min-h-[62px] items-center gap-3 rounded-[1rem] border border-white/10 bg-white/[0.08] px-5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+                >
+                  <div className="h-11 w-11 shrink-0 overflow-hidden rounded-full bg-white/10">
+                    <div className="flex h-full w-full items-center justify-center">
+                      <span className="flex h-4 w-4 items-center justify-center rounded-full border border-white/26 text-[9px] font-black text-white/38">?</span>
+                    </div>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-base font-black text-white">
+                      {getPendingInviteLabel(member)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <span className="text-sm font-bold text-white/48">Pending...</span>
                     <button
                       type="button"
-                      onClick={() => setRemovedMemberIds((ids) => [...ids, member.id])}
-                      className="ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-red-400/75 transition-colors hover:bg-red-400/10 hover:text-red-300"
-                      aria-label={`Remove ${member.name}`}
+                      onClick={() => handleResendPendingInvite(member)}
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-[#8ff0a8] transition-colors hover:bg-[#8ff0a8]/10 hover:text-[#b9ffc8]"
+                      aria-label={`Resend invite to ${getPendingInviteLabel(member)}`}
                     >
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h8m-7 0V5h6v2m-8 3 1 9h8l1-9M10 11v5m4-5v5" />
-                      </svg>
+                      <RefreshCw className="h-4 w-4" />
                     </button>
-                  )}
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePendingInvite(member)}
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-red-400/75 transition-colors hover:bg-red-400/10 hover:text-red-300"
+                      aria-label={`Delete pending invite for ${getPendingInviteLabel(member)}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               ))}
 

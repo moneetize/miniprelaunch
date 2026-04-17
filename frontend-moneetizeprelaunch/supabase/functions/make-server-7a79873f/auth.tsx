@@ -350,6 +350,65 @@ export async function updateProfile(accessToken: string, updates: { name?: strin
 }
 
 /**
+ * Update the password for the currently authenticated user.
+ */
+export async function updatePassword(accessToken: string, password: string) {
+  try {
+    if (!accessToken) {
+      return {
+        success: false,
+        error: 'Access token is required',
+        status: 401
+      };
+    }
+
+    if (!password || password.length < 8) {
+      return {
+        success: false,
+        error: 'Password must be at least 8 characters long.',
+        code: 'validation_error',
+        status: 400
+      };
+    }
+
+    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(accessToken);
+
+    if (userError || !user) {
+      console.error('Update password - user verification error:', userError);
+      return {
+        success: false,
+        error: 'Invalid or expired access token',
+        status: 401
+      };
+    }
+
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(user.id, { password });
+
+    if (error) {
+      console.error('Update password error:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to update password',
+        code: 'password_update_failed',
+        status: 500
+      };
+    }
+
+    return {
+      success: true,
+      status: 200
+    };
+  } catch (error) {
+    console.error('Unexpected update password error:', error);
+    return {
+      success: false,
+      error: 'An unexpected error occurred while updating password',
+      status: 500
+    };
+  }
+}
+
+/**
  * Verify access token middleware
  */
 export async function verifyToken(accessToken: string) {

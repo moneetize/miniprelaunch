@@ -1199,6 +1199,17 @@ const extractOpenAIResponseText = (data: any) => {
   return textParts.join('\n').trim();
 };
 
+const readOpenAIError = async (response: Response) => {
+  const raw = await response.text();
+
+  try {
+    const parsed = JSON.parse(raw);
+    return `${parsed?.error?.message || parsed?.message || raw || response.statusText}`.slice(0, 700);
+  } catch {
+    return `${raw || response.statusText}`.slice(0, 700);
+  }
+};
+
 const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
   const openAiApiKey = Deno.env.get('OPENAI_API_KEY');
   if (!openAiApiKey) throw new Error('OPENAI_API_KEY is not configured');
@@ -1211,10 +1222,10 @@ const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
 
     const modelCandidates = [
       `${Deno.env.get('OPENAI_MODEL') || ''}`.trim(),
+      'gpt-4o-mini',
+      'gpt-4o',
       'gpt-4.1-mini',
       'gpt-4.1',
-      'gpt-4o',
-      'gpt-4o-mini',
     ].filter((model, index, models) => model && models.indexOf(model) === index);
     const agentInstructions = [
       'You are the Moneetize personal AI agent.',
@@ -1230,37 +1241,6 @@ const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
     let lastOpenAiError = '';
 
     for (const model of modelCandidates) {
-      const responsesApiResponse = await fetch('https://api.openai.com/v1/responses', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${openAiApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model,
-          input: [
-            {
-              role: 'system',
-              content: agentInstructions,
-            },
-            ...recentMessages,
-          ],
-          max_output_tokens: 900,
-          temperature: 0.7,
-        }),
-      });
-
-      if (responsesApiResponse.ok) {
-        const data = await responsesApiResponse.json();
-        content = extractOpenAIResponseText(data);
-        if (content) {
-          break;
-        }
-      } else {
-        lastOpenAiError = await responsesApiResponse.text();
-        console.error('OpenAI responses API failed for model:', model, lastOpenAiError);
-      }
-
       const chatCompletionsResponse = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -1288,8 +1268,39 @@ const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
           break;
         }
       } else {
-        lastOpenAiError = await chatCompletionsResponse.text();
+        lastOpenAiError = await readOpenAIError(chatCompletionsResponse);
         console.error('OpenAI chat completions failed for model:', model, lastOpenAiError);
+      }
+
+      const responsesApiResponse = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${openAiApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          input: [
+            {
+              role: 'system',
+              content: agentInstructions,
+            },
+            ...recentMessages,
+          ],
+          max_output_tokens: 900,
+          temperature: 0.7,
+        }),
+      });
+
+      if (responsesApiResponse.ok) {
+        const data = await responsesApiResponse.json();
+        content = extractOpenAIResponseText(data);
+        if (content) {
+          break;
+        }
+      } else {
+        lastOpenAiError = await readOpenAIError(responsesApiResponse);
+        console.error('OpenAI responses API failed for model:', model, lastOpenAiError);
       }
 
       if (content) {
@@ -1299,7 +1310,17 @@ const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
 
     if (!content) {
       console.error('OpenAI agent response failed for all configured models:', lastOpenAiError);
-      throw new Error('OpenAI agent response failed');
+      const lowerError = lastOpenAiError.toLowerCase();
+      if (lowerError.includes('quota') || lowerError.includes('billing') || lowerError.includes('insufficient')) {
+        throw new Error('OpenAI billing or quota is blocking agent replies.');
+      }
+      if (lowerError.includes('api key') || lowerError.includes('invalid') || lowerError.includes('unauthorized')) {
+        throw new Error('OpenAI API key is invalid or unauthorized.');
+      }
+      if (lowerError.includes('model')) {
+        throw new Error('OpenAI model access failed. Check OPENAI_MODEL or project model access.');
+      }
+      throw new Error('OpenAI agent response failed. Check Supabase function logs for the OpenAI API response.');
     }
 
     const createdAt = new Date().toISOString();
@@ -1750,6 +1771,25 @@ app.post("/make-server-7a79873f/auth/update-profile", async (c) => {
   } catch (error) {
     console.error('Update profile endpoint error:', error);
     return c.json({ success: false, error: 'Failed to update profile' }, 500);
+  }
+});
+
+app.post("/make-server-7a79873f/auth/update-password", async (c) => {
+  try {
+    const accessToken = getUserAccessToken(c);
+
+    console.log('Update password endpoint - has token:', !!accessToken);
+
+    if (!accessToken) {
+      return c.json({ success: false, error: 'User token required' }, 401);
+    }
+
+    const body = await c.req.json();
+    const result = await auth.updatePassword(accessToken, `${body?.password || ''}`);
+    return c.json(result, result.status);
+  } catch (error) {
+    console.error('Update password endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to update password' }, 500);
   }
 });
 
@@ -3351,7 +3391,9 @@ app.post("/make-server-7a79873f/invites/send", async (c) => {
       return c.json({ success: false, error: 'Add at least one email address or phone number.' }, 400);
     }
 
-    if (emails.length + phones.length > MAX_RELEASE_TEAM_INVITES) {
+    const sendInviteAdmin = await getUnlimitedUrlInviteAdmin(currentUser.user.id);
+
+    if (!sendInviteAdmin.isAdmin && emails.length + phones.length > MAX_RELEASE_TEAM_INVITES) {
       return c.json({ success: false, error: `Maximum ${MAX_RELEASE_TEAM_INVITES} invites allowed at a time for this release` }, 400);
     }
 
@@ -3435,8 +3477,9 @@ app.post("/make-server-7a79873f/invites/send", async (c) => {
     const userPointsKey = `user_points:${currentUser.user.id}`;
     const currentPoints = parseStoredNumber(await kv.get(userPointsKey), DEFAULT_USER_POINTS);
     const newTotalPoints = currentPoints;
+    const inviteHistoryLimit = sendInviteAdmin.isAdmin ? ADMIN_URL_INVITE_HISTORY_LIMIT : INVITE_HISTORY_LIMIT;
     const writes = [
-      kv.set(inviteHistoryKey, JSON.stringify([...records, ...history].slice(0, INVITE_HISTORY_LIMIT))),
+      kv.set(inviteHistoryKey, JSON.stringify([...records, ...history].slice(0, inviteHistoryLimit))),
     ];
 
     let transaction = null;

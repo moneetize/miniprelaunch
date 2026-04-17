@@ -517,17 +517,53 @@ export async function updateCurrentUserPassword(password: string): Promise<Basic
       };
     }
 
+    const existingSession = await supabase.auth.getSession();
+    const accessToken = safeGetItem('access_token');
+    const refreshToken = safeGetItem('refresh_token');
+    let supabaseUpdateError = '';
+
+    if (!existingSession.data.session?.access_token && accessToken && refreshToken) {
+      await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+    }
+
     const { error } = await supabase.auth.updateUser({ password });
 
-    if (error) {
+    if (!error) {
+      return { success: true };
+    }
+
+    supabaseUpdateError = error.message || 'Unable to update password.';
+
+    if (accessToken) {
+      const response = await fetch(`${API_BASE_URL}/update-password`, {
+        method: 'POST',
+        headers: {
+          ...authHeaders(),
+          'x-user-token': accessToken,
+        },
+        body: JSON.stringify({ password }),
+      });
+      const result = await readJson<BasicAuthActionResponse>(response);
+
+      if (response.ok && result.success) {
+        return { success: true };
+      }
+
       return {
         success: false,
-        error: error.message || 'Unable to update password.',
-        code: 'password_update_failed',
+        error: result.error || supabaseUpdateError || 'Unable to update password.',
+        code: result.code || 'password_update_failed',
       };
     }
 
-    return { success: true };
+    return {
+      success: false,
+      error: supabaseUpdateError || 'Your reset session expired. Please request a new password reset link.',
+      code: 'password_update_failed',
+    };
   } catch (err) {
     return {
       success: false,

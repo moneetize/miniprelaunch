@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronLeft, ChevronUp, History, MessageCircle, MoreHorizontal, Share2, Settings, UserPlus, Plus, Trash2, Link as LinkIcon, Copy, Check, ChevronRight, User, Mail, Calendar, Heart, Target, Award, TrendingUp, Users, LogOut, X, Shield, ShoppingBag } from 'lucide-react';
@@ -10,8 +10,9 @@ import { safeGetItem, safeSetItem } from '../utils/storage';
 import { isUserAdmin, logoutUser } from '../services/authService';
 import { getStoredScratchCredits, getStoredUsdtBalance, loadScratchProfile, type ScratchCredits, type ScratchDrawResult } from '../services/scratchService';
 import { LOCAL_NETWORK_PROFILES_UPDATED_EVENT, loadNetworkFollowStates, loadRecommendedFriends, saveNetworkFollowState, syncCurrentUserNetworkProfile, type RecommendedFriendProfile } from '../services/networkService';
-import { getStoredProfileSettings, isStoredProfileComplete, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT, writeStoredProfileSettings } from '../utils/profileSettings';
-import { hydrateRemoteProfileSettings } from '../services/profilePersistenceService';
+import { clearProfilePhoto, getStoredProfileSettings, isStoredProfileComplete, notifyProfileSettingsUpdated, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT, saveProfilePhoto, writeStoredProfileSettings } from '../utils/profileSettings';
+import { hydrateRemoteProfileSettings, saveRemoteProfileSettings } from '../services/profilePersistenceService';
+import { loadChatPreviews } from '../services/chatService';
 
 interface TeamMember {
   id: string;
@@ -143,6 +144,49 @@ function formatHistoryDate(timestamp: string) {
   }).format(date).replace(/\//g, '.');
 }
 
+function resizeProfilePhoto(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onerror = () => reject(new Error('Unable to read this photo.'));
+    reader.onload = () => {
+      const image = new Image();
+
+      image.onerror = () => reject(new Error('Unable to load this photo.'));
+      image.onload = () => {
+        const outputSize = 240;
+        const cropSize = Math.min(image.width, image.height);
+        const sourceX = Math.max(0, Math.round((image.width - cropSize) / 2));
+        const sourceY = Math.max(0, Math.round((image.height - cropSize) / 2));
+        const canvas = document.createElement('canvas');
+        canvas.width = outputSize;
+        canvas.height = outputSize;
+
+        const context = canvas.getContext('2d');
+        if (!context) {
+          reject(new Error('Unable to process this photo.'));
+          return;
+        }
+
+        context.drawImage(image, sourceX, sourceY, cropSize, cropSize, 0, 0, outputSize, outputSize);
+
+        let quality = 0.78;
+        let photo = canvas.toDataURL('image/jpeg', quality);
+        while (photo.length > 80000 && quality > 0.48) {
+          quality -= 0.08;
+          photo = canvas.toDataURL('image/jpeg', quality);
+        }
+
+        resolve(photo);
+      };
+
+      image.src = `${reader.result || ''}`;
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
 function formatHistoryTime(timestamp: string) {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return '';
@@ -184,6 +228,7 @@ function getHistoryRewards(draw: ScratchDrawResult): HistoryRewardIcon[] {
 
 export function ProfileScreen() {
   const navigate = useNavigate();
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<'network' | 'your-team' | 'invited-team' | 'winnings' | 'gameplay' | 'settings'>('network');
   const [userPoints, setUserPoints] = useState(0);
   const [userName, setUserName] = useState('');
@@ -208,6 +253,8 @@ export function ProfileScreen() {
   const [investmentProfile, setInvestmentProfile] = useState('');
   const [memberSince, setMemberSince] = useState('');
   const [showPhotoEditModal, setShowPhotoEditModal] = useState(false);
+  const [photoEditMessage, setPhotoEditMessage] = useState('');
+  const [hasUnreadChats, setHasUnreadChats] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [showRewardHistory, setShowRewardHistory] = useState(false);
   const [showPointsInfo, setShowPointsInfo] = useState(false);
@@ -465,6 +512,28 @@ export function ProfileScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshChatIndicator = () => {
+      void loadChatPreviews('all')
+        .then((chats) => {
+          if (!cancelled) setHasUnreadChats(chats.some((chat) => (chat.unreadCount || 0) > 0));
+        })
+        .catch(() => {
+          if (!cancelled) setHasUnreadChats(false);
+        });
+    };
+
+    refreshChatIndicator();
+    const timer = window.setInterval(refreshChatIndicator, 30000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
   const handleCopyLink = async () => {
     try {
       await navigator.clipboard.writeText(inviteLink);
@@ -473,6 +542,55 @@ export function ProfileScreen() {
     } catch (err) {
       console.error('Failed to copy link:', err);
     }
+  };
+
+  const handleChooseProfilePhoto = () => {
+    setPhotoEditMessage('');
+    photoInputRef.current?.click();
+  };
+
+  const handleProfilePhotoChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setPhotoEditMessage('Saving profile photo...');
+      const photo = await resizeProfilePhoto(file);
+      setUserPhoto(photo);
+      saveProfilePhoto(photo);
+      notifyProfileSettingsUpdated();
+      syncCurrentUserNetworkProfile();
+
+      try {
+        const savedSettings = await saveRemoteProfileSettings({ photo });
+        if (savedSettings) {
+          writeStoredProfileSettings(savedSettings);
+          setUserPhoto(getStoredProfileSettings({ fallbackName: userName, fallbackEmail: userEmail }).photo || photo);
+          notifyProfileSettingsUpdated();
+          syncCurrentUserNetworkProfile();
+        }
+        setPhotoEditMessage('Profile photo updated.');
+      } catch (error) {
+        console.warn('Remote profile photo sync skipped:', error);
+        setPhotoEditMessage('Photo is ready locally. Tap Save Profile in Settings if it needs a retry.');
+      }
+    } catch (error) {
+      console.error('Profile photo update failed:', error);
+      setPhotoEditMessage(error instanceof Error ? error.message : 'Profile photo update failed.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const handleRemoveProfilePhoto = () => {
+    setUserPhoto('');
+    clearProfilePhoto();
+    notifyProfileSettingsUpdated();
+    syncCurrentUserNetworkProfile();
+    setPhotoEditMessage('Profile photo removed.');
+    void saveRemoteProfileSettings({ photo: '' }).catch((error) => {
+      console.warn('Remote profile photo removal sync skipped:', error);
+    });
   };
 
   const handleConfirmDelete = () => {
@@ -808,6 +926,13 @@ export function ProfileScreen() {
 
   return (
     <div className="absolute inset-0 w-full h-full overflow-y-auto bg-[#0a0e1a] text-white [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleProfilePhotoChange}
+        className="hidden"
+      />
       {/* Status Bar */}
       <div className="absolute top-0 left-0 right-0 h-11 flex items-center justify-between px-4 sm:px-6 text-white text-sm z-50">
         <div className="flex items-center gap-2">
@@ -930,6 +1055,12 @@ export function ProfileScreen() {
               aria-label="Messages"
             >
               <MessageCircle className="h-4 w-4" />
+              <span
+                className={`absolute right-2 top-2 h-3.5 w-3.5 rounded-full border-2 border-[#202124] ${
+                  hasUnreadChats ? 'bg-[#ff4d55] shadow-[0_0_12px_rgba(255,77,85,0.75)]' : 'bg-[#5dea86] shadow-[0_0_12px_rgba(93,234,134,0.58)]'
+                }`}
+                aria-hidden="true"
+              />
             </button>
 
             <button
@@ -1105,20 +1236,22 @@ export function ProfileScreen() {
             <div>
               <div className="mb-3 flex items-center justify-between gap-3">
                 <h3 className="text-xl font-black tracking-tight text-white">People You May Know</h3>
-                {hiddenNetworkProfileCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setNetworkListExpanded((expanded) => !expanded)}
-                    className="flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.07] px-3 py-1.5 text-xs font-black text-white/76 transition-colors hover:bg-white/[0.12]"
-                  >
-                    {networkListExpanded ? 'Show less' : 'See all'}
-                    <ChevronUp className={`h-3.5 w-3.5 transition-transform ${networkListExpanded ? '' : 'rotate-180'}`} />
-                  </button>
-                )}
               </div>
               <div className="space-y-2">
                 {visiblePeopleYouMayKnowProfiles.map(renderNetworkProfileRow)}
               </div>
+              {hiddenNetworkProfileCount > 0 && (
+                <div className="mt-4 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setNetworkListExpanded((expanded) => !expanded)}
+                    className="flex h-10 w-16 items-center justify-center rounded-full border border-white/10 bg-white/[0.08] text-white/80 shadow-[0_12px_30px_rgba(0,0,0,0.28)] transition-colors hover:bg-white/[0.14] hover:text-white"
+                    aria-label={networkListExpanded ? 'Collapse network list' : 'Expand network list'}
+                  >
+                    <ChevronUp className={`h-5 w-5 transition-transform ${networkListExpanded ? '' : 'rotate-180'}`} />
+                  </button>
+                </div>
+              )}
             </div>
           </motion.section>
         )}
@@ -1799,67 +1932,81 @@ export function ProfileScreen() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md"
             onClick={() => setShowPhotoEditModal(false)}
           >
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
+              initial={{ scale: 0.94, opacity: 0, y: 12 }}
               animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
+              exit={{ scale: 0.94, opacity: 0, y: 12 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-gradient-to-b from-[#2a2d3e] to-[#1a1d2e] rounded-3xl p-8 w-full max-w-sm border border-white/10 shadow-2xl"
+              className="relative w-full max-w-[340px] overflow-hidden rounded-[1.55rem] border border-white/10 bg-gradient-to-b from-[#24272c]/98 via-[#191c20]/98 to-[#111315]/98 px-5 pb-5 pt-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_80px_rgba(0,0,0,0.58)]"
             >
-              <h3 className="text-white text-2xl font-bold mb-3 text-center">Edit Profile Photo</h3>
-              <p className="text-gray-400 text-sm mb-6 text-center">
-                Change your profile photo
-              </p>
+              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(126,234,145,0.12),transparent_40%)]" />
+              <button
+                type="button"
+                onClick={() => setShowPhotoEditModal(false)}
+                className="absolute right-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.08] text-white/70 transition-colors hover:bg-white/[0.14] hover:text-white"
+                aria-label="Close photo editor"
+              >
+                <X className="h-4 w-4" />
+              </button>
 
-              {/* Current Photo */}
-              <div className="flex justify-center mb-6">
-                <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-white/20">
+              <div className="relative">
+                <h3 className="mb-2 text-center text-xl font-black text-white">Edit Profile Photo</h3>
+                <p className="mx-auto mb-6 max-w-[230px] text-center text-xs font-bold leading-relaxed text-white/48">
+                  Update your profile image or switch back to your initials.
+                </p>
+
+                <div className="mb-6 flex justify-center">
+                <div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-full bg-gradient-to-b from-[#ffd23f] via-[#ff8d25] to-[#ef3d28] p-[3px] shadow-[0_0_30px_rgba(255,145,30,0.34)]">
+                  <div className="h-full w-full overflow-hidden rounded-full border-[3px] border-[#202124] bg-[#2d3035]">
                   {userPhoto ? (
-                    <img 
-                      src={userPhoto} 
-                      alt="Profile" 
-                      className="w-full h-full object-cover"
-                    />
+                    <img src={userPhoto} alt="Profile" className="h-full w-full object-cover" />
                   ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                      <User className="w-16 h-16 text-white" />
-                    </div>
+                    <span className="flex h-full w-full items-center justify-center text-2xl font-black text-white/72">
+                      {userInitials}
+                    </span>
                   )}
+                  </div>
                 </div>
               </div>
 
-              {/* Options */}
-              <div className="space-y-3 mb-6">
+              {photoEditMessage && (
+                <p className="mb-4 rounded-2xl border border-emerald-300/18 bg-emerald-300/[0.08] px-3 py-2 text-center text-xs font-bold text-emerald-100/86">
+                  {photoEditMessage}
+                </p>
+              )}
+
+              <div className="space-y-3">
                 <button
-                  onClick={() => {
-                    setShowPhotoEditModal(false);
-                    navigate('/personalize-photo');
-                  }}
-                  className="w-full bg-gradient-to-r from-purple-600 to-violet-600 text-white py-3 rounded-full font-semibold hover:from-purple-700 hover:to-violet-700 transition-all"
-                >
-                  Choose Avatar
-                </button>
-                <button
-                  onClick={() => {
-                    // In a real app, this would open file picker
-                    alert('Photo upload feature coming soon!');
-                  }}
-                  className="w-full bg-white/10 text-white py-3 rounded-full font-semibold hover:bg-white/20 transition-colors"
+                  type="button"
+                  onClick={handleChooseProfilePhoto}
+                  className="w-full rounded-full bg-white px-5 py-3.5 text-sm font-black text-black shadow-[0_16px_38px_rgba(0,0,0,0.34)] transition-colors hover:bg-gray-100"
                 >
                   Upload Photo
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPhotoEditModal(false);
+                    navigate('/settings?view=agent');
+                  }}
+                  className="w-full rounded-full border border-white/10 bg-white/[0.08] px-5 py-3.5 text-sm font-black text-white transition-colors hover:bg-white/[0.14]"
+                >
+                  Change AI Avatar
+                </button>
+                {userPhoto && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveProfilePhoto}
+                    className="w-full rounded-full border border-red-300/20 bg-red-500/[0.08] px-5 py-3 text-sm font-black text-red-100 transition-colors hover:bg-red-500/[0.14]"
+                  >
+                    Remove Photo
+                  </button>
+                )}
               </div>
-
-              {/* Close Button */}
-              <button
-                onClick={() => setShowPhotoEditModal(false)}
-                className="w-full bg-white/5 text-gray-400 py-3 rounded-full font-semibold hover:bg-white/10 transition-colors"
-              >
-                Cancel
-              </button>
+              </div>
             </motion.div>
           </motion.div>
         )}

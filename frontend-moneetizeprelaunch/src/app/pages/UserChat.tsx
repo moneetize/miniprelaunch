@@ -160,7 +160,9 @@ export function UserChat() {
         <div className="text-center">
           <h1 className="text-lg font-black text-white">{isTeamChat ? 'My team' : chat.name}</h1>
           {(isTeamChat ? chat.handle : chat.handle) && (
-            <p className="mt-1 rounded-full bg-white/8 px-3 py-1 text-xs font-bold text-white/45">{chat.handle}</p>
+            <p className="mx-auto mt-1 inline-flex max-w-[170px] items-center justify-center truncate rounded-full border border-white/10 bg-white/[0.08] px-3 py-1 text-xs font-bold text-white/45">
+              {chat.handle}
+            </p>
           )}
         </div>
 

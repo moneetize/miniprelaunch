@@ -291,8 +291,15 @@ export function SettingsScreen() {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    if (params.get('view') === 'password' || params.get('reset') === '1') {
+    const requestedView = params.get('view');
+
+    if (requestedView === 'password' || params.get('reset') === '1') {
       setCurrentView('password');
+      return;
+    }
+
+    if (requestedView === 'agent' || requestedView === 'interests') {
+      setCurrentView(requestedView);
     }
   }, [location.search]);
 
@@ -1669,7 +1676,7 @@ export function SettingsScreen() {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-8 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-20 pt-8 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         <div className="mx-auto max-w-md">
         <AnimatePresence mode="wait">
           {currentView === 'main' && renderUpdatedMainView()}
@@ -1681,7 +1688,7 @@ export function SettingsScreen() {
       </div>
 
       {currentView === 'main' && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[70] mx-auto max-w-md bg-gradient-to-t from-black via-black/92 to-transparent px-5 pb-[calc(0.85rem+env(safe-area-inset-bottom))] pt-4">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[70] mx-auto max-w-md bg-gradient-to-t from-black via-black/92 to-transparent px-5 pb-[calc(0.45rem+env(safe-area-inset-bottom))] pt-3">
           {profileSaveMessage && (
             <p className="mx-auto mb-2 max-w-[310px] rounded-full border border-red-300/18 bg-red-400/[0.12] px-4 py-2 text-center text-[11px] font-bold text-red-100/90">
               {profileSaveMessage}
