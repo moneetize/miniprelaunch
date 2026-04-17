@@ -1189,28 +1189,6 @@ const upsertChatThreadIndex = async (userId: string, thread: Record<string, unkn
   return nextThreads;
 };
 
-const createAgentFallbackReply = (prompt: string) => {
-  const createdAt = new Date().toISOString();
-  const normalizedPrompt = prompt.trim();
-  const lowerPrompt = normalizedPrompt.toLowerCase();
-  const isVaguePrompt = /^(anything|any thing|whatever|surprise me|help|hi|hello|hey)$/i.test(lowerPrompt);
-  const content = isVaguePrompt
-    ? 'Absolutely. You can ask me anything: money basics, investing concepts, rewards, merch redemptions, business ideas, or how to move through the app. A useful starting point: pick one goal for this week, then ask me to break it into a simple plan.'
-    : lowerPrompt.includes('invest') || lowerPrompt.includes('market') || lowerPrompt.includes('stock') || lowerPrompt.includes('crypto')
-      ? `Here is a practical way to think about it: start with the goal, time horizon, risk level, and how much flexibility you need. For "${normalizedPrompt}", I would compare the upside, downside, liquidity, fees, and what would make you change course before putting money at risk.`
-      : `Here is a direct starting point for "${normalizedPrompt}": break it into what you know, what decision you need to make, and the next action you can take. Ask me a follow-up and I can go deeper from there.`;
-
-  return {
-    id: crypto.randomUUID(),
-    senderId: 'agent',
-    senderName: 'Your Agent',
-    content,
-    timestamp: new Date(createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-    createdAt,
-    role: 'agent',
-  };
-};
-
 const extractOpenAIResponseText = (data: any) => {
   if (typeof data?.output_text === 'string' && data.output_text.trim()) return data.output_text.trim();
 
@@ -1231,7 +1209,7 @@ const extractOpenAIResponseText = (data: any) => {
 
 const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
   const openAiApiKey = Deno.env.get('OPENAI_API_KEY');
-  if (!openAiApiKey) return createAgentFallbackReply(prompt);
+  if (!openAiApiKey) throw new Error('OPENAI_API_KEY is not configured');
 
   try {
     const recentMessages = messages.slice(-12).map((message) => ({
@@ -1246,21 +1224,19 @@ const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
     ].filter((model, index, models) => model && models.indexOf(model) === index);
     const agentInstructions = [
       'You are the Moneetize personal AI agent.',
-      'Respond naturally and directly, like a helpful ChatGPT-style assistant inside the app.',
-      'Answer broad general questions across normal user topics, not only finance or app questions.',
-      'Help with budgeting, markets, investing concepts, portfolio thinking, rewards, merch redemption, invites, profile setup, app navigation, planning, writing, explanations, and brainstorming.',
-      'For financial topics, be useful and concrete: explain options, risks, tradeoffs, and questions to ask. Do not promise returns, invent live prices, or claim to be a licensed advisor.',
-      'Do not gate normal answers behind repeated intake questions. Ask for more details only when the user is asking for personalized advice and the missing detail materially changes the answer.',
-      'If the user says something vague like "anything", give a useful answer and a few suggested directions instead of asking the same question back.',
-      'Keep caveats brief and only when they matter. Avoid repetitive warnings, alarmist language, and canned disclaimers.',
-      'Use concise paragraphs, ask follow-up questions only when needed, and keep the conversation moving.',
+      'Behave like a general-purpose ChatGPT-style assistant in the app.',
+      'Answer the user directly across normal topics: finance education, markets, budgeting, app questions, rewards, writing, planning, code, explanations, brainstorming, and everyday questions.',
+      'Do not use canned onboarding prompts, repeated intake questions, or generic deflections.',
+      'Ask for clarification only when it is genuinely needed to answer well.',
+      'For market or investment topics, be practical and useful; mention uncertainty or missing live data only when it materially matters.',
+      'Keep answers concise unless the user asks for detail.',
     ].join(' ');
 
-    let data: any = null;
+    let content = '';
     let lastOpenAiError = '';
 
     for (const model of modelCandidates) {
-      const response = await fetch('https://api.openai.com/v1/responses', {
+      const responsesApiResponse = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${openAiApiKey}`,
@@ -1280,21 +1256,58 @@ const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
         }),
       });
 
-      if (response.ok) {
-        data = await response.json();
-        break;
+      if (responsesApiResponse.ok) {
+        const data = await responsesApiResponse.json();
+        content = extractOpenAIResponseText(data);
+        if (content) {
+          break;
+        }
+      } else {
+        lastOpenAiError = await responsesApiResponse.text();
+        console.error('OpenAI responses API failed for model:', model, lastOpenAiError);
       }
 
-      lastOpenAiError = await response.text();
-      console.error('OpenAI agent response failed for model:', model, lastOpenAiError);
+      const chatCompletionsResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${openAiApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            {
+              role: 'system',
+              content: agentInstructions,
+            },
+            ...recentMessages,
+          ],
+          max_tokens: 900,
+          temperature: 0.7,
+        }),
+      });
+
+      if (chatCompletionsResponse.ok) {
+        const data = await chatCompletionsResponse.json();
+        content = `${data?.choices?.[0]?.message?.content || ''}`.trim();
+        if (content) {
+          break;
+        }
+      } else {
+        lastOpenAiError = await chatCompletionsResponse.text();
+        console.error('OpenAI chat completions failed for model:', model, lastOpenAiError);
+      }
+
+      if (content) {
+        break;
+      }
     }
 
-    if (!data) {
+    if (!content) {
       console.error('OpenAI agent response failed for all configured models:', lastOpenAiError);
-      return createAgentFallbackReply(prompt);
+      throw new Error('OpenAI agent response failed');
     }
 
-    const content = extractOpenAIResponseText(data) || createAgentFallbackReply(prompt).content;
     const createdAt = new Date().toISOString();
 
     return {
@@ -1308,7 +1321,7 @@ const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
     };
   } catch (error) {
     console.error('OpenAI agent response failed:', error);
-    return createAgentFallbackReply(prompt);
+    throw error;
   }
 };
 

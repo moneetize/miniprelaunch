@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, type ChangeEvent } from 'react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ChevronLeft, 
@@ -40,7 +40,7 @@ import {
 import { safeGetItem, safeSetItem } from '../utils/storage';
 import { clearProfilePhoto, getStoredProfileSettings, markProfileCompleted, notifyProfileSettingsUpdated, saveProfilePhoto, writeStoredProfileSettings, type StoredProfileSettings } from '../utils/profileSettings';
 import { loadRecommendedFriends, syncCurrentUserNetworkProfile } from '../services/networkService';
-import { isUserAdmin, logoutUser, updateUserProfile } from '../services/authService';
+import { isUserAdmin, logoutUser, updateCurrentUserPassword, updateUserProfile } from '../services/authService';
 import { hydrateRemoteProfileSettings, saveRemoteProfileSettings } from '../services/profilePersistenceService';
 
 // Import AI agent avatars - the original two plus generated variants in the settings selector.
@@ -258,6 +258,7 @@ function resizeProfilePhoto(file: File): Promise<string> {
 
 export function SettingsScreen() {
   const navigate = useNavigate();
+  const location = useLocation();
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [currentView, setCurrentView] = useState<'main' | 'agent' | 'interests' | 'password'>('main');
   const [userPhoto, setUserPhoto] = useState<string>('');
@@ -281,9 +282,19 @@ export function SettingsScreen() {
   const [tempHandle, setTempHandle] = useState('');
   const [profileSaveMessage, setProfileSaveMessage] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [passwordSaveMessage, setPasswordSaveMessage] = useState('');
+  const [passwordSaveError, setPasswordSaveError] = useState('');
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
   const [handleSuggestions, setHandleSuggestions] = useState<string[]>([]);
   const [isCheckingHandle, setIsCheckingHandle] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('view') === 'password' || params.get('reset') === '1') {
+      setCurrentView('password');
+    }
+  }, [location.search]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1488,6 +1499,30 @@ export function SettingsScreen() {
     );
   };
 
+  const handlePasswordUpdate = async () => {
+    setPasswordSaveMessage('');
+    setPasswordSaveError('');
+
+    if (!password || password !== confirmPassword) {
+      setPasswordSaveError('Enter matching passwords before saving.');
+      return;
+    }
+
+    setIsSavingPassword(true);
+    const result = await updateCurrentUserPassword(password);
+    setIsSavingPassword(false);
+
+    if (!result.success) {
+      setPasswordSaveError(result.error || 'Unable to update password.');
+      return;
+    }
+
+    setPassword('');
+    setConfirmPassword('');
+    localStorage.removeItem('moneetizePasswordRecovery');
+    setPasswordSaveMessage('Password updated. You can use it the next time you log in.');
+  };
+
   // Password Change View
   const renderPasswordView = () => (
     <motion.div
@@ -1518,6 +1553,11 @@ export function SettingsScreen() {
       </div>
 
       <h2 className="mb-5 text-center text-xl font-black text-white">Change Password</h2>
+      {localStorage.getItem('moneetizePasswordRecovery') === 'true' && (
+        <p className="mx-auto mb-5 max-w-[280px] text-center text-xs font-bold leading-relaxed text-white/48">
+          Set a new password to finish recovering your account.
+        </p>
+      )}
 
       <div className="space-y-3">
       <div className="flex min-h-[60px] items-center gap-3 rounded-full border border-white/8 bg-white/[0.07] px-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
@@ -1526,7 +1566,7 @@ export function SettingsScreen() {
           type={showPassword ? 'text' : 'password'}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder="••••••••••"
+          placeholder="New password"
           className="min-w-0 flex-1 bg-transparent text-base font-semibold text-white outline-none placeholder:text-white/78"
           aria-label="New password"
         />
@@ -1561,17 +1601,23 @@ export function SettingsScreen() {
       </div>
       </div>
 
+      {(passwordSaveError || passwordSaveMessage) && (
+        <div className={`mt-5 rounded-2xl border p-3 text-center text-sm font-semibold ${
+          passwordSaveError
+            ? 'border-red-400/25 bg-red-500/10 text-red-200'
+            : 'border-emerald-300/20 bg-emerald-300/10 text-emerald-100'
+        }`}>
+          {passwordSaveError || passwordSaveMessage}
+        </div>
+      )}
+
       <div className="mt-10 flex justify-center">
       <button
-        onClick={() => {
-          if (password && password === confirmPassword) {
-            setCurrentView('main');
-          }
-        }}
-        disabled={!password || password !== confirmPassword}
+        onClick={() => void handlePasswordUpdate()}
+        disabled={isSavingPassword || !password || password !== confirmPassword}
         className="rounded-full bg-white px-9 py-3.5 text-base font-black text-black shadow-[0_16px_38px_rgba(0,0,0,0.34)] transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        Confirm
+        {isSavingPassword ? 'Saving...' : 'Confirm'}
       </button>
       </div>
       </section>

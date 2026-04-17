@@ -24,6 +24,7 @@ export function AgentChat() {
   const [messages, setMessages] = useState<AgentUiMessage[]>(() => createInitialAgentMessages());
   const [inputValue, setInputValue] = useState('');
   const [isThinking, setIsThinking] = useState(false);
+  const [chatError, setChatError] = useState('');
   const agentAvatar = getSelectedAvatarImage();
   const agentName = getStoredProfileSettings().agentName || 'Your Agent';
 
@@ -44,6 +45,7 @@ export function AgentChat() {
     const trimmedMessage = (overrideMessage || inputValue).trim();
     if (!trimmedMessage || isThinking) return;
 
+    setChatError('');
     const userMessage = createCurrentUserMessage(trimmedMessage);
     const nextMessages = [...messages, userMessage] as AgentUiMessage[];
     setMessages(nextMessages);
@@ -51,9 +53,14 @@ export function AgentChat() {
     setInputValue('');
     setIsThinking(true);
 
-    const responseMessages = await sendAgentChatMessage(threadId, nextMessages, trimmedMessage);
-    setMessages(responseMessages as AgentUiMessage[]);
-    setIsThinking(false);
+    try {
+      const responseMessages = await sendAgentChatMessage(threadId, nextMessages, trimmedMessage);
+      setMessages(responseMessages as AgentUiMessage[]);
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : 'Agent chat failed.');
+    } finally {
+      setIsThinking(false);
+    }
   };
 
   return (
@@ -110,19 +117,6 @@ export function AgentChat() {
         <p className="mb-4 text-center text-xs font-bold text-white/42">Today</p>
 
         <div className="space-y-5">
-          {!messages.length && !isThinking && (
-            <motion.article
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mx-auto max-w-[340px] rounded-[1.2rem] border border-white/8 bg-white/6 px-5 py-5 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
-            >
-              <p className="text-base font-black text-white">What do you want to figure out?</p>
-              <p className="mt-2 text-sm font-semibold leading-relaxed text-white/52">
-                Ask about rewards, markets, budgeting, product ideas, profile setup, or your next move.
-              </p>
-            </motion.article>
-          )}
-
           {messages.map((message) => {
             const isUserMessage = message.role === 'user' || message.senderId === localStorage.getItem('user_id');
 
@@ -152,6 +146,16 @@ export function AgentChat() {
               className="mx-auto max-w-[390px] rounded-[1.2rem] bg-[#25272b] px-4 py-4 text-sm font-bold text-white/62"
             >
               {agentName} is thinking...
+            </motion.article>
+          )}
+
+          {chatError && (
+            <motion.article
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mx-auto max-w-[390px] rounded-[1.2rem] border border-red-300/20 bg-red-500/10 px-4 py-4 text-sm font-bold text-red-100"
+            >
+              {chatError}
             </motion.article>
           )}
         </div>

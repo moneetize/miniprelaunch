@@ -35,6 +35,12 @@ export interface AuthResponse {
   code?: string;
 }
 
+export interface BasicAuthActionResponse {
+  success: boolean;
+  error?: string;
+  code?: string;
+}
+
 type AdminMetadataValue = boolean | string | undefined;
 
 type AuthMetadata = {
@@ -458,6 +464,77 @@ export function consumeOAuthNextPath() {
   const nextPath = safeGetItem('oauth_next_path') || '/profile-screen';
   localStorage.removeItem('oauth_next_path');
   return nextPath.startsWith('/') ? nextPath : '/profile-screen';
+}
+
+/**
+ * Send a Supabase password recovery link. Supabase sends a reset link, never
+ * a plain-text password.
+ */
+export async function requestPasswordReset(email: string): Promise<BasicAuthActionResponse> {
+  try {
+    const normalizedEmail = email.toLowerCase().trim();
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return {
+        success: false,
+        error: 'Enter a valid email address.',
+        code: 'validation_error',
+      };
+    }
+
+    const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+      redirectTo: `${window.location.origin}/auth/callback?recovery=1`,
+    });
+
+    if (error) {
+      return {
+        success: false,
+        error: error.message || 'Unable to send reset instructions.',
+        code: 'reset_failed',
+      };
+    }
+
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Unable to send reset instructions.',
+      code: 'unknown_error',
+    };
+  }
+}
+
+/**
+ * Update the password for the currently authenticated or recovery-session user.
+ */
+export async function updateCurrentUserPassword(password: string): Promise<BasicAuthActionResponse> {
+  try {
+    if (password.length < 8) {
+      return {
+        success: false,
+        error: 'Password must be at least 8 characters long.',
+        code: 'validation_error',
+      };
+    }
+
+    const { error } = await supabase.auth.updateUser({ password });
+
+    if (error) {
+      return {
+        success: false,
+        error: error.message || 'Unable to update password.',
+        code: 'password_update_failed',
+      };
+    }
+
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Unable to update password.',
+      code: 'unknown_error',
+    };
+  }
 }
 
 /**

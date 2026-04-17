@@ -916,9 +916,9 @@ export function AdminPanel() {
               return (
               <div key={product.id} className="rounded-[1.1rem] border border-white/8 bg-black/20 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
                 <div className="flex gap-3">
-                  <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-lg bg-[#e8ebe7]">
+                  <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-lg bg-black/18">
                     {product.image ? (
-                      <img src={product.image} alt={product.name} className="h-full w-full object-contain" />
+                      <img src={product.image} alt={product.name} className="h-full w-full rounded-lg object-contain" />
                     ) : (
                       <Package className="h-7 w-7 text-white/45" />
                     )}
@@ -1647,7 +1647,7 @@ export function AdminPanel() {
                   {categoryProducts.map(product => (
                     <div key={product.id} className="group rounded-[1.1rem] border border-white/8 bg-black/20 p-3 transition-colors hover:bg-white/[0.08] sm:p-4">
                       {/* Square Product Image */}
-                      <div className="relative mb-3 aspect-square overflow-hidden rounded-lg bg-[#e8ebe7]">
+                      <div className="relative mb-3 aspect-square overflow-hidden rounded-lg bg-black/18">
                         {product.image.startsWith('data:') ? (
                           <img src={product.image} alt={product.name} className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-105" />
                         ) : (
@@ -2110,7 +2110,7 @@ export function AdminPanel() {
                       {importPreview.map(product => (
                         <div key={product.id} className="rounded-[1rem] border border-white/8 bg-white/[0.055] p-3 transition-all hover:bg-white/[0.075] sm:p-4 group">
                           {/* Square Product Image */}
-                          <div className="relative mb-3 aspect-square overflow-hidden rounded-[0.9rem] bg-[#e8ebe7]">
+                          <div className="relative mb-3 aspect-square overflow-hidden rounded-[0.9rem] bg-black/18">
                             {product.image.startsWith('data:') ? (
                               <img src={product.image} alt={product.name} className="h-full w-full object-contain p-3 transition-transform duration-300 group-hover:scale-105" />
                             ) : (

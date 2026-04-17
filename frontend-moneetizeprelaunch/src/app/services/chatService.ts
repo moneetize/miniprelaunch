@@ -60,15 +60,24 @@ const LEGACY_DEMO_MESSAGE_IDS = new Set([
   'member-you',
 ]);
 
-function isLegacyDemoMessage(message: ChatMessage) {
-  const content = `${message.content || ''}`;
-
+function isLegacyDemoContent(value?: string) {
+  const content = `${value || ''}`;
   return (
-    LEGACY_DEMO_MESSAGE_IDS.has(message.id) ||
     content.includes('Triple Your Earnings') ||
     content.includes('Action Needed!') ||
     content.includes('I just took this survey') ||
-    content.includes('Hey, everyone! I just found this product')
+    content.includes('Hey, everyone! I just found this product') ||
+    content.includes('A useful starting point') ||
+    content.includes('Here is a practical way to think about it') ||
+    content.includes('Here is a direct starting point') ||
+    content.includes('Ask me a follow-up and I can go deeper')
+  );
+}
+
+function isLegacyDemoMessage(message: ChatMessage) {
+  return (
+    LEGACY_DEMO_MESSAGE_IDS.has(message.id) ||
+    isLegacyDemoContent(message.content)
   );
 }
 
@@ -177,7 +186,7 @@ function applyRemoteThreadIndex(chats: ChatPreview[], threads: Awaited<ReturnTyp
 
     return {
       ...chat,
-      lastMessage: thread.lastMessage || chat.lastMessage,
+      lastMessage: isLegacyDemoContent(thread.lastMessage) ? chat.lastMessage : thread.lastMessage || chat.lastMessage,
       timestamp: thread.updatedAt || thread.lastMessageAt ? 'now' : chat.timestamp,
     };
   });
@@ -312,34 +321,9 @@ export async function sendThreadMessage(threadId: string, message: ChatMessage, 
   return nextMessages;
 }
 
-export function createFallbackAgentReply(prompt: string): ChatMessage {
-  const createdAt = new Date().toISOString();
-  const trimmedPrompt = prompt.trim();
-  const normalizedPrompt = trimmedPrompt.toLowerCase();
-  const isVaguePrompt = /^(anything|any thing|whatever|surprise me|help|hi|hello|hey)$/i.test(normalizedPrompt);
-  const content = isVaguePrompt
-    ? 'Absolutely. You can ask me anything: money basics, investing concepts, rewards, merch redemptions, business ideas, writing help, or how to move through the app. A useful starting point: pick one goal for this week, then ask me to break it into a simple plan.'
-    : normalizedPrompt.includes('invest') || normalizedPrompt.includes('market') || normalizedPrompt.includes('stock') || normalizedPrompt.includes('crypto')
-      ? `Here is a practical way to think about it: start with the goal, time horizon, risk level, liquidity, fees, and what would make you change course. For "${trimmedPrompt}", I can help compare options and build a clear checklist.`
-      : `Here is a direct starting point for "${trimmedPrompt}": break it into what you know, what decision you need to make, and the next action you can take. Ask me a follow-up and I can go deeper from there.`;
-
-  return {
-    id: `agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    senderId: 'agent',
-    senderName: 'Your Agent',
-    content,
-    timestamp: formatTimestamp(new Date(createdAt)),
-    createdAt,
-    role: 'agent',
-  };
-}
-
 export async function sendAgentChatMessage(threadId: string, messages: ChatMessage[], prompt: string) {
   if (!getAccessToken()) {
-    const reply = createFallbackAgentReply(prompt);
-    const nextMessages = [...messages, reply];
-    saveLocalThreadMessages(threadId, nextMessages);
-    return nextMessages;
+    throw new Error('Please log in to use your AI agent.');
   }
 
   try {
@@ -356,10 +340,7 @@ export async function sendAgentChatMessage(threadId: string, messages: ChatMessa
 
     saveLocalThreadMessages(threadId, result.data.messages);
     return result.data.messages;
-  } catch {
-    const reply = createFallbackAgentReply(prompt);
-    const nextMessages = [...messages, reply];
-    saveLocalThreadMessages(threadId, nextMessages);
-    return nextMessages;
+  } catch (error) {
+    throw error instanceof Error ? error : new Error('Agent chat failed.');
   }
 }

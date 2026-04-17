@@ -632,8 +632,8 @@ export function MerchMarketplace() {
                         : 'border-white/10 bg-white/[0.055]'
                     }`}
                   >
-                    <span className="flex h-[112px] w-full shrink-0 items-center justify-center rounded-lg bg-[#e8ebe7]">
-                      <img src={productImage} alt={product.name} className="h-full w-full object-contain" />
+                    <span className="flex h-[112px] w-full shrink-0 items-center justify-center rounded-lg bg-white/[0.04]">
+                      <img src={productImage} alt={product.name} className="h-full w-full rounded-lg object-contain" />
                     </span>
                     <span className="mt-2 block line-clamp-1 text-sm font-black text-white">{product.name}</span>
                     <span className="mt-auto pt-1 text-xs font-black text-[#8ff0a8]">{formatPoints(product.pointsPrice)} pts</span>
@@ -648,7 +648,7 @@ export function MerchMarketplace() {
               animate={{ opacity: 1, y: 0 }}
               className="mt-2 overflow-hidden rounded-lg border border-white/10 bg-[#151817]"
             >
-              <div className="relative flex min-h-[330px] items-center justify-center bg-[#e8ebe7] px-4 py-5">
+              <div className="relative flex min-h-[330px] items-center justify-center bg-[#1d211e] px-4 py-5">
                 {activeProduct.badge && (
                   <span className={`absolute left-4 top-4 rounded-md px-2 py-1 text-[10px] font-black ${getBadgeClass(activeProduct.badge)}`}>
                     {activeProduct.badge}

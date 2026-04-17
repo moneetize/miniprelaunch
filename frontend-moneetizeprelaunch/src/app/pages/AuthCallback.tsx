@@ -20,6 +20,16 @@ export function AuthCallback() {
         return;
       }
 
+      const url = new URL(window.location.href);
+      const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
+      const isPasswordRecovery = url.searchParams.get('recovery') === '1' || hashParams.get('type') === 'recovery';
+
+      if (isPasswordRecovery) {
+        localStorage.setItem('moneetizePasswordRecovery', 'true');
+        navigate('/settings?view=password&reset=1', { replace: true });
+        return;
+      }
+
       const nextPath = consumeOAuthNextPath();
       const fallbackPath = nextPath || '/profile-screen';
 
