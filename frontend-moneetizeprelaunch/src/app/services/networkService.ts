@@ -28,14 +28,20 @@ type NetworkFollowStatesResponse = {
   success?: boolean;
   data?: {
     states?: Record<string, boolean>;
+    networkPointsTotal?: number;
     pointsAward?: {
       pointsAwarded?: number;
       newTotalPoints?: number | null;
+      networkPointsTotal?: number;
     } | null;
   };
   error?: string;
 };
 type NetworkFollowAward = NonNullable<NetworkFollowStatesResponse['data']>['pointsAward'];
+export type NetworkFollowSnapshot = {
+  states: Record<string, boolean>;
+  networkPointsTotal: number;
+};
 
 const NETWORK_API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-7a79873f/network`;
 const LOCAL_NETWORK_PROFILES_KEY = 'moneetizeRegisteredProfiles';
@@ -245,7 +251,11 @@ export async function loadRecommendedFriends(): Promise<RecommendedFriendProfile
 }
 
 export async function loadNetworkFollowStates(): Promise<Record<string, boolean>> {
-  if (!safeGetItem('access_token')) return {};
+  return (await loadNetworkFollowSnapshot()).states;
+}
+
+export async function loadNetworkFollowSnapshot(): Promise<NetworkFollowSnapshot> {
+  if (!safeGetItem('access_token')) return { states: {}, networkPointsTotal: 0 };
 
   try {
     const response = await fetch(`${NETWORK_API_URL}/follows`, {
@@ -259,18 +269,23 @@ export async function loadNetworkFollowStates(): Promise<Record<string, boolean>
       throw new Error(result.error || 'Failed to load network follows.');
     }
 
-    return result.data?.states || {};
+    return {
+      states: result.data?.states || {},
+      networkPointsTotal: Math.max(0, Math.round(Number(result.data?.networkPointsTotal) || 0)),
+    };
   } catch (error) {
     console.warn('Database network follows unavailable:', error);
-    return {};
+    return { states: {}, networkPointsTotal: 0 };
   }
 }
 
 export async function saveNetworkFollowState(
   targetProfileId: string,
   following: boolean,
-): Promise<{ states: Record<string, boolean>; pointsAward: NetworkFollowAward }> {
-  if (!safeGetItem('access_token')) return { states: { [targetProfileId]: following }, pointsAward: null };
+): Promise<{ states: Record<string, boolean>; pointsAward: NetworkFollowAward; networkPointsTotal: number }> {
+  if (!safeGetItem('access_token')) {
+    return { states: { [targetProfileId]: following }, pointsAward: null, networkPointsTotal: 0 };
+  }
 
   const visiblePointBalance = getUserPoints();
 
@@ -301,5 +316,9 @@ export async function saveNetworkFollowState(
   return {
     states: result.data?.states || { [targetProfileId]: following },
     pointsAward: result.data?.pointsAward || null,
+    networkPointsTotal: Math.max(
+      0,
+      Math.round(Number(result.data?.pointsAward?.networkPointsTotal ?? result.data?.networkPointsTotal) || 0),
+    ),
   };
 }

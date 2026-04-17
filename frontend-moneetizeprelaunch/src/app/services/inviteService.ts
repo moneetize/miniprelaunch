@@ -10,7 +10,7 @@ export interface InviteSendResult {
   records: InviteRecord[];
   pointsEarned: number;
   newTotalPoints?: number;
-  emailDeliveries?: Array<{ to: string; status: 'sent' | 'queued' | 'failed'; error?: string }>;
+  emailDeliveries?: Array<{ to: string; status: 'sent' | 'queued' | 'failed'; error?: string; messageId?: string }>;
   smsDeliveries?: Array<{ to: string; status: 'sent' | 'queued' | 'failed'; error?: string }>;
 }
 

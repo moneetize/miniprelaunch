@@ -23,7 +23,9 @@ import {
   FileSpreadsheet,
   Download,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Bell,
+  Send
 } from 'lucide-react';
 import { ImageWithFallback } from '../components/figma/ImageWithFallback';
 import { isAuthenticated, isUserAdmin, logoutUser } from '../services/authService';
@@ -42,6 +44,11 @@ import {
   type MarketplaceOrder,
   type MarketplaceProduct,
 } from '../services/marketplaceService';
+import {
+  loadAdminNotifications,
+  sendAdminNetworkNotification,
+  type NetworkNotification,
+} from '../services/notificationService';
 
 interface Product {
   id: string;
@@ -81,7 +88,7 @@ const categories = [
   'Fashion', 'Books', 'Pets', 'Art', 'Gaming', 'Grocery'
 ];
 
-type AdminTab = 'products' | 'earlyAccess' | 'marketplace' | 'admins';
+type AdminTab = 'products' | 'earlyAccess' | 'marketplace' | 'notifications' | 'admins';
 
 interface AdminUserRecord {
   id?: string;
@@ -191,6 +198,13 @@ export function AdminPanel() {
   const [adminUsersMessage, setAdminUsersMessage] = useState('');
   const [isLoadingAdminUsers, setIsLoadingAdminUsers] = useState(false);
   const [savingAdminEmail, setSavingAdminEmail] = useState('');
+  const [networkNotifications, setNetworkNotifications] = useState<NetworkNotification[]>([]);
+  const [notificationTitle, setNotificationTitle] = useState('');
+  const [notificationMessage, setNotificationMessage] = useState('');
+  const [notificationImageUrl, setNotificationImageUrl] = useState('');
+  const [notificationStatus, setNotificationStatus] = useState('');
+  const [isLoadingNotifications, setIsLoadingNotifications] = useState(false);
+  const [isSendingNotification, setIsSendingNotification] = useState(false);
   
   // Search and filter states
   const [searchQuery, setSearchQuery] = useState('');
@@ -209,6 +223,7 @@ export function AdminPanel() {
       loadProducts();
       loadEarlyAccessQueue();
       void loadAdminUsers();
+      void loadNetworkNotifications();
       loadMarketplaceCatalog();
       void loadMarketplaceOrdersQueue();
     }
@@ -290,6 +305,51 @@ export function AdminPanel() {
       setAdminUsersMessage(error instanceof Error ? error.message : 'Failed to load admin users.');
     } finally {
       setIsLoadingAdminUsers(false);
+    }
+  };
+
+  const loadNetworkNotifications = async () => {
+    try {
+      setIsLoadingNotifications(true);
+      const notifications = await loadAdminNotifications();
+      setNetworkNotifications(notifications);
+    } catch (error) {
+      console.error('Failed to load network notifications:', error);
+      setNotificationStatus(error instanceof Error ? error.message : 'Failed to load notifications.');
+    } finally {
+      setIsLoadingNotifications(false);
+    }
+  };
+
+  const handleSendNetworkNotification = async () => {
+    const title = notificationTitle.trim() || 'Moneetize update';
+    const message = notificationMessage.trim();
+    const imageUrl = notificationImageUrl.trim();
+    setNotificationStatus('');
+
+    if (!message && !imageUrl) {
+      setNotificationStatus('Add message text or an image URL before sending.');
+      return;
+    }
+
+    try {
+      setIsSendingNotification(true);
+      const result = await sendAdminNetworkNotification({ title, message, imageUrl });
+      setNetworkNotifications(result.notifications);
+      setNotificationTitle('');
+      setNotificationMessage('');
+      setNotificationImageUrl('');
+
+      const summary = result.notification?.emailSummary;
+      const sent = Number(summary?.sent) || 0;
+      const queued = Number(summary?.queued) || 0;
+      const failed = Number(summary?.failed) || 0;
+      setNotificationStatus(`Notification posted. Email: ${sent} sent, ${queued} queued, ${failed} failed.`);
+    } catch (error) {
+      console.error('Failed to send network notification:', error);
+      setNotificationStatus(error instanceof Error ? error.message : 'Failed to send notification.');
+    } finally {
+      setIsSendingNotification(false);
     }
   };
 
@@ -1084,6 +1144,163 @@ export function AdminPanel() {
     </div>
   );
 
+  const renderNotificationsAdmin = () => (
+    <div className="space-y-5">
+      <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.055] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-5">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-black text-white sm:text-lg">Network Notifications</h2>
+            <p className="mt-1 text-xs font-semibold text-white/42">
+              Send updates to every user by email and publish a profile-screen notification.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadNetworkNotifications()}
+            disabled={isLoadingNotifications}
+            className="rounded-full border border-white/10 bg-white/[0.07] px-4 py-2 text-xs font-black text-white transition-colors hover:bg-white/12 disabled:opacity-50"
+          >
+            {isLoadingNotifications ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={notificationTitle}
+              onChange={(event) => {
+                setNotificationTitle(event.target.value);
+                setNotificationStatus('');
+              }}
+              placeholder="Message title"
+              className="h-12 w-full rounded-full border border-white/8 bg-black/20 px-4 text-sm font-bold text-white outline-none placeholder:text-white/30 focus:border-[#8ff0a8]/50"
+            />
+            <textarea
+              value={notificationMessage}
+              onChange={(event) => {
+                setNotificationMessage(event.target.value);
+                setNotificationStatus('');
+              }}
+              placeholder="Write the update, promotion, or launch note..."
+              rows={6}
+              className="w-full resize-none rounded-[1.1rem] border border-white/8 bg-black/20 px-4 py-3 text-sm font-bold leading-relaxed text-white outline-none placeholder:text-white/30 focus:border-[#8ff0a8]/50"
+            />
+            <input
+              type="url"
+              value={notificationImageUrl}
+              onChange={(event) => {
+                setNotificationImageUrl(event.target.value);
+                setNotificationStatus('');
+              }}
+              placeholder="Optional image URL"
+              className="h-12 w-full rounded-full border border-white/8 bg-black/20 px-4 text-sm font-bold text-white outline-none placeholder:text-white/30 focus:border-[#8ff0a8]/50"
+            />
+            {notificationStatus && (
+              <p className="rounded-[1rem] border border-white/8 bg-white/[0.045] px-4 py-3 text-xs font-bold leading-relaxed text-white/66">
+                {notificationStatus}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => void handleSendNetworkNotification()}
+              disabled={isSendingNotification || (!notificationMessage.trim() && !notificationImageUrl.trim())}
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-white px-5 text-sm font-black text-black transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+            >
+              <Send className="h-4 w-4" />
+              {isSendingNotification ? 'Sending...' : 'Send to Network'}
+            </button>
+          </div>
+
+          <div className="rounded-[1.2rem] border border-white/8 bg-black/20 p-3">
+            <div className="mb-3 flex items-center gap-2">
+              <Bell className="h-4 w-4 text-[#8ff0a8]" />
+              <p className="text-xs font-black uppercase tracking-[0.12em] text-white/45">Profile Preview</p>
+            </div>
+            <div className="overflow-hidden rounded-[1rem] border border-white/10 bg-white/[0.075] p-4">
+              <div className="flex items-start gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-emerald-300/20 bg-emerald-300/10">
+                  <Bell className="h-4 w-4 text-emerald-100" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-black text-white">{notificationTitle.trim() || 'Moneetize update'}</p>
+                  <p className="mt-1 whitespace-pre-line text-xs font-bold leading-relaxed text-white/55">
+                    {notificationMessage.trim() || 'Your message preview will appear here.'}
+                  </p>
+                  {notificationImageUrl.trim() && (
+                    <img
+                      src={notificationImageUrl.trim()}
+                      alt=""
+                      className="mt-3 max-h-40 w-full rounded-[0.8rem] border border-white/8 object-cover"
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.055] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-5">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-black text-white sm:text-lg">Sent Notifications</h2>
+            <p className="mt-1 text-xs font-semibold text-white/42">Recent announcements visible on profile screens.</p>
+          </div>
+          <span className="rounded-full border border-white/8 bg-black/20 px-3 py-1.5 text-xs font-black text-white/45">
+            {networkNotifications.length}
+          </span>
+        </div>
+
+        {networkNotifications.length > 0 ? (
+          <div className="grid gap-3 lg:grid-cols-2">
+            {networkNotifications.map((notification) => {
+              const summary = notification.emailSummary || {};
+
+              return (
+                <div key={notification.id} className="rounded-[1rem] border border-white/8 bg-black/20 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-black text-white">{notification.title}</p>
+                      <p className="mt-1 text-[11px] font-semibold text-white/38">
+                        {notification.createdAt ? new Date(notification.createdAt).toLocaleString() : 'Just now'}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-white/8 px-2 py-1 text-[10px] font-black text-white/45">
+                      {notification.recipientCount || 0} users
+                    </span>
+                  </div>
+                  <p className="mt-3 line-clamp-3 whitespace-pre-line text-xs font-semibold leading-relaxed text-white/55">
+                    {notification.message || 'Image-only notification'}
+                  </p>
+                  {notification.imageUrl && (
+                    <img src={notification.imageUrl} alt="" className="mt-3 max-h-28 w-full rounded-[0.7rem] object-cover" />
+                  )}
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    <span className="rounded-md bg-emerald-300/10 px-2 py-1 text-[10px] font-black text-emerald-200">
+                      {Number(summary.sent) || 0} sent
+                    </span>
+                    <span className="rounded-md bg-white/8 px-2 py-1 text-[10px] font-black text-white/45">
+                      {Number(summary.queued) || 0} queued
+                    </span>
+                    <span className="rounded-md bg-red-400/10 px-2 py-1 text-[10px] font-black text-red-200">
+                      {Number(summary.failed) || 0} failed
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-[1rem] border border-dashed border-white/10 px-4 py-8 text-center">
+            <Bell className="mx-auto h-8 w-8 text-white/30" />
+            <p className="mt-3 text-sm font-bold text-white/45">No network notifications have been sent yet.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   const renderAdminUsers = () => (
     <div className="space-y-5">
       <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.055] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-5">
@@ -1348,6 +1565,7 @@ export function AdminPanel() {
             { id: 'products', label: 'Products' },
             { id: 'earlyAccess', label: 'Early Access' },
             { id: 'marketplace', label: 'Marketplace' },
+            { id: 'notifications', label: 'Notifications' },
             { id: 'admins', label: 'Admins' },
           ].map((tab) => (
             <button
@@ -1366,6 +1584,7 @@ export function AdminPanel() {
         </div>
 
         {activeAdminTab === 'marketplace' && renderMarketplaceAdmin()}
+        {activeAdminTab === 'notifications' && renderNotificationsAdmin()}
         {activeAdminTab === 'admins' && renderAdminUsers()}
 
         {/* Early Access Requests */}

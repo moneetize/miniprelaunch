@@ -5,15 +5,16 @@ import { ChevronLeft, ChevronUp, History, MessageCircle, MoreHorizontal, Share2,
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import wildcardIcon from 'figma:asset/f632203f248e2d298246c5ffb0789bc0cac99ea5.png';
 import tshirtRewardIcon from '../../assets/moneetize-tshirt-reward.png';
-import { addUserPoints, getUserPoints, POINTS_UPDATED_EVENT } from '../utils/pointsManager';
+import { addUserPoints, getPointsHistory, getUserPoints, POINTS_UPDATED_EVENT } from '../utils/pointsManager';
 import { safeGetItem, safeSetItem } from '../utils/storage';
 import { isUserAdmin, logoutUser } from '../services/authService';
 import { getStoredScratchCredits, getStoredUsdtBalance, loadScratchProfile, type ScratchCredits, type ScratchDrawResult } from '../services/scratchService';
-import { LOCAL_NETWORK_PROFILES_UPDATED_EVENT, loadNetworkFollowStates, loadRecommendedFriends, saveNetworkFollowState, syncCurrentUserNetworkProfile, type RecommendedFriendProfile } from '../services/networkService';
+import { LOCAL_NETWORK_PROFILES_UPDATED_EVENT, loadNetworkFollowSnapshot, loadRecommendedFriends, saveNetworkFollowState, syncCurrentUserNetworkProfile, type RecommendedFriendProfile } from '../services/networkService';
 import { clearProfilePhoto, getStoredProfileSettings, isStoredProfileComplete, notifyProfileSettingsUpdated, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT, saveProfilePhoto, writeStoredProfileSettings } from '../utils/profileSettings';
 import { resizeProfilePhoto } from '../utils/profilePhoto';
 import { hydrateRemoteProfileSettings, saveRemoteProfileSettings } from '../services/profilePersistenceService';
 import { loadChatPreviews } from '../services/chatService';
+import { loadProfileNotifications, type NetworkNotification } from '../services/notificationService';
 
 interface TeamMember {
   id: string;
@@ -90,6 +91,15 @@ function getStoredNetworkFollowAwardState() {
   } catch {
     return {};
   }
+}
+
+function getLocalNetworkFollowPoints() {
+  return Math.max(0, getPointsHistory().reduce((total, transaction) => {
+    if (transaction.source !== 'network-follow') return total;
+    return transaction.type === 'subtract'
+      ? total - transaction.amount
+      : total + transaction.amount;
+  }, 0));
 }
 
 function getTodayKey() {
@@ -189,6 +199,7 @@ export function ProfileScreen() {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<'network' | 'your-team' | 'invited-team' | 'winnings' | 'gameplay' | 'settings'>('network');
   const [userPoints, setUserPoints] = useState(0);
+  const [networkPoints, setNetworkPoints] = useState(() => getLocalNetworkFollowPoints());
   const [userName, setUserName] = useState('');
   const [userHandle, setUserHandle] = useState('');
   const [userPhoto, setUserPhoto] = useState<string>('');
@@ -221,6 +232,8 @@ export function ProfileScreen() {
   const [scratchHistory, setScratchHistory] = useState<ScratchDrawResult[]>(() => getStoredScratchHistory());
   const [scratchCredits, setScratchCredits] = useState<ScratchCredits | null>(() => getStoredScratchCredits());
   const [isProfileComplete, setIsProfileComplete] = useState(() => isStoredProfileComplete());
+  const [profileNotifications, setProfileNotifications] = useState<NetworkNotification[]>([]);
+  const [activeProfileNotificationIndex, setActiveProfileNotificationIndex] = useState(0);
   const [recommendedFriends, setRecommendedFriends] = useState<RecommendedFriendProfile[]>([]);
   const [networkFollowStates, setNetworkFollowStates] = useState<Record<string, boolean>>(() => ({
     ...defaultNetworkFollowStates,
@@ -343,20 +356,29 @@ export function ProfileScreen() {
         console.warn('Network profile sync skipped:', error);
       });
 
-    void loadNetworkFollowStates()
-      .then((states) => {
+    void loadNetworkFollowSnapshot()
+      .then((snapshot) => {
         if (!cancelled) {
           const nextStates = {
             ...defaultNetworkFollowStates,
             ...getStoredNetworkFollowStates(),
-            ...states,
+            ...snapshot.states,
           };
           safeSetItem(NETWORK_FOLLOW_STATES_KEY, JSON.stringify(nextStates));
           setNetworkFollowStates(nextStates);
+          setNetworkPoints(snapshot.networkPointsTotal);
         }
       })
       .catch((error) => {
         console.warn('Network follows sync skipped:', error);
+      });
+
+    void loadProfileNotifications()
+      .then((notifications) => {
+        if (!cancelled) setProfileNotifications(notifications);
+      })
+      .catch((error) => {
+        console.warn('Profile notifications sync skipped:', error);
       });
 
     // Set member since date
@@ -405,6 +427,7 @@ export function ProfileScreen() {
     const syncPointBalance = () => {
       const latestPoints = getUserPoints();
       setUserPoints(latestPoints);
+      setNetworkPoints(getLocalNetworkFollowPoints());
       syncCurrentUserNetworkProfile();
       setTeamMembers((members) =>
         members.map((member) =>
@@ -782,7 +805,7 @@ export function ProfileScreen() {
   const peopleYouMayKnowProfiles = candidateNetworkProfiles.filter((profile) => !isNetworkProfileFollowing(profile));
   const followingCount = candidateNetworkProfiles.filter((profile) => isNetworkProfileFollowing(profile)).length;
   const followersCount = candidateNetworkProfiles.filter((profile) => profile.followsMe).length;
-  const displayNetworkingPoints = userPoints;
+  const displayNetworkingPoints = networkPoints;
   const visibleMyNetworkProfiles = networkListExpanded ? myNetworkProfiles : myNetworkProfiles.slice(0, NETWORK_VISIBLE_LIMIT);
   const visiblePeopleYouMayKnowProfiles = networkListExpanded
     ? peopleYouMayKnowProfiles
@@ -815,11 +838,12 @@ export function ProfileScreen() {
     if (nextFollowing && !safeGetItem('access_token')) {
       void awardLocalNetworkFollowPoint(profile.id).then(() => {
         setUserPoints(getUserPoints());
+        setNetworkPoints(getLocalNetworkFollowPoints());
       });
     }
 
     void saveNetworkFollowState(profile.id, nextFollowing)
-      .then(({ states: remoteStates, pointsAward }) => {
+      .then(({ states: remoteStates, pointsAward, networkPointsTotal }) => {
         setNetworkFollowStates((states) => {
           const nextStates = {
             ...states,
@@ -832,6 +856,11 @@ export function ProfileScreen() {
           setNetworkListExpanded(true);
         }
         setUserPoints(getUserPoints());
+        setNetworkPoints(
+          Number.isFinite(networkPointsTotal) && networkPointsTotal >= 0
+            ? networkPointsTotal
+            : getLocalNetworkFollowPoints()
+        );
       })
       .catch((error) => {
         console.warn('Network follow save skipped:', error);
@@ -843,6 +872,50 @@ export function ProfileScreen() {
     { label: 'Following', value: followingCount, icon: <ChevronUp className="h-3 w-3" />, onClick: () => setRelationshipModal('following') },
     { label: 'Followers', value: followersCount, icon: <ChevronUp className="h-3 w-3 rotate-180" />, onClick: () => setRelationshipModal('followers') },
   ];
+
+  const notificationItems = [
+    !isProfileComplete
+      ? {
+          id: 'register-profile',
+          title: 'Complete your onboarding process and receive bonus points!',
+          message: `${userPoints.toLocaleString('en-US')} pts`,
+          actionLabel: 'Register',
+          onAction: () => navigate('/settings'),
+          tone: 'neutral',
+        }
+      : null,
+    hasScratchOpportunity
+      ? {
+          id: 'scratch-unlocked',
+          title: 'You have unlocked another scratch-and-win. Try your luck now.',
+          message: `${availableScratchCredits} of ${scratchCredits?.max || 5} scratch chance${availableScratchCredits === 1 ? '' : 's'} available.`,
+          actionLabel: 'Back to Scratch',
+          onAction: () => navigate('/scratch-and-win'),
+          tone: 'success',
+        }
+      : null,
+    ...profileNotifications.map((notification) => ({
+      id: notification.id,
+      title: notification.title,
+      message: notification.message,
+      imageUrl: notification.imageUrl,
+      actionLabel: '',
+      onAction: undefined,
+      tone: 'broadcast',
+    })),
+  ].filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const activeNotificationIndex = notificationItems.length
+    ? activeProfileNotificationIndex % notificationItems.length
+    : 0;
+  const activeNotification = notificationItems[activeNotificationIndex];
+  const hasMultipleNotifications = notificationItems.length > 1;
+
+  const moveProfileNotification = (direction: 1 | -1) => {
+    if (!notificationItems.length) return;
+    setActiveProfileNotificationIndex((index) => (
+      (index + direction + notificationItems.length) % notificationItems.length
+    ));
+  };
 
   const renderNetworkProfileRow = (profile: NetworkProfile, index: number) => {
     const isFollowing = isNetworkProfileFollowing(profile);
@@ -919,70 +992,98 @@ export function ProfileScreen() {
       </div>
 
       <div className="mx-auto w-full max-w-[430px] overflow-x-hidden px-3 pb-6 pt-16 min-[390px]:px-4">
-        {!isProfileComplete && (
+        {activeNotification && (
           <motion.div
             initial={{ opacity: 0, y: -12 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-4 overflow-hidden rounded-[1rem] border border-white/10 bg-white/[0.075] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_18px_44px_rgba(0,0,0,0.32)] backdrop-blur-md"
+            className="relative mb-5"
           >
-            <div className="flex min-w-0 flex-col items-start gap-3 min-[360px]:flex-row min-[360px]:justify-between">
-              <div className="min-w-0">
-                <p className="text-[12px] font-bold leading-snug text-white">
-                  Complete your onboarding process and receive bonus points!
-                </p>
-                <div className="mt-2 flex items-center gap-2">
-                  <div className="h-1.5 w-28 overflow-hidden rounded-full bg-white/12">
-                    <div className="h-full w-3/4 rounded-full bg-[#f5a83d]" />
+            {hasMultipleNotifications && (
+              <>
+                <div className="absolute inset-x-3 top-2 h-full rounded-[1rem] border border-white/8 bg-white/[0.045] blur-[0.1px]" />
+                <div className="absolute inset-x-6 top-4 h-full rounded-[1rem] border border-white/6 bg-white/[0.03]" />
+              </>
+            )}
+            <div
+              className={`relative overflow-hidden rounded-[1rem] border px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_18px_44px_rgba(0,0,0,0.32)] backdrop-blur-md ${
+                activeNotification.tone === 'success'
+                  ? 'border-emerald-300/20 bg-emerald-300/[0.075]'
+                  : 'border-white/10 bg-white/[0.075]'
+              }`}
+            >
+              <div className="flex min-w-0 flex-col items-start gap-3 min-[360px]:flex-row min-[360px]:items-center min-[360px]:justify-between">
+                <div className="flex min-w-0 items-start gap-3">
+                  <motion.img
+                    src={gemIcon}
+                    alt=""
+                    animate={{ y: [0, -3, 0], scale: [1, 1.08, 1] }}
+                    transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
+                    className="mt-0.5 h-7 w-7 shrink-0 drop-shadow-[0_0_14px_rgba(134,255,166,0.55)]"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-black leading-snug text-white">
+                      {activeNotification.title}
+                    </p>
+                    {activeNotification.message && (
+                      <p className="mt-1 whitespace-pre-line text-[11px] font-bold text-white/62">
+                        {activeNotification.message}
+                      </p>
+                    )}
+                    {activeNotification.id === 'register-profile' && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <div className="h-1.5 w-28 overflow-hidden rounded-full bg-white/12">
+                          <div className="h-full w-3/4 rounded-full bg-[#f5a83d]" />
+                        </div>
+                        <span className="text-[10px] font-black text-white/70">75%</span>
+                      </div>
+                    )}
+                    {activeNotification.imageUrl && (
+                      <img
+                        src={activeNotification.imageUrl}
+                        alt=""
+                        className="mt-3 max-h-32 w-full rounded-[0.8rem] border border-white/8 object-cover"
+                      />
+                    )}
+                    {hasMultipleNotifications && (
+                      <p className="mt-2 text-[10px] font-black text-white/36">
+                        {activeNotificationIndex + 1} of {notificationItems.length}
+                      </p>
+                    )}
                   </div>
-                  <span className="text-[10px] font-black text-white/70">75%</span>
                 </div>
-                <div className="mt-2 flex items-center gap-1.5">
-                  <img src={gemIcon} alt="Gem" className="h-4 w-4" />
-                  <span className="text-[11px] font-black text-emerald-300">{userPoints.toLocaleString('en-US')} pts</span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => navigate('/settings')}
-                className="shrink-0 rounded-full bg-white px-3.5 py-2 text-[11px] font-black text-black transition-colors hover:bg-gray-100"
-              >
-                Register
-              </button>
-            </div>
-          </motion.div>
-        )}
 
-        {hasScratchOpportunity && (
-          <motion.div
-            initial={{ opacity: 0, y: -12 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-4 overflow-hidden rounded-[1rem] border border-emerald-300/20 bg-emerald-300/[0.075] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_18px_44px_rgba(0,0,0,0.32)] backdrop-blur-md"
-          >
-            <div className="flex min-w-0 flex-col items-start gap-3 min-[360px]:flex-row min-[360px]:items-center min-[360px]:justify-between">
-              <div className="flex min-w-0 items-start gap-3">
-                <motion.img
-                  src={gemIcon}
-                  alt=""
-                  animate={{ y: [0, -3, 0], scale: [1, 1.08, 1] }}
-                  transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
-                  className="mt-0.5 h-7 w-7 shrink-0 drop-shadow-[0_0_14px_rgba(134,255,166,0.55)]"
-                />
-                <div className="min-w-0">
-                  <p className="text-[12px] font-black leading-snug text-white">
-                    You have unlocked another scratch-and-win. Try your luck now.
-                  </p>
-                  <p className="mt-1 text-[11px] font-bold text-emerald-100/62">
-                    {availableScratchCredits} of {scratchCredits?.max || 5} scratch chance{availableScratchCredits === 1 ? '' : 's'} available.
-                  </p>
+                <div className="flex shrink-0 items-center gap-2">
+                  {hasMultipleNotifications && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => moveProfileNotification(-1)}
+                        className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.08] text-white/78 transition-colors hover:bg-white/[0.14]"
+                        aria-label="Previous notification"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveProfileNotification(1)}
+                        className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.08] text-white/78 transition-colors hover:bg-white/[0.14]"
+                        aria-label="Next notification"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </>
+                  )}
+                  {activeNotification.actionLabel && activeNotification.onAction && (
+                    <button
+                      type="button"
+                      onClick={activeNotification.onAction}
+                      className="rounded-full bg-white px-3.5 py-2 text-[11px] font-black text-black transition-colors hover:bg-gray-100"
+                    >
+                      {activeNotification.actionLabel}
+                    </button>
+                  )}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => navigate('/scratch-and-win')}
-                className="shrink-0 rounded-full bg-white px-3.5 py-2 text-[11px] font-black text-black transition-colors hover:bg-gray-100"
-              >
-                Back to Scratch
-              </button>
             </div>
           </motion.div>
         )}

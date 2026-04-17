@@ -45,6 +45,7 @@ const MARKETPLACE_PRODUCTS_KEY = 'marketplace_products';
 const MARKETPLACE_ORDER_LOCK_KEY = 'lock:marketplace_order';
 const MARKETPLACE_ORDER_LOCK_TTL_MS = 12000;
 const ADMIN_EMAIL_CONFIG_KEY = 'admin_email_config';
+const BROADCAST_NOTIFICATIONS_KEY = 'broadcast_notifications';
 const INVITE_HISTORY_PREFIX = 'invite_history:';
 const GAMEPLAY_PROGRESS_PREFIX = 'gameplay_progress:';
 const SCRATCH_CREDITS_PREFIX = 'scratch_credits:';
@@ -67,6 +68,7 @@ const MAX_SCRATCH_OPPORTUNITIES = 5;
 const MAX_RELEASE_TEAM_INVITES = 5;
 const INVITE_HISTORY_LIMIT = 500;
 const ADMIN_URL_INVITE_HISTORY_LIMIT = 5000;
+const BROADCAST_NOTIFICATION_LIMIT = 50;
 const GUARANTEED_CASH_WINS = 2;
 const ADMIN_NOTIFICATION_EMAIL = 'admin@moneetize.com';
 const CORE_ADMIN_EMAILS = new Set([
@@ -922,6 +924,17 @@ const addPointsToUser = async ({
   return { pointsAwarded, newTotalPoints, transaction };
 };
 
+const getUserNetworkPointsTotal = async (userId: string) => {
+  const history = parseStoredJsonArray(await kv.get(`${POINTS_HISTORY_PREFIX}${userId}`));
+
+  return history.reduce((total, transaction: any) => {
+    if (transaction?.source !== 'network-follow') return total;
+
+    const amount = Math.max(0, Math.round(parseStoredNumber(transaction?.amount, 0)));
+    return transaction?.type === 'subtract' ? total - amount : total + amount;
+  }, 0);
+};
+
 const getUniqueAcceptedInvitees = (history: any[]) => {
   const invitees = new Set<string>();
   history.forEach((invite) => {
@@ -1032,7 +1045,12 @@ const awardNetworkFollowPoints = async ({
   const pointsToAward = Math.min(requestedPoints, remainingDailyPoints);
 
   if (pointsToAward <= 0) {
-    return { pointsAwarded: 0, newTotalPoints: null, events };
+    return {
+      pointsAwarded: 0,
+      newTotalPoints: null,
+      networkPointsTotal: await getUserNetworkPointsTotal(userId),
+      events,
+    };
   }
 
   const storedPoints = parseStoredNumber(await kv.get(pointsKey), DEFAULT_USER_POINTS);
@@ -1076,6 +1094,7 @@ const awardNetworkFollowPoints = async ({
   return {
     pointsAwarded: result.pointsAwarded,
     newTotalPoints: result.newTotalPoints,
+    networkPointsTotal: await getUserNetworkPointsTotal(userId),
     transaction: result.transaction,
     events,
   };
@@ -1432,13 +1451,26 @@ const dispatchEmailNotification = async (email: {
       }),
     });
 
+    const responseText = await response.text();
+    const responsePayload = (() => {
+      if (!responseText) return null;
+      try {
+        return JSON.parse(responseText);
+      } catch {
+        return null;
+      }
+    })();
+
     if (!response.ok) {
-      const details = await response.text();
+      const details = responsePayload?.message || responsePayload?.error || responseText || 'Resend rejected the email request';
       await queueEmailNotification({ ...email, status: 'failed', error: details });
       return { status: 'failed' as const, error: details };
     }
 
-    return { status: 'sent' as const };
+    return {
+      status: 'sent' as const,
+      messageId: responsePayload?.id || responsePayload?.data?.id || '',
+    };
   } catch (error) {
     await queueEmailNotification({
       ...email,
@@ -1448,6 +1480,28 @@ const dispatchEmailNotification = async (email: {
     return { status: 'failed' as const, error: error instanceof Error ? error.message : 'Unknown email error' };
   }
 };
+
+const loadBroadcastNotifications = async () => {
+  const notifications = parseStoredJsonArray(await kv.get(BROADCAST_NOTIFICATIONS_KEY));
+  return notifications
+    .filter((notification: any) => notification && notification.id)
+    .sort((left: any, right: any) => `${right.createdAt || ''}`.localeCompare(`${left.createdAt || ''}`))
+    .slice(0, BROADCAST_NOTIFICATION_LIMIT);
+};
+
+const saveBroadcastNotifications = async (notifications: any[]) => {
+  const normalizedNotifications = notifications.slice(0, BROADCAST_NOTIFICATION_LIMIT);
+  await kv.set(BROADCAST_NOTIFICATIONS_KEY, JSON.stringify(normalizedNotifications));
+  return normalizedNotifications;
+};
+
+const publicBroadcastNotification = (notification: any) => ({
+  id: `${notification?.id || ''}`,
+  title: `${notification?.title || 'Moneetize update'}`,
+  message: `${notification?.message || ''}`,
+  imageUrl: `${notification?.imageUrl || ''}`,
+  createdAt: `${notification?.createdAt || ''}`,
+});
 
 const queueSmsNotification = async (sms: Record<string, unknown>) => {
   const queuedNotifications = parseStoredJsonArray(await kv.get(SMS_QUEUE_KEY));
@@ -1915,6 +1969,25 @@ app.put("/make-server-7a79873f/profile/settings", async (c) => {
   }
 });
 
+app.get("/make-server-7a79873f/profile/notifications", async (c) => {
+  try {
+    const currentUser = await verifyCurrentUser(c);
+    if ('response' in currentUser) return currentUser.response;
+
+    const notifications = await loadBroadcastNotifications();
+
+    return c.json({
+      success: true,
+      data: {
+        notifications: notifications.map(publicBroadcastNotification),
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Profile notifications endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to load profile notifications' }, 500);
+  }
+});
+
 // Product catalog routes
 app.get("/make-server-7a79873f/products", async (c) => {
   try {
@@ -2110,6 +2183,7 @@ app.get("/make-server-7a79873f/network/follows", async (c) => {
       success: true,
       data: {
         states: normalizeFollowStates(storedFollowRecord),
+        networkPointsTotal: await getUserNetworkPointsTotal(currentUser.user.id),
       },
     }, 200);
   } catch (error) {
@@ -2161,6 +2235,7 @@ app.put("/make-server-7a79873f/network/follows", async (c) => {
       data: {
         states: nextStates,
         pointsAward,
+        networkPointsTotal: await getUserNetworkPointsTotal(currentUser.user.id),
       },
     }, 200);
   } catch (error) {
@@ -3123,6 +3198,128 @@ app.post("/make-server-7a79873f/admin/early-access-requests/:requestId/grant", a
   } catch (error) {
     console.error('Grant early access request endpoint error:', error);
     return c.json({ success: false, error: 'Failed to grant early access' }, 500);
+  }
+});
+
+app.get("/make-server-7a79873f/admin/notifications", async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if ('response' in admin) return admin.response;
+
+    const notifications = await loadBroadcastNotifications();
+
+    return c.json({
+      success: true,
+      data: {
+        notifications,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('List broadcast notifications endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to load notifications' }, 500);
+  }
+});
+
+app.post("/make-server-7a79873f/admin/notifications", async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if ('response' in admin) return admin.response;
+
+    const body = await c.req.json();
+    const title = `${body?.title || 'Moneetize update'}`.trim().slice(0, 120) || 'Moneetize update';
+    const message = `${body?.message || ''}`.trim().slice(0, 2500);
+    const imageUrl = `${body?.imageUrl || ''}`.trim().slice(0, 2000);
+
+    if (!message && !imageUrl) {
+      return c.json({ success: false, error: 'Add a message or image before sending.' }, 400);
+    }
+
+    const usersResult = await auth.listAllUsers();
+    if (!usersResult.success || !usersResult.data?.users) {
+      return c.json({ success: false, error: usersResult.error || 'Failed to load users' }, usersResult.status || 500);
+    }
+
+    const recipients = [...new Set(
+      usersResult.data.users
+        .map((user: any) => normalizeEmail(user?.email))
+        .filter((email: string) => email && isValidEmail(email)),
+    )];
+    const now = new Date().toISOString();
+    const notification = {
+      id: crypto.randomUUID(),
+      title,
+      message,
+      imageUrl,
+      createdAt: now,
+      createdBy: admin.user.id,
+      createdByEmail: normalizeEmail(admin.user.email),
+      recipientCount: recipients.length,
+      emailSummary: {
+        sent: 0,
+        queued: 0,
+        failed: 0,
+      },
+      deliveries: [] as Array<Record<string, unknown>>,
+    };
+
+    const existingNotifications = await loadBroadcastNotifications();
+    await saveBroadcastNotifications([notification, ...existingNotifications]);
+
+    const html = `
+      <div style="font-family:Inter,Arial,sans-serif;color:#111827;line-height:1.5">
+        <h1 style="font-size:22px;margin:0 0 12px">${escapeHtml(title)}</h1>
+        ${message ? `<p style="font-size:15px;margin:0 0 18px;white-space:pre-line">${escapeHtml(message)}</p>` : ''}
+        ${imageUrl ? `<p style="margin:0 0 18px"><img src="${escapeHtml(imageUrl)}" alt="" style="max-width:100%;border-radius:14px"/></p>` : ''}
+        <p style="font-size:12px;color:#6b7280;margin-top:24px">You are receiving this because you joined the Moneetize pre-game network.</p>
+      </div>
+    `;
+    const text = [
+      title,
+      '',
+      message,
+      imageUrl ? `Image: ${imageUrl}` : '',
+      '',
+      'You are receiving this because you joined the Moneetize pre-game network.',
+    ].filter(Boolean).join('\n');
+
+    const deliveries: Array<Record<string, unknown>> = [];
+    const batchSize = 20;
+    for (let index = 0; index < recipients.length; index += batchSize) {
+      const batch = recipients.slice(index, index + batchSize);
+      const batchDeliveries = await Promise.all(batch.map(async (email) => {
+        const delivery = await dispatchEmailNotification({
+          to: email,
+          subject: title,
+          html,
+          text,
+        });
+
+        notification.emailSummary[delivery.status] += 1;
+        return {
+          to: email,
+          ...delivery,
+        };
+      }));
+      deliveries.push(...batchDeliveries);
+    }
+
+    notification.deliveries = deliveries.slice(0, 200);
+    const latestNotifications = await loadBroadcastNotifications();
+    await saveBroadcastNotifications([
+      notification,
+      ...latestNotifications.filter((item: any) => item.id !== notification.id),
+    ]);
+
+    return c.json({
+      success: true,
+      data: {
+        notification,
+        notifications: await loadBroadcastNotifications(),
+      },
+    }, 201);
+  } catch (error) {
+    console.error('Send broadcast notification endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to send notification' }, 500);
   }
 });
 
