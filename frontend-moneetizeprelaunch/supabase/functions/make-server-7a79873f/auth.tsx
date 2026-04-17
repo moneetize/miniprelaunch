@@ -364,6 +364,29 @@ export async function verifyToken(accessToken: string) {
 }
 
 /**
+ * Fetch a user by Supabase Auth user ID.
+ */
+export async function getUserById(userId: string) {
+  try {
+    const cleanUserId = `${userId || ''}`.trim();
+
+    if (!cleanUserId) return null;
+
+    const { data, error } = await supabaseAdmin.auth.admin.getUserById(cleanUserId);
+
+    if (error || !data.user) {
+      console.warn('Get user by ID error:', error);
+      return null;
+    }
+
+    return data.user;
+  } catch (error) {
+    console.error('Unexpected get user by ID error:', error);
+    return null;
+  }
+}
+
+/**
  * List all users (admin only)
  */
 export async function listAllUsers() {

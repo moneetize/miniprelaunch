@@ -7,6 +7,7 @@ import { buildInviteLink } from '../utils/invitationLinks';
 import { sendInvitesFromServer } from '../services/inviteService';
 import { INVITE_POINTS_PER_RECIPIENT, MAX_RELEASE_TEAM_INVITES } from '../utils/inviteSync';
 import { getStoredScratchCredits, loadScratchProfile, type ScratchCredits } from '../services/scratchService';
+import { isUserAdmin } from '../services/authService';
 
 const SMS_PHONE_EXAMPLE = '+15551234567';
 const SMS_INVITES_ENABLED = false;
@@ -40,6 +41,7 @@ export function ShareInvites() {
   const [sentPhones, setSentPhones] = useState<string[]>([]);
   const [scratchCredits, setScratchCredits] = useState<ScratchCredits | null>(() => getStoredScratchCredits());
   const [hasInviteConsent, setHasInviteConsent] = useState(false);
+  const [isAdminCampaignUser] = useState(() => isUserAdmin());
 
   useEffect(() => {
     let cancelled = false;
@@ -354,6 +356,11 @@ export function ShareInvites() {
             <p className="truncate rounded-full border border-white/8 bg-white/[0.06] px-3.5 py-3 text-[12px] font-semibold text-white/68">
               {inviteLink}
             </p>
+            {isAdminCampaignUser && (
+              <p className="mt-3 rounded-[0.9rem] border border-emerald-300/14 bg-emerald-300/[0.055] px-3 py-2 text-[11px] font-bold leading-relaxed text-emerald-100/72">
+                Admin URL accepts are unlimited for Mailchimp campaigns. Email fields below still follow the release send limit.
+              </p>
+            )}
           </div>
 
           <div className="mb-5 grid grid-cols-2 gap-2.5">
@@ -592,7 +599,9 @@ export function ShareInvites() {
           >
             <p className="text-[11px] font-black uppercase tracking-[0.16em] text-white/36">Team Sync</p>
             <p className="mt-1 text-xs font-semibold leading-relaxed text-white/54">
-              Email and copied-link accepts build your five-member release team. SMS invites return after carrier approval.
+              {isAdminCampaignUser
+                ? 'Copied admin URLs can accept unlimited Mailchimp signups. Gameplay scratch unlocks and release-team rewards remain capped.'
+                : 'Email and copied-link accepts build your five-member release team. SMS invites return after carrier approval.'}
             </p>
           </motion.div>
         </motion.section>

@@ -65,6 +65,8 @@ const MAX_USER_POINTS = 150;
 const INITIAL_SCRATCH_CREDITS = 1;
 const MAX_SCRATCH_OPPORTUNITIES = 5;
 const MAX_RELEASE_TEAM_INVITES = 5;
+const INVITE_HISTORY_LIMIT = 500;
+const ADMIN_URL_INVITE_HISTORY_LIMIT = 5000;
 const GUARANTEED_CASH_WINS = 2;
 const ADMIN_NOTIFICATION_EMAIL = 'admin@moneetize.com';
 const CORE_ADMIN_EMAILS = new Set([
@@ -1647,6 +1649,30 @@ const requireAdmin = async (c: any) => {
   }
 
   return { user };
+};
+
+const getUnlimitedUrlInviteAdmin = async (inviterId: string) => {
+  const normalizedInviterId = normalizeEmail(inviterId);
+
+  if (await isAdminEmail(normalizedInviterId)) {
+    return {
+      isAdmin: true,
+      email: normalizedInviterId,
+    };
+  }
+
+  const inviter = await auth.getUserById(inviterId);
+  const email = normalizeEmail(inviter?.email);
+  const isAdmin = Boolean(
+    (email && await isAdminEmail(email)) ||
+    isAdminMetadata(inviter?.user_metadata) ||
+    isAdminMetadata(inviter?.app_metadata),
+  );
+
+  return {
+    isAdmin,
+    email,
+  };
 };
 
 // Authentication Routes
@@ -3410,7 +3436,7 @@ app.post("/make-server-7a79873f/invites/send", async (c) => {
     const currentPoints = parseStoredNumber(await kv.get(userPointsKey), DEFAULT_USER_POINTS);
     const newTotalPoints = currentPoints;
     const writes = [
-      kv.set(inviteHistoryKey, JSON.stringify([...records, ...history].slice(0, 500))),
+      kv.set(inviteHistoryKey, JSON.stringify([...records, ...history].slice(0, INVITE_HISTORY_LIMIT))),
     ];
 
     let transaction = null;
@@ -3497,6 +3523,8 @@ app.post("/make-server-7a79873f/invites/track-url", async (c) => {
 
     const inviteHistoryKey = `${INVITE_HISTORY_PREFIX}${inviterId}`;
     const history = parseStoredJsonArray(await kv.get(inviteHistoryKey));
+    const unlimitedUrlInviteAdmin = await getUnlimitedUrlInviteAdmin(inviterId);
+    const isUnlimitedUrlAdmin = unlimitedUrlInviteAdmin.isAdmin;
     const inviteeIdentity = invitedUser?.id || visitorId;
     const eventKey = `url:${promptId}:${inviteeIdentity}`;
     const alreadyTracked = history.some((invite: any) => (
@@ -3512,7 +3540,7 @@ app.post("/make-server-7a79873f/invites/track-url", async (c) => {
     const acceptedInvitees = getUniqueAcceptedInvitees(history);
     const isNewAcceptedInvitee = Boolean(invitedUser?.id && !acceptedInvitees.has(invitedUser.id));
 
-    if (isNewAcceptedInvitee && acceptedInvitees.size >= MAX_RELEASE_TEAM_INVITES) {
+    if (!isUnlimitedUrlAdmin && isNewAcceptedInvitee && acceptedInvitees.size >= MAX_RELEASE_TEAM_INVITES) {
       return c.json({
         success: true,
         data: {
@@ -3552,6 +3580,7 @@ app.post("/make-server-7a79873f/invites/track-url", async (c) => {
       contact: inviteeIdentity,
       inviteUrl,
       inviterId,
+      inviterEmail: unlimitedUrlInviteAdmin.email || undefined,
       inviterName,
       inviteeId: invitedUser?.id,
       inviteeEmail: invitedUser?.email,
@@ -3562,10 +3591,12 @@ app.post("/make-server-7a79873f/invites/track-url", async (c) => {
       deliveryProvider: 'invite-url',
       points: acceptedInvitePoints,
       scratchUnlocked: Boolean(scratchUnlock?.unlocked),
+      unlimitedUrlInvites: isUnlimitedUrlAdmin,
       sentAt: trackedAt,
       updatedAt: trackedAt,
     };
-    const nextHistory = [record, ...history].slice(0, 500);
+    const inviteHistoryLimit = isUnlimitedUrlAdmin ? ADMIN_URL_INVITE_HISTORY_LIMIT : INVITE_HISTORY_LIMIT;
+    const nextHistory = [record, ...history].slice(0, inviteHistoryLimit);
     let inviteAcceptedAward = { pointsAwarded: 0, newTotalPoints: currentPoints, transaction: null as any };
     let teamMilestoneAward = { pointsAwarded: 0, awards: [] as any[], newTotalPoints: null as number | null, transaction: null as any };
 
@@ -3608,6 +3639,7 @@ app.post("/make-server-7a79873f/invites/track-url", async (c) => {
         transaction: inviteAcceptedAward.transaction,
         teamMilestoneAward,
         scratchUnlock,
+        unlimitedUrlInvites: isUnlimitedUrlAdmin,
       },
     }, 200);
   } catch (error) {
