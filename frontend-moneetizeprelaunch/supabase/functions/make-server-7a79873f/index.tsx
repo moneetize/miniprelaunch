@@ -60,9 +60,7 @@ const INVITEE_ACTIVATION_POINTS = 2;
 const TEAM_OF_THREE_POINTS = 3;
 const TEAM_OF_FIVE_POINTS = 5;
 const FOLLOW_ACCEPTED_POINTS = 1;
-const MUTUAL_FOLLOW_POINTS = 2;
 const MAX_FOLLOW_POINTS_PER_DAY = 3;
-const MAX_FOLLOW_POINTS_TOTAL = 10;
 const MAX_USER_POINTS = 150;
 const INITIAL_SCRATCH_CREDITS = 1;
 const MAX_SCRATCH_OPPORTUNITIES = 5;
@@ -1016,23 +1014,16 @@ const awardNetworkFollowPoints = async ({
   const events = parseStoredJsonObject(pointsState.events);
   const daily = parseStoredJsonObject(pointsState.daily);
   const todayPoints = daily.date === today ? parseStoredNumber(daily.points, 0) : 0;
-  const totalPoints = parseStoredNumber(pointsState.total, 0);
   const requestedAwards: Array<{ eventKey: string; points: number; source: string }> = [];
 
   const followEventKey = `follow:${targetProfileId}`;
   if (events[followEventKey] !== true) {
-    requestedAwards.push({ eventKey: followEventKey, points: FOLLOW_ACCEPTED_POINTS, source: 'follow-accepted' });
-  }
-
-  const mutualEventKey = `mutual:${targetProfileId}`;
-  if (isMutual && events[mutualEventKey] !== true) {
-    requestedAwards.push({ eventKey: mutualEventKey, points: MUTUAL_FOLLOW_POINTS, source: 'mutual-follow' });
+    requestedAwards.push({ eventKey: followEventKey, points: FOLLOW_ACCEPTED_POINTS, source: 'network-follow' });
   }
 
   const requestedPoints = requestedAwards.reduce((sum, award) => sum + award.points, 0);
   const remainingDailyPoints = Math.max(0, MAX_FOLLOW_POINTS_PER_DAY - todayPoints);
-  const remainingTotalPoints = Math.max(0, MAX_FOLLOW_POINTS_TOTAL - totalPoints);
-  const pointsToAward = Math.min(requestedPoints, remainingDailyPoints, remainingTotalPoints);
+  const pointsToAward = Math.min(requestedPoints, remainingDailyPoints);
 
   if (pointsToAward <= 0) {
     return { pointsAwarded: 0, newTotalPoints: null, events };
@@ -1051,7 +1042,7 @@ const awardNetworkFollowPoints = async ({
   const result = await addPointsToUser({
     userId,
     amount: pointsToAward,
-    source: awardedEvents.some((event) => event.source === 'mutual-follow') ? 'mutual-follow' : 'follow-accepted',
+    source: 'network-follow',
     metadata: {
       targetProfileId,
       isMutual,
@@ -1060,7 +1051,6 @@ const awardNetworkFollowPoints = async ({
   });
 
   await kv.set(pointsStateKey, {
-    total: totalPoints + result.pointsAwarded,
     daily: {
       date: today,
       points: todayPoints + result.pointsAwarded,
@@ -1219,6 +1209,8 @@ const createAgentOpenAIReply = async (messages: any[], prompt: string) => {
 
     const modelCandidates = [
       `${Deno.env.get('OPENAI_MODEL') || ''}`.trim(),
+      'gpt-4.1-mini',
+      'gpt-4.1',
       'gpt-4o',
       'gpt-4o-mini',
     ].filter((model, index, models) => model && models.indexOf(model) === index);
@@ -2361,7 +2353,10 @@ app.post("/make-server-7a79873f/chat/agent", async (c) => {
     }, 200);
   } catch (error) {
     console.error('Agent chat endpoint error:', error);
-    return c.json({ success: false, error: 'Failed to send agent chat message' }, 500);
+    const message = error instanceof Error && error.message
+      ? error.message
+      : 'Failed to send agent chat message';
+    return c.json({ success: false, error: message }, 500);
   }
 });
 

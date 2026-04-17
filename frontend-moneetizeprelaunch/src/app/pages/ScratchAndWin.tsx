@@ -427,6 +427,25 @@ const createTeaserDraw = () => {
   return draw;
 };
 
+const createScratchPreviewDraw = () => {
+  const selected = teaserTickets[0];
+  const currentUsdt = Number(safeGetItem('userUsdtBalance') || '0');
+  const createdAt = new Date().toISOString();
+
+  return {
+    id: 'scratch-preview',
+    userId: 'scratch-preview',
+    ticket: selected.ticket,
+    reward: selected.reward,
+    balances: {
+      points: getUserPoints(),
+      usdt: Number.isFinite(currentUsdt) ? currentUsdt : 0,
+    },
+    createdAt,
+    expiresAt: new Date(Date.now() + selected.reward.expiresIn).toISOString(),
+  };
+};
+
 export function ScratchAndWin() {
   const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -439,6 +458,8 @@ export function ScratchAndWin() {
   const [ticket, setTicket] = useState<ScratchTicket | null>(null);
   const [isGolden, setIsGolden] = useState(false);
   const [isLoadingTicket, setIsLoadingTicket] = useState(true);
+  const [isDrawingTicket, setIsDrawingTicket] = useState(false);
+  const [hasLoadedRealScratchDraw, setHasLoadedRealScratchDraw] = useState(false);
   const [ticketError, setTicketError] = useState<string | null>(null);
   const [isScratching, setIsScratching] = useState(false);
   const [scratchPercentage, setScratchPercentage] = useState(0);
@@ -515,7 +536,8 @@ export function ScratchAndWin() {
         }
 
         setIsPreRegistrationTeaser(false);
-        const draw = await drawScratchTicket();
+        setHasLoadedRealScratchDraw(false);
+        const draw = createScratchPreviewDraw();
 
         if (cancelled) return;
 
@@ -550,6 +572,41 @@ export function ScratchAndWin() {
       cancelled = true;
     };
   }, []);
+
+  const loadRealScratchDraw = async () => {
+    if (isPreRegistrationTeaser || hasLoadedRealScratchDraw) return true;
+    if (isDrawingTicket) return false;
+
+    try {
+      setIsDrawingTicket(true);
+      setTicketError(null);
+      const draw = await drawScratchTicket();
+
+      setTicket(draw.ticket);
+      setIsGolden(draw.ticket.isGolden);
+      setReward(draw.reward);
+      setBalances(draw.balances);
+      setHasLoadedRealScratchDraw(true);
+      setScratchPercentage(0);
+
+      if (draw.ticket.countdown) {
+        setCountdown(draw.ticket.countdown);
+      }
+
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to draw scratch ticket.';
+      if (message.toLowerCase().includes('already been completed')) {
+        navigate('/profile-screen');
+        return false;
+      }
+
+      setTicketError(message);
+      return false;
+    } finally {
+      setIsDrawingTicket(false);
+    }
+  };
 
   useEffect(() => {
     const currentUserId = safeGetItem('user_id') || '';
@@ -647,6 +704,12 @@ export function ScratchAndWin() {
 
   const handleScratch = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     if (isRevealed) return;
+    if (isDrawingTicket) return;
+
+    if (!isPreRegistrationTeaser && !hasLoadedRealScratchDraw) {
+      void loadRealScratchDraw();
+      return;
+    }
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -850,6 +913,10 @@ export function ScratchAndWin() {
   const handleWildCardContinue = () => {
     setPreGameStep('idle');
 
+    if (!isRevealed) {
+      return;
+    }
+
     if (isPreRegistrationTeaser) {
       setTimeout(() => {
         navigate(getScratchTeaserAuthRoute());
@@ -974,8 +1041,8 @@ export function ScratchAndWin() {
             transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
             className="mx-auto mb-5 h-12 w-12 rounded-full border-4 border-white/20 border-t-white"
           />
-          <h1 className="mb-2 text-2xl font-bold text-white">Drawing your ticket</h1>
-          <p className="text-sm text-gray-400">The backend is selecting your scratch reward now.</p>
+          <h1 className="mb-2 text-2xl font-bold text-white">Preparing Scratch & Win</h1>
+          <p className="text-sm text-gray-400">Your scratch chance stays available until you start scratching.</p>
         </motion.div>
       </div>
     );
@@ -1323,6 +1390,18 @@ export function ScratchAndWin() {
                   className="absolute inset-0 h-full w-full cursor-pointer touch-none"
                   style={{ background: miniTicket.ticketGradient }}
                 />
+              )}
+
+              {!isRevealed && isDrawingTicket && (
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/46 px-4 text-center backdrop-blur-[2px]">
+                  <motion.span
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                    className="mb-2 h-6 w-6 rounded-full border-2 border-white/30 border-t-white"
+                  />
+                  <span className="text-[11px] font-black text-white">Drawing your real ticket...</span>
+                  <span className="mt-1 text-[9px] font-bold text-white/55">Scratch again when it appears.</span>
+                </div>
               )}
             </div>
           </div>

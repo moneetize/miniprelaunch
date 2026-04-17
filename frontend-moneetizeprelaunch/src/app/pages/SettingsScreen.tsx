@@ -379,6 +379,8 @@ export function SettingsScreen() {
     } else {
       if (selectedInterests.length < 5) {
         setSelectedInterests([...selectedInterests, interestId]);
+      } else {
+        setProfileSaveMessage('You can choose up to 5 interests.');
       }
     }
   };
@@ -831,8 +833,8 @@ export function SettingsScreen() {
       <div className="mb-6">
         <h3 className="text-white text-center mb-3">What inspires you</h3>
         <div className="flex items-center justify-center gap-3">
-          {/* Display up to 4 selected interest icons */}
-          {selectedInterests.slice(0, 4).map((interestId) => {
+          {/* Display up to 5 selected interest icons */}
+          {selectedInterests.slice(0, 5).map((interestId) => {
             const category = interestCategories.find(cat => cat.id === interestId);
             if (!category) return null;
             const IconComponent = category.icon;
@@ -1035,7 +1037,7 @@ export function SettingsScreen() {
   );
 
   const renderUpdatedMainView = () => {
-    const visibleInterestIds = selectedInterests.length ? selectedInterests.slice(0, 3) : ['home', 'photo', 'fitness'];
+    const visibleInterestIds = selectedInterests.length ? selectedInterests.slice(0, 5) : ['home', 'photo', 'fitness', 'books', 'pets'];
     const visibleInterestCategories = visibleInterestIds
       .map((interestId) => interestCategories.find((category) => category.id === interestId))
       .filter((category): category is (typeof interestCategories)[number] => Boolean(category));
@@ -1046,7 +1048,7 @@ export function SettingsScreen() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="pb-28"
+        className="pb-24"
       >
         <section className="min-h-[calc(100dvh-3rem)] overflow-hidden rounded-[1.55rem] border border-white/8 bg-gradient-to-b from-[#1c1f22] via-[#17191c] to-[#121416] px-4 pb-5 pt-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_22px_80px_rgba(0,0,0,0.54)]">
           <div className="mb-4 flex items-center justify-center gap-5">
@@ -1142,15 +1144,22 @@ export function SettingsScreen() {
                     onClick={() => saveInvestmentProfile(option.id)}
                     className={`flex w-full items-center justify-between rounded-[1rem] px-4 py-3 text-left transition-colors ${
                       isSelected
-                        ? 'bg-[#24272a] ring-1 ring-white/10'
-                        : 'bg-[#202326]/95 hover:bg-[#26292d]'
+                        ? 'border border-emerald-200/35 bg-emerald-300/[0.12] ring-1 ring-emerald-200/25'
+                        : 'border border-transparent bg-[#202326]/95 hover:bg-[#26292d]'
                     }`}
                   >
                     <span>
                       <span className="block text-[12px] font-black leading-tight text-white/86">{option.title}</span>
                       <span className="mt-1 block text-[10px] font-semibold leading-tight text-white/35">{option.description}</span>
                     </span>
-                    <IconComponent className="h-4 w-4 text-white/58" />
+                    <span className="ml-3 flex shrink-0 items-center gap-2">
+                      {isSelected && (
+                        <span className="rounded-full bg-emerald-200 px-2 py-1 text-[9px] font-black uppercase tracking-[0.08em] text-black">
+                          Selected
+                        </span>
+                      )}
+                      <IconComponent className={`h-4 w-4 ${isSelected ? 'text-emerald-100' : 'text-white/58'}`} />
+                    </span>
                   </button>
                 );
               })}
@@ -1377,8 +1386,8 @@ export function SettingsScreen() {
 
   // Interests View
   const renderInterestsView = () => {
-    const quickInterestDefaults = ['home', 'photo', 'pets', 'grocery'];
-    const quickInterestIds = [...selectedInterests, ...quickInterestDefaults.filter((interestId) => !selectedInterests.includes(interestId))].slice(0, 4);
+    const quickInterestDefaults = ['home', 'photo', 'pets', 'grocery', 'books'];
+    const quickInterestIds = [...selectedInterests, ...quickInterestDefaults.filter((interestId) => !selectedInterests.includes(interestId))].slice(0, 5);
     const quickInterestCategories = quickInterestIds
       .map((interestId) => interestCategories.find((category) => category.id === interestId))
       .filter((category): category is (typeof interestCategories)[number] => Boolean(category));
@@ -1413,7 +1422,10 @@ export function SettingsScreen() {
             </button>
           </div>
 
-          <h2 className="mb-5 text-center text-xl font-black text-white">What inspires you</h2>
+          <h2 className="mb-2 text-center text-xl font-black text-white">What inspires you</h2>
+          <p className="mb-5 text-center text-xs font-bold text-white/46">
+            Choose up to 5 interests. {selectedInterests.length}/5 selected.
+          </p>
 
           <div className="mb-7 flex items-center justify-center gap-3">
             {quickInterestCategories.map((category) => {
@@ -1657,7 +1669,7 @@ export function SettingsScreen() {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-8 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-8 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         <div className="mx-auto max-w-md">
         <AnimatePresence mode="wait">
           {currentView === 'main' && renderUpdatedMainView()}
@@ -1669,7 +1681,7 @@ export function SettingsScreen() {
       </div>
 
       {currentView === 'main' && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[70] mx-auto max-w-md bg-gradient-to-t from-black via-black/92 to-transparent px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-7">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[70] mx-auto max-w-md bg-gradient-to-t from-black via-black/92 to-transparent px-5 pb-[calc(0.85rem+env(safe-area-inset-bottom))] pt-4">
           {profileSaveMessage && (
             <p className="mx-auto mb-2 max-w-[310px] rounded-full border border-red-300/18 bg-red-400/[0.12] px-4 py-2 text-center text-[11px] font-bold text-red-100/90">
               {profileSaveMessage}

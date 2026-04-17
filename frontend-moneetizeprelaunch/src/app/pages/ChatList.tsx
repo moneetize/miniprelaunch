@@ -100,7 +100,7 @@ export function ChatList() {
       }}
       className="absolute inset-0 h-full w-full overflow-y-auto bg-[#07090c] text-white [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
     >
-      <div className="pointer-events-none fixed inset-x-0 top-0 h-40 bg-[radial-gradient(circle_at_50%_0%,rgba(42,48,61,0.5),transparent_70%)]" />
+      <div className="pointer-events-none fixed inset-x-0 top-0 h-32 bg-[radial-gradient(circle_at_50%_0%,rgba(42,48,61,0.24),transparent_74%)]" />
 
       <div className="relative mx-auto min-h-full w-full max-w-md px-4 pb-28 pt-5">
         <div className="mb-5 flex h-7 items-center justify-between text-sm text-white">
@@ -132,7 +132,7 @@ export function ChatList() {
           <span className="h-12 w-12" aria-hidden="true" />
         </header>
 
-        <div className="mx-auto mb-6 grid w-[248px] grid-cols-3 rounded-full border border-white/8 bg-[#101215]/95 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_12px_36px_rgba(0,0,0,0.28)]">
+        <div className="mx-auto mb-6 grid w-full max-w-[300px] grid-cols-3 rounded-full border border-white/8 bg-[#101215]/95 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_12px_36px_rgba(0,0,0,0.28)]">
           {[
             { id: 'all' as const, label: 'All' },
             { id: 'members' as const, label: 'Members' },
@@ -142,7 +142,7 @@ export function ChatList() {
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`rounded-full px-3 py-2.5 text-xs font-black transition-colors ${
+              className={`min-w-0 rounded-full px-2 py-2.5 text-center text-xs font-black transition-colors ${
                 activeTab === tab.id ? 'bg-white/10 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]' : 'text-white/70 hover:text-white'
               }`}
             >

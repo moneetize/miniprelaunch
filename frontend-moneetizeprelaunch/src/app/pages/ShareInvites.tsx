@@ -139,7 +139,7 @@ export function ShareInvites() {
       return;
     }
 
-    if (!hasInviteConsent) {
+    if (SMS_INVITES_ENABLED && !hasInviteConsent) {
       setError('Please confirm these contacts agreed to receive this Moneetize invite.');
       return;
     }
@@ -201,7 +201,7 @@ export function ShareInvites() {
       return;
     }
 
-    if (!hasInviteConsent) {
+    if (SMS_INVITES_ENABLED && !hasInviteConsent) {
       setError('Please confirm these contacts agreed to receive this Moneetize invite.');
       return;
     }
@@ -520,7 +520,7 @@ export function ShareInvites() {
             </motion.div>
           </div>
 
-          <label className="mt-5 flex items-start gap-3 rounded-[1.1rem] border border-white/8 bg-white/[0.04] p-3.5">
+          <label className="mt-5 flex items-start gap-3 rounded-[1.1rem] border border-white/8 bg-white/[0.025] p-3.5 opacity-45">
             <input
               type="checkbox"
               checked={hasInviteConsent}
@@ -528,10 +528,11 @@ export function ShareInvites() {
                 setHasInviteConsent(event.target.checked);
                 setError(null);
               }}
+              disabled
               className="mt-1 h-4 w-4 shrink-0 accent-emerald-300"
             />
             <span className="text-[11px] font-semibold leading-relaxed text-white/58">
-              I confirm these contacts agreed to receive this Moneetize Pre-game invite. They can reply{' '}
+              SMS consent confirmation is coming soon with carrier approval. Contacts will be able to reply{' '}
               <strong className="text-white/86">STOP</strong> to opt out or <strong className="text-white/86">HELP</strong> for help.
               See our{' '}
               <Link to="/privacy-policy" className="text-emerald-200/80 underline-offset-2 hover:underline">
@@ -553,7 +554,7 @@ export function ShareInvites() {
           >
             <button
               onClick={handleSendInvites}
-              disabled={isLoading || filledEmailsCount === 0 || !hasInviteConsent}
+              disabled={isLoading || filledEmailsCount === 0}
               className="flex h-[52px] w-full items-center justify-center gap-2 rounded-full bg-white px-5 text-sm font-black text-black shadow-[0_16px_38px_rgba(0,0,0,0.34)] transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-35"
             >
               {isLoading ? (
@@ -591,7 +592,7 @@ export function ShareInvites() {
           >
             <p className="text-[11px] font-black uppercase tracking-[0.16em] text-white/36">Team Sync</p>
             <p className="mt-1 text-xs font-semibold leading-relaxed text-white/54">
-              Email, SMS, and copied-link accepts build your five-member release team.
+              Email and copied-link accepts build your five-member release team. SMS invites return after carrier approval.
             </p>
           </motion.div>
         </motion.section>

@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronUp, History, MessageCircle, MoreHorizontal, Share2,
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import wildcardIcon from 'figma:asset/f632203f248e2d298246c5ffb0789bc0cac99ea5.png';
 import tshirtRewardIcon from '../../assets/moneetize-tshirt-reward.png';
-import { getUserPoints, POINTS_UPDATED_EVENT } from '../utils/pointsManager';
+import { addUserPoints, getUserPoints, POINTS_UPDATED_EVENT } from '../utils/pointsManager';
 import { safeGetItem, safeSetItem } from '../utils/storage';
 import { isUserAdmin, logoutUser } from '../services/authService';
 import { getStoredScratchCredits, getStoredUsdtBalance, loadScratchProfile, type ScratchCredits, type ScratchDrawResult } from '../services/scratchService';
@@ -54,6 +54,8 @@ type HistoryRewardIcon = {
 };
 
 const NETWORK_FOLLOW_STATES_KEY = 'networkFollowStates';
+const NETWORK_FOLLOW_AWARDS_KEY = 'networkFollowPointAwards';
+const NETWORK_VISIBLE_LIMIT = 5;
 
 const defaultNetworkFollowStates: Record<string, boolean> = {
   'john-black': true,
@@ -74,6 +76,42 @@ function getStoredNetworkFollowStates() {
   } catch {
     return {};
   }
+}
+
+function getStoredNetworkFollowAwardState() {
+  try {
+    const storedState = safeGetItem(NETWORK_FOLLOW_AWARDS_KEY);
+    const parsed = storedState ? JSON.parse(storedState) : {};
+    return parsed && typeof parsed === 'object'
+      ? parsed as { date?: string; points?: number; profiles?: Record<string, boolean> }
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function getTodayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+async function awardLocalNetworkFollowPoint(profileId: string) {
+  const today = getTodayKey();
+  const storedState = getStoredNetworkFollowAwardState();
+  const isSameDay = storedState.date === today;
+  const pointsToday = isSameDay ? Math.max(0, Number(storedState.points) || 0) : 0;
+  const profiles = isSameDay && storedState.profiles ? storedState.profiles : {};
+
+  if (pointsToday >= 3 || profiles[profileId]) return false;
+
+  profiles[profileId] = true;
+  safeSetItem(NETWORK_FOLLOW_AWARDS_KEY, JSON.stringify({
+    date: today,
+    points: pointsToday + 1,
+    profiles,
+  }));
+
+  await addUserPoints(1, 'network-follow');
+  return true;
 }
 
 function getStoredScratchHistory(): ScratchDrawResult[] {
@@ -172,6 +210,9 @@ export function ProfileScreen() {
   const [showPhotoEditModal, setShowPhotoEditModal] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [showRewardHistory, setShowRewardHistory] = useState(false);
+  const [showPointsInfo, setShowPointsInfo] = useState(false);
+  const [relationshipModal, setRelationshipModal] = useState<'following' | 'followers' | null>(null);
+  const [networkListExpanded, setNetworkListExpanded] = useState(false);
   const [scratchHistory, setScratchHistory] = useState<ScratchDrawResult[]>(() => getStoredScratchHistory());
   const [scratchCredits, setScratchCredits] = useState<ScratchCredits | null>(() => getStoredScratchCredits());
   const [isProfileComplete, setIsProfileComplete] = useState(() => isStoredProfileComplete());
@@ -540,10 +581,10 @@ export function ProfileScreen() {
     .join('') || 'JW';
 
   const compactProfileActions = [
-    { label: 'Profile home', icon: <User className="h-3 w-3" /> },
-    { label: 'Rewards', icon: <Award className="h-3 w-3" /> },
-    { label: 'Network', icon: <Users className="h-3 w-3" /> },
-    { label: 'Winnings', icon: <History className="h-3 w-3" /> },
+    { label: 'Change profile photo', icon: <User className="h-3 w-3" />, onClick: () => setShowPhotoEditModal(true) },
+    { label: 'Rewards', icon: <Award className="h-3 w-3" />, path: '/winnings' },
+    { label: 'Team', icon: <Users className="h-3 w-3" />, path: '/team-view' },
+    { label: 'Gameplay', icon: <History className="h-3 w-3" />, path: '/gameplay' },
     { label: 'Marketplace', icon: <ShoppingBag className="h-3 w-3" />, path: '/marketplace' },
   ];
 
@@ -663,34 +704,45 @@ export function ProfileScreen() {
     ...candidateNetworkProfiles.filter((profile) => isNetworkProfileFollowing(profile)),
   ];
   const peopleYouMayKnowProfiles = candidateNetworkProfiles.filter((profile) => !isNetworkProfileFollowing(profile));
-  const peopleYouMayKnowGroups = Array.from(
-    { length: Math.ceil(peopleYouMayKnowProfiles.length / 3) },
-    (_, index) => peopleYouMayKnowProfiles.slice(index * 3, index * 3 + 3),
-  );
   const followingCount = candidateNetworkProfiles.filter((profile) => isNetworkProfileFollowing(profile)).length;
   const followersCount = candidateNetworkProfiles.filter((profile) => profile.followsMe).length;
-  const displayNetworkingPoints = Math.min(
-    10,
-    candidateNetworkProfiles.reduce((total, profile) => {
-      if (!isNetworkProfileFollowing(profile)) return total;
-      return total + 1 + (profile.followsMe ? 2 : 0);
-    }, 0),
+  const displayNetworkingPoints = followingCount;
+  const visibleMyNetworkProfiles = networkListExpanded ? myNetworkProfiles : myNetworkProfiles.slice(0, NETWORK_VISIBLE_LIMIT);
+  const visiblePeopleYouMayKnowProfiles = networkListExpanded
+    ? peopleYouMayKnowProfiles
+    : peopleYouMayKnowProfiles.slice(0, NETWORK_VISIBLE_LIMIT);
+  const hiddenNetworkProfileCount = Math.max(
+    0,
+    (myNetworkProfiles.length + peopleYouMayKnowProfiles.length) -
+      (visibleMyNetworkProfiles.length + visiblePeopleYouMayKnowProfiles.length),
   );
+  const relationshipProfiles = relationshipModal === 'following'
+    ? candidateNetworkProfiles.filter((profile) => isNetworkProfileFollowing(profile))
+    : relationshipModal === 'followers'
+      ? candidateNetworkProfiles.filter((profile) => profile.followsMe)
+      : [];
 
   const handleToggleNetworkFollow = (profile: NetworkProfile) => {
     if (profile.isCurrentUser) return;
 
     const isFollowing = isNetworkProfileFollowing(profile);
+    const nextFollowing = !isFollowing;
     setNetworkFollowStates((states) => {
       const nextStates = {
         ...states,
-        [profile.id]: !isFollowing,
+        [profile.id]: nextFollowing,
       };
       safeSetItem(NETWORK_FOLLOW_STATES_KEY, JSON.stringify(nextStates));
       return nextStates;
     });
 
-    void saveNetworkFollowState(profile.id, !isFollowing)
+    if (nextFollowing && !safeGetItem('access_token')) {
+      void awardLocalNetworkFollowPoint(profile.id).then(() => {
+        setUserPoints(getUserPoints());
+      });
+    }
+
+    void saveNetworkFollowState(profile.id, nextFollowing)
       .then((remoteStates) => {
         setNetworkFollowStates((states) => {
           const nextStates = {
@@ -700,6 +752,7 @@ export function ProfileScreen() {
           safeSetItem(NETWORK_FOLLOW_STATES_KEY, JSON.stringify(nextStates));
           return nextStates;
         });
+        setUserPoints(getUserPoints());
       })
       .catch((error) => {
         console.warn('Network follow save skipped:', error);
@@ -707,9 +760,9 @@ export function ProfileScreen() {
   };
 
   const profileStats = [
-    { label: 'USDT (Locked)', value: `$ ${displayBalance}`, icon: <Copy className="h-3 w-3" /> },
-    { label: 'Following', value: followingCount, icon: <ChevronUp className="h-3 w-3" /> },
-    { label: 'Followers', value: followersCount, icon: <ChevronUp className="h-3 w-3 rotate-180" /> },
+    { label: 'USDT (Locked)', value: `$ ${displayBalance}`, icon: <Copy className="h-3 w-3" />, onClick: () => navigate('/winnings') },
+    { label: 'Following', value: followingCount, icon: <ChevronUp className="h-3 w-3" />, onClick: () => setRelationshipModal('following') },
+    { label: 'Followers', value: followersCount, icon: <ChevronUp className="h-3 w-3 rotate-180" />, onClick: () => setRelationshipModal('followers') },
   ];
 
   const renderNetworkProfileRow = (profile: NetworkProfile, index: number) => {
@@ -726,7 +779,6 @@ export function ProfileScreen() {
           profile.isCurrentUser ? 'cursor-default' : 'hover:bg-white/[0.12]'
         }`}
       >
-        <span className="w-5 shrink-0 text-center text-sm font-black text-white/72">{profile.initialRank}</span>
         <span className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-white/10">
           {profile.avatar ? (
             <img src={profile.avatar} alt={profile.name} className="h-full w-full object-cover" />
@@ -870,11 +922,11 @@ export function ProfileScreen() {
             <LogOut className="h-4 w-4" />
           </button>
 
-          <div className="relative mx-auto mb-3 flex max-w-[260px] items-start justify-center">
+          <div className="relative mx-auto mb-3 flex max-w-[286px] items-start justify-center">
             <button
               type="button"
               onClick={() => navigate('/chat-list')}
-              className="absolute left-0 top-8 flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/8 text-white/65 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors hover:bg-white/14 hover:text-white"
+              className="absolute left-0 top-10 flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/8 text-white/65 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors hover:bg-white/14 hover:text-white"
               aria-label="Messages"
             >
               <MessageCircle className="h-4 w-4" />
@@ -883,7 +935,7 @@ export function ProfileScreen() {
             <button
               type="button"
               onClick={() => setShowPhotoEditModal(true)}
-              className="relative flex h-[82px] w-[82px] items-center justify-center rounded-full bg-gradient-to-b from-[#ffd23f] via-[#ff8d25] to-[#ef3d28] p-[3px] shadow-[0_0_24px_rgba(255,145,30,0.36)]"
+              className="relative flex h-[96px] w-[96px] items-center justify-center rounded-full bg-gradient-to-b from-[#ffd23f] via-[#ff8d25] to-[#ef3d28] p-[3px] shadow-[0_0_28px_rgba(255,145,30,0.38)]"
               aria-label="Edit profile photo"
             >
               <span className="h-full w-full overflow-hidden rounded-full border-[3px] border-[#202124] bg-[#2d3035]">
@@ -903,7 +955,7 @@ export function ProfileScreen() {
             <button
               type="button"
               onClick={() => navigate('/settings')}
-              className="absolute right-0 top-8 flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors hover:bg-white/16 hover:text-white"
+              className="absolute right-0 top-10 flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors hover:bg-white/16 hover:text-white"
               aria-label="Profile options"
             >
               <MoreHorizontal className="h-5 w-5" />
@@ -915,8 +967,8 @@ export function ProfileScreen() {
               <button
                 key={action.label}
                 type="button"
-                onClick={() => action.path && navigate(action.path)}
-                className="flex h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white/75"
+                onClick={() => action.onClick ? action.onClick() : action.path && navigate(action.path)}
+                className="flex h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white/75 transition-colors hover:bg-white/16 hover:text-white"
                 aria-label={action.label}
               >
                 {action.icon}
@@ -928,9 +980,14 @@ export function ProfileScreen() {
             <span className="max-w-[140px] truncate text-sm font-black text-white">{userName}</span>
             <img src={gemIcon} alt="Gem" className="h-5 w-5 drop-shadow-[0_0_12px_rgba(134,255,166,0.55)]" />
             <span className="text-sm font-black text-[#8ff0a8]">{userPoints}</span>
-            <span className="flex h-4 w-4 items-center justify-center rounded-full border border-white/20 text-[10px] font-black text-white/55">
+            <button
+              type="button"
+              onClick={() => setShowPointsInfo(true)}
+              className="flex h-4 w-4 items-center justify-center rounded-full border border-white/20 text-[10px] font-black text-white/55 transition-colors hover:bg-white/10 hover:text-white"
+              aria-label="What points mean"
+            >
               i
-            </span>
+            </button>
           </div>
 
           <div className="relative mt-2 flex justify-center">
@@ -957,6 +1014,7 @@ export function ProfileScreen() {
               <button
                 key={stat.label}
                 type="button"
+                onClick={stat.onClick}
                 className="min-h-[76px] min-w-0 rounded-[1rem] border border-white/12 bg-white/[0.095] px-2.5 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] min-[390px]:px-3"
               >
                 <span className="mb-1 flex min-w-0 items-center gap-1.5 text-sm font-black text-white">
@@ -1023,14 +1081,14 @@ export function ProfileScreen() {
                 <motion.div
                   animate={{ y: [0, -6, 0], scale: [1, 1.04, 1] }}
                   transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
-                  className="relative flex h-[74px] w-[74px] items-center justify-center"
+                  className="relative flex h-[74px] w-[74px] items-center justify-center overflow-visible"
                 >
                   <motion.span
                     className="absolute h-[74px] w-[74px] rounded-full bg-emerald-300/24 blur-xl"
                     animate={{ opacity: [0.38, 0.72, 0.38], scale: [0.86, 1.08, 0.86] }}
                     transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
                   />
-                  <img src={gemIcon} alt="Gem" className="relative h-[74px] w-[74px] drop-shadow-[0_0_28px_rgba(134,255,166,0.62)]" />
+                  <img src={gemIcon} alt="Gem" className="relative h-[56px] w-[56px] drop-shadow-[0_0_28px_rgba(134,255,166,0.62)]" />
                 </motion.div>
               </div>
             </div>
@@ -1040,20 +1098,28 @@ export function ProfileScreen() {
                 <h3 className="text-xl font-black tracking-tight text-white">My Network</h3>
               </div>
               <div className="space-y-2 rounded-[1.35rem] bg-[#151624]/80 p-0 shadow-[0_18px_50px_rgba(0,0,0,0.26)]">
-                {myNetworkProfiles.map(renderNetworkProfileRow)}
+                {visibleMyNetworkProfiles.map(renderNetworkProfileRow)}
               </div>
             </div>
 
-            {peopleYouMayKnowGroups.map((profiles, groupIndex) => (
-              <div key={`people-you-may-know-${groupIndex}`}>
-                <div className="mb-3 flex items-center">
-                  <h3 className="text-xl font-black tracking-tight text-white">People You May Know</h3>
-                </div>
-                <div className="space-y-2">
-                  {profiles.map(renderNetworkProfileRow)}
-                </div>
+            <div>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-xl font-black tracking-tight text-white">People You May Know</h3>
+                {hiddenNetworkProfileCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setNetworkListExpanded((expanded) => !expanded)}
+                    className="flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.07] px-3 py-1.5 text-xs font-black text-white/76 transition-colors hover:bg-white/[0.12]"
+                  >
+                    {networkListExpanded ? 'Show less' : 'See all'}
+                    <ChevronUp className={`h-3.5 w-3.5 transition-transform ${networkListExpanded ? '' : 'rotate-180'}`} />
+                  </button>
+                )}
               </div>
-            ))}
+              <div className="space-y-2">
+                {visiblePeopleYouMayKnowProfiles.map(renderNetworkProfileRow)}
+              </div>
+            </div>
           </motion.section>
         )}
 
@@ -1580,6 +1646,101 @@ export function ProfileScreen() {
                 >
                   Send Invite
                 </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Points Info Modal */}
+      <AnimatePresence>
+        {showPointsInfo && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+            onClick={() => setShowPointsInfo(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.92, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.92, opacity: 0 }}
+              onClick={(event) => event.stopPropagation()}
+              className="w-full max-w-sm rounded-[1.4rem] border border-white/10 bg-gradient-to-b from-[#22262b] to-[#121519] p-6 text-center shadow-2xl"
+            >
+              <img src={gemIcon} alt="" className="mx-auto mb-3 h-12 w-12 drop-shadow-[0_0_20px_rgba(134,255,166,0.58)]" />
+              <h3 className="text-xl font-black text-white">What Points Mean</h3>
+              <p className="mt-3 text-sm font-semibold leading-relaxed text-white/62">
+                Points track your pre-launch progress. You earn them by scratching, activating rewards, following members, completing gameplay tasks, and inviting friends who join.
+              </p>
+              <p className="mt-3 text-sm font-semibold leading-relaxed text-white/62">
+                Following members earns 1 point per follow, up to 3 points per day.
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowPointsInfo(false)}
+                className="mt-6 w-full rounded-full bg-white px-5 py-3 text-sm font-black text-black transition-colors hover:bg-gray-100"
+              >
+                Got it
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Following / Followers Modal */}
+      <AnimatePresence>
+        {relationshipModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+            onClick={() => setRelationshipModal(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.92, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.92, opacity: 0 }}
+              onClick={(event) => event.stopPropagation()}
+              className="w-full max-w-sm rounded-[1.4rem] border border-white/10 bg-gradient-to-b from-[#22262b] to-[#121519] p-5 shadow-2xl"
+            >
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h3 className="text-lg font-black text-white">
+                  {relationshipModal === 'following' ? 'Following' : 'Followers'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setRelationshipModal(null)}
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-white/8 text-white/70 transition-colors hover:bg-white/14 hover:text-white"
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                {relationshipProfiles.length ? relationshipProfiles.map((profile) => (
+                  <div key={profile.id} className="flex min-h-[56px] items-center gap-3 rounded-[1rem] border border-white/8 bg-white/[0.06] px-3 py-2">
+                    <span className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-white/10">
+                      {profile.avatar ? (
+                        <img src={profile.avatar} alt={profile.name} className="h-full w-full object-cover" />
+                      ) : (
+                        <span className="flex h-full w-full items-center justify-center text-xs font-black text-white/48">
+                          {profile.name.charAt(0)}
+                        </span>
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-black text-white">{profile.name}</span>
+                      {profile.handle && <span className="block truncate text-xs font-bold text-white/42">{profile.handle}</span>}
+                    </span>
+                  </div>
+                )) : (
+                  <p className="rounded-[1rem] border border-white/8 bg-white/[0.04] px-4 py-5 text-center text-sm font-semibold text-white/52">
+                    No profiles here yet.
+                  </p>
+                )}
               </div>
             </motion.div>
           </motion.div>

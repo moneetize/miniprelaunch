@@ -7,6 +7,7 @@ import { agentChatPreview } from '../utils/chatData';
 import { getStoredProfileSettings } from '../utils/profileSettings';
 import {
   createCurrentUserMessage,
+  clearLegacyAgentChat,
   getThreadId,
   loadThreadMessages,
   saveLocalThreadMessages,
@@ -31,6 +32,8 @@ export function AgentChat() {
   useEffect(() => {
     let cancelled = false;
     const fallbackMessages = createInitialAgentMessages();
+
+    clearLegacyAgentChat(threadId);
 
     void loadThreadMessages(threadId, fallbackMessages).then((threadMessages) => {
       if (!cancelled) setMessages(threadMessages as AgentUiMessage[]);
@@ -65,7 +68,7 @@ export function AgentChat() {
 
   return (
     <div className="absolute inset-0 flex h-full w-full flex-col overflow-hidden bg-[#07090c] text-white">
-      <div className="pointer-events-none fixed inset-x-0 top-0 h-44 bg-[radial-gradient(circle_at_50%_0%,rgba(42,48,61,0.48),transparent_72%)]" />
+      <div className="pointer-events-none fixed inset-x-0 top-0 h-32 bg-[radial-gradient(circle_at_50%_0%,rgba(42,48,61,0.24),transparent_74%)]" />
 
       <div className="relative z-10 flex h-7 shrink-0 items-center justify-between px-4 pt-5 text-sm text-white">
         <span className="font-semibold">9:41</span>

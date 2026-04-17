@@ -49,6 +49,7 @@ type ChatThreadsResponse = {
 
 const CHAT_API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-7a79873f/chat`;
 const CHAT_THREAD_STORAGE_PREFIX = 'moneetizeChatThread:';
+const AGENT_CHAT_CLEAR_CUTOFF_KEY = 'moneetizeAgentChatClearCutoff';
 const LEGACY_DEMO_MESSAGE_IDS = new Set([
   'boost-income',
   'action-needed',
@@ -70,7 +71,12 @@ function isLegacyDemoContent(value?: string) {
     content.includes('A useful starting point') ||
     content.includes('Here is a practical way to think about it') ||
     content.includes('Here is a direct starting point') ||
-    content.includes('Ask me a follow-up and I can go deeper')
+    content.includes('Ask me a follow-up and I can go deeper') ||
+    content.includes('Product in your portfolio') ||
+    content.includes('Boost Your Income') ||
+    content.includes('Contact support') ||
+    content.includes('outside your investment range') ||
+    content.includes('selling to stay aligned')
   );
 }
 
@@ -235,6 +241,33 @@ function getThreadStorageKey(threadId: string) {
   return `${CHAT_THREAD_STORAGE_PREFIX}${threadId}`;
 }
 
+function isAgentThread(threadId: string) {
+  return threadId.startsWith('agent:');
+}
+
+function getAgentChatClearCutoff() {
+  return safeGetItem(AGENT_CHAT_CLEAR_CUTOFF_KEY) || '';
+}
+
+function isBeforeAgentClearCutoff(threadId: string, message: ChatMessage) {
+  if (!isAgentThread(threadId)) return false;
+
+  const cutoff = getAgentChatClearCutoff();
+  if (!cutoff) return false;
+
+  const messageTime = new Date(message.createdAt || '').getTime();
+  const cutoffTime = new Date(cutoff).getTime();
+
+  return !Number.isFinite(messageTime) || messageTime < cutoffTime;
+}
+
+export function clearLegacyAgentChat(threadId: string) {
+  if (!isAgentThread(threadId) || getAgentChatClearCutoff()) return;
+
+  safeSetItem(AGENT_CHAT_CLEAR_CUTOFF_KEY, new Date().toISOString());
+  safeSetItem(getThreadStorageKey(threadId), JSON.stringify([]));
+}
+
 function parseMessages(value: string | null): ChatMessage[] {
   if (!value) return [];
 
@@ -268,7 +301,7 @@ export function saveLocalThreadMessages(threadId: string, messages: ChatMessage[
 }
 
 export function loadLocalThreadMessages(threadId: string, fallback: ChatMessage[] = []) {
-  const messages = parseMessages(safeGetItem(getThreadStorageKey(threadId)));
+  const messages = parseMessages(safeGetItem(getThreadStorageKey(threadId))).filter((message) => !isBeforeAgentClearCutoff(threadId, message));
   return messages.length ? messages : fallback;
 }
 
@@ -287,7 +320,9 @@ export async function loadThreadMessages(threadId: string, fallback: ChatMessage
       return localMessages;
     }
 
-    const remoteMessages = result.data.messages.filter((message) => !isLegacyDemoMessage(message));
+    const remoteMessages = result.data.messages.filter((message) => (
+      !isLegacyDemoMessage(message) && !isBeforeAgentClearCutoff(threadId, message)
+    ));
     const messages = remoteMessages.length ? remoteMessages : localMessages;
     saveLocalThreadMessages(threadId, messages);
     return messages;
