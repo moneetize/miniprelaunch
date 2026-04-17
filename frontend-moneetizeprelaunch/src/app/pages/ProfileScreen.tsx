@@ -11,6 +11,7 @@ import { isUserAdmin, logoutUser } from '../services/authService';
 import { getStoredScratchCredits, getStoredUsdtBalance, loadScratchProfile, type ScratchCredits, type ScratchDrawResult } from '../services/scratchService';
 import { LOCAL_NETWORK_PROFILES_UPDATED_EVENT, loadNetworkFollowStates, loadRecommendedFriends, saveNetworkFollowState, syncCurrentUserNetworkProfile, type RecommendedFriendProfile } from '../services/networkService';
 import { clearProfilePhoto, getStoredProfileSettings, isStoredProfileComplete, notifyProfileSettingsUpdated, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTINGS_UPDATED_EVENT, saveProfilePhoto, writeStoredProfileSettings } from '../utils/profileSettings';
+import { resizeProfilePhoto } from '../utils/profilePhoto';
 import { hydrateRemoteProfileSettings, saveRemoteProfileSettings } from '../services/profilePersistenceService';
 import { loadChatPreviews } from '../services/chatService';
 
@@ -142,49 +143,6 @@ function formatHistoryDate(timestamp: string) {
     month: '2-digit',
     year: 'numeric',
   }).format(date).replace(/\//g, '.');
-}
-
-function resizeProfilePhoto(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onerror = () => reject(new Error('Unable to read this photo.'));
-    reader.onload = () => {
-      const image = new Image();
-
-      image.onerror = () => reject(new Error('Unable to load this photo.'));
-      image.onload = () => {
-        const outputSize = 240;
-        const cropSize = Math.min(image.width, image.height);
-        const sourceX = Math.max(0, Math.round((image.width - cropSize) / 2));
-        const sourceY = Math.max(0, Math.round((image.height - cropSize) / 2));
-        const canvas = document.createElement('canvas');
-        canvas.width = outputSize;
-        canvas.height = outputSize;
-
-        const context = canvas.getContext('2d');
-        if (!context) {
-          reject(new Error('Unable to process this photo.'));
-          return;
-        }
-
-        context.drawImage(image, sourceX, sourceY, cropSize, cropSize, 0, 0, outputSize, outputSize);
-
-        let quality = 0.78;
-        let photo = canvas.toDataURL('image/jpeg', quality);
-        while (photo.length > 80000 && quality > 0.48) {
-          quality -= 0.08;
-          photo = canvas.toDataURL('image/jpeg', quality);
-        }
-
-        resolve(photo);
-      };
-
-      image.src = `${reader.result || ''}`;
-    };
-
-    reader.readAsDataURL(file);
-  });
 }
 
 function formatHistoryTime(timestamp: string) {

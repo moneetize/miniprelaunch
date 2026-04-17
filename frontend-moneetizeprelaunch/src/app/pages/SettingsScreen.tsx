@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { safeGetItem, safeSetItem } from '../utils/storage';
 import { clearProfilePhoto, getStoredProfileSettings, markProfileCompleted, notifyProfileSettingsUpdated, saveProfilePhoto, writeStoredProfileSettings, type StoredProfileSettings } from '../utils/profileSettings';
+import { resizeProfilePhoto } from '../utils/profilePhoto';
 import { loadRecommendedFriends, syncCurrentUserNetworkProfile } from '../services/networkService';
 import { isUserAdmin, logoutUser, updateCurrentUserPassword, updateUserProfile } from '../services/authService';
 import { hydrateRemoteProfileSettings, saveRemoteProfileSettings } from '../services/profilePersistenceService';
@@ -213,49 +214,6 @@ function getInitials(name: string) {
     .join('') || 'ME';
 }
 
-function resizeProfilePhoto(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onerror = () => reject(new Error('Unable to read this photo.'));
-    reader.onload = () => {
-      const image = new Image();
-
-      image.onerror = () => reject(new Error('Unable to load this photo.'));
-      image.onload = () => {
-        const outputSize = 240;
-        const cropSize = Math.min(image.width, image.height);
-        const sourceX = Math.max(0, Math.round((image.width - cropSize) / 2));
-        const sourceY = Math.max(0, Math.round((image.height - cropSize) / 2));
-        const canvas = document.createElement('canvas');
-        canvas.width = outputSize;
-        canvas.height = outputSize;
-
-        const context = canvas.getContext('2d');
-        if (!context) {
-          reject(new Error('Unable to process this photo.'));
-          return;
-        }
-
-        context.drawImage(image, sourceX, sourceY, cropSize, cropSize, 0, 0, outputSize, outputSize);
-
-        let quality = 0.78;
-        let photo = canvas.toDataURL('image/jpeg', quality);
-        while (photo.length > 80000 && quality > 0.48) {
-          quality -= 0.08;
-          photo = canvas.toDataURL('image/jpeg', quality);
-        }
-
-        resolve(photo);
-      };
-
-      image.src = `${reader.result || ''}`;
-    };
-
-    reader.readAsDataURL(file);
-  });
-}
-
 export function SettingsScreen() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -288,6 +246,7 @@ export function SettingsScreen() {
   const [handleSuggestions, setHandleSuggestions] = useState<string[]>([]);
   const [isCheckingHandle, setIsCheckingHandle] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const agentSettingsSaveTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -356,6 +315,40 @@ export function SettingsScreen() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => () => {
+    if (agentSettingsSaveTimerRef.current) {
+      window.clearTimeout(agentSettingsSaveTimerRef.current);
+    }
+  }, []);
+
+  const queueAgentSettingsSave = (nextAgentName: string, nextSelectedAgent = selectedAgent) => {
+    const trimmedAgentName = nextAgentName.trim();
+    if (!trimmedAgentName || !safeGetItem('access_token')) return;
+
+    const selectedAvatarId = aiAgentAvatars[nextSelectedAgent]?.id || 'blueAvatar';
+
+    if (agentSettingsSaveTimerRef.current) {
+      window.clearTimeout(agentSettingsSaveTimerRef.current);
+    }
+
+    agentSettingsSaveTimerRef.current = window.setTimeout(() => {
+      void saveRemoteProfileSettings({
+        agentName: trimmedAgentName,
+        selectedAvatar: selectedAvatarId,
+      })
+        .then((savedSettings) => {
+          if (savedSettings) {
+            writeStoredProfileSettings(savedSettings);
+          }
+          notifyProfileSettingsUpdated();
+          syncCurrentUserNetworkProfile();
+        })
+        .catch((error) => {
+          console.warn('Remote AI agent sync skipped:', error);
+        });
+    }, 500);
+  };
 
   const saveInvestmentProfile = (investmentProfile: string) => {
     setSelectedInvestment(investmentProfile);
@@ -1342,9 +1335,11 @@ export function SettingsScreen() {
             type="text"
             value={agentName}
             onChange={(e) => {
-              setAgentName(e.target.value);
-              safeSetItem('agentName', e.target.value);
+              const nextAgentName = e.target.value;
+              setAgentName(nextAgentName);
+              safeSetItem('agentName', nextAgentName);
               notifyProfileSettingsUpdated();
+              queueAgentSettingsSave(nextAgentName);
             }}
             className="min-w-0 flex-1 bg-transparent text-base font-semibold text-white outline-none placeholder:text-white/38"
             placeholder="My AI Agent"
@@ -1365,9 +1360,7 @@ export function SettingsScreen() {
                   setSelectedAgent(idx);
                   safeSetItem('selectedAvatar', avatar.id);
                   notifyProfileSettingsUpdated();
-                  void saveRemoteProfileSettings({ selectedAvatar: avatar.id }).catch((error) => {
-                    console.warn('Remote AI avatar sync skipped:', error);
-                  });
+                  queueAgentSettingsSave(agentName, idx);
                 }}
                 className="relative h-[70px] w-[70px] rounded-full transition-transform hover:scale-105"
                 aria-pressed={isSelected}

@@ -32,7 +32,7 @@ const DEFAULT_USER_USDT = 0;
 const SCRATCH_HISTORY_LIMIT = 50;
 const RECOMMENDED_FRIENDS_KEY = 'network:recommended_friends';
 const PROFILE_SETTINGS_PREFIX = 'profile_settings:';
-const MAX_PROFILE_PHOTO_LENGTH = 120000;
+const MAX_PROFILE_PHOTO_LENGTH = 220000;
 const NETWORK_FOLLOWS_PREFIX = 'network_follows:';
 const POINTS_HISTORY_PREFIX = 'points_history:';
 const CHAT_THREADS_PREFIX = 'chat_thread:';
@@ -1873,7 +1873,7 @@ app.put("/make-server-7a79873f/profile/settings", async (c) => {
     if (settings.photo && settings.photo.length > MAX_PROFILE_PHOTO_LENGTH) {
       return c.json({
         success: false,
-        error: 'Profile photo is too large. Choose a smaller image or try again.',
+        error: 'Profile photo could not be optimized. Choose another image or try again.',
       }, 413);
     }
 

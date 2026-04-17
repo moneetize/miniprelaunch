@@ -11,5 +11,6 @@ frontend-moneetizeprelaunch/dist/
 __pycache__/
 *.pyc
 frontend-moneetizeprelaunch/supabase/.temp/
+supabase/.temp/
 .env
 .env.local

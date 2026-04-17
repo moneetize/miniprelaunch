@@ -1,35 +1,38 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, type ChangeEvent } from 'react';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { Edit2 } from 'lucide-react';
 import SembolVariants from '../../imports/SembolVariants';
 import { safeGetItem } from '../utils/storage';
+import { saveProfilePhoto } from '../utils/profileSettings';
+import { resizeProfilePhoto } from '../utils/profilePhoto';
 
 export function PersonalizePhoto() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [photoMessage, setPhotoMessage] = useState('');
   const userName = safeGetItem('userName') || 'there';
 
   const handlePhotoClick = () => {
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result as string;
-        setProfilePhoto(result);
-        // Store in sessionStorage instead of localStorage to avoid quota issues
-        try {
-          sessionStorage.setItem('userPhoto', result);
-        } catch (error) {
-          console.warn('Failed to store photo in sessionStorage:', error);
-        }
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    setPhotoMessage('Preparing your photo...');
+
+    try {
+      const photo = await resizeProfilePhoto(file);
+      setProfilePhoto(photo);
+      saveProfilePhoto(photo);
+      setPhotoMessage('');
+    } catch (error) {
+      setPhotoMessage(error instanceof Error ? error.message : 'Unable to process this photo.');
+    } finally {
+      e.target.value = '';
     }
   };
 
@@ -163,6 +166,9 @@ export function PersonalizePhoto() {
             >
               Choose a profile picture
             </motion.p>
+            {photoMessage && (
+              <p className="mt-4 text-center text-sm font-semibold text-white/70">{photoMessage}</p>
+            )}
           </div>
 
           {/* Buttons */}
