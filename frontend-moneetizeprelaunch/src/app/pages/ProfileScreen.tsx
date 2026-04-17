@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronLeft, ChevronUp, History, MessageCircle, MoreHorizontal, Share2, Settings, UserPlus, Plus, Trash2, Link as LinkIcon, Copy, Check, ChevronRight, User, Mail, Calendar, Heart, Target, Award, TrendingUp, Users, LogOut, X, Shield } from 'lucide-react';
+import { ChevronLeft, ChevronUp, History, MessageCircle, MoreHorizontal, Share2, Settings, UserPlus, Plus, Trash2, Link as LinkIcon, Copy, Check, ChevronRight, User, Mail, Calendar, Heart, Target, Award, TrendingUp, Users, LogOut, X, Shield, ShoppingBag } from 'lucide-react';
 import gemIcon from 'figma:asset/296d8aa06fd9c7e60192bc7368a4a032ec5bc17e.png';
 import wildcardIcon from 'figma:asset/f632203f248e2d298246c5ffb0789bc0cac99ea5.png';
 import tshirtRewardIcon from '../../assets/moneetize-tshirt-reward.png';
@@ -544,6 +544,7 @@ export function ProfileScreen() {
     { label: 'Rewards', icon: <Award className="h-3 w-3" /> },
     { label: 'Network', icon: <Users className="h-3 w-3" /> },
     { label: 'Winnings', icon: <History className="h-3 w-3" /> },
+    { label: 'Marketplace', icon: <ShoppingBag className="h-3 w-3" />, path: '/marketplace' },
   ];
 
   const fallbackNetworkProfiles: NetworkProfile[] = [
@@ -914,13 +915,13 @@ export function ProfileScreen() {
               <button
                 key={action.label}
                 type="button"
+                onClick={() => action.path && navigate(action.path)}
                 className="flex h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white/75"
                 aria-label={action.label}
               >
                 {action.icon}
               </button>
             ))}
-            <span className="pl-1 text-xs font-black text-white/80">+8</span>
           </div>
 
           <div className="relative flex items-center justify-center gap-2">
