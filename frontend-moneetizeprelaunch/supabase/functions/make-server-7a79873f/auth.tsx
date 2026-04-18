@@ -10,6 +10,35 @@ const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
 // Regular client for auth operations
 const getSupabaseClient = () => createClient(supabaseUrl, supabaseAnonKey);
 
+const mapAuthUser = (user: any) => ({
+  id: user.id,
+  email: user.email,
+  created_at: user.created_at,
+  name: user.user_metadata?.name,
+  user_metadata: user.user_metadata || {},
+  app_metadata: user.app_metadata || {},
+});
+
+const listEveryAuthUser = async () => {
+  const perPage = 1000;
+  const users: any[] = [];
+
+  for (let page = 1; page <= 50; page += 1) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage });
+
+    if (error) {
+      return { users, error };
+    }
+
+    const pageUsers = data?.users || [];
+    users.push(...pageUsers);
+
+    if (pageUsers.length < perPage) break;
+  }
+
+  return { users, error: null };
+};
+
 interface SignupRequest {
   email: string;
   password: string;
@@ -452,7 +481,7 @@ export async function listAllUsers() {
   try {
     console.log('Fetching all users from Supabase Auth...');
     
-    const { data, error } = await supabaseAdmin.auth.admin.listUsers();
+    const { users, error } = await listEveryAuthUser();
 
     if (error) {
       console.error('List users error:', error);
@@ -463,19 +492,12 @@ export async function listAllUsers() {
       };
     }
 
-    console.log(`Found ${data.users.length} users`);
+    console.log(`Found ${users.length} users`);
     return {
       success: true,
       data: {
-        users: data.users.map(user => ({
-          id: user.id,
-          email: user.email,
-          created_at: user.created_at,
-          name: user.user_metadata?.name,
-          user_metadata: user.user_metadata || {},
-          app_metadata: user.app_metadata || {}
-        })),
-        total: data.users.length
+        users: users.map(mapAuthUser),
+        total: users.length
       },
       status: 200
     };

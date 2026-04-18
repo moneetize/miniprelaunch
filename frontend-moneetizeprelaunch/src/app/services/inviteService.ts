@@ -97,6 +97,10 @@ function authHeaders() {
   };
 }
 
+function getAccessToken() {
+  return safeGetItem('access_token');
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text();
   return text ? (JSON.parse(text) as T) : ({} as T);
