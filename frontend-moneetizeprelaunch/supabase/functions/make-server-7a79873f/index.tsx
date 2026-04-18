@@ -1431,7 +1431,7 @@ const dispatchEmailNotification = async (email: {
 
   if (!resendApiKey) {
     await queueEmailNotification({ ...email, status: 'queued', reason: 'RESEND_API_KEY is not configured' });
-    return { status: 'queued' as const };
+    return { status: 'queued' as const, error: 'RESEND_API_KEY is not configured' };
   }
 
   try {
@@ -1795,6 +1795,142 @@ const getUnlimitedUrlInviteAdmin = async (inviterId: string) => {
   return {
     isAdmin,
     email,
+  };
+};
+
+const getAcceptedInviteIdentitySet = (history: any[]) => {
+  const identities = new Set<string>();
+
+  history.forEach((invite) => {
+    if (invite?.status !== 'accepted') return;
+
+    [
+      invite?.inviteeId,
+      normalizeEmail(invite?.inviteeEmail),
+      normalizeEmail(invite?.email),
+      normalizeEmail(invite?.contact),
+      `${invite?.visitorId || ''}`.trim(),
+    ].forEach((identity) => {
+      const key = `${identity || ''}`.trim().toLowerCase();
+      if (key) identities.add(key);
+    });
+  });
+
+  return identities;
+};
+
+const getInviteContactEmail = (invite: any) => {
+  const candidates = [
+    invite?.inviteeEmail,
+    invite?.email,
+    invite?.contact,
+  ];
+
+  for (const candidate of candidates) {
+    const email = normalizeEmail(candidate);
+    if (email && isValidEmail(email)) return email;
+  }
+
+  return '';
+};
+
+const reconcileInviteHistoryWithUsers = async ({
+  inviterId,
+  inviterEmail,
+  inviterName,
+  history,
+  users,
+}: {
+  inviterId: string;
+  inviterEmail?: string;
+  inviterName?: string;
+  history: any[];
+  users: any[];
+}) => {
+  const usersByEmail = new Map(users.map((user: any) => [normalizeEmail(user?.email), user]));
+  const acceptedIdentities = getAcceptedInviteIdentitySet(history);
+  const inviteAdmin = await getUnlimitedUrlInviteAdmin(inviterId);
+  const acceptedCount = getUniqueAcceptedInvitees(history).size;
+  let remainingSlots = inviteAdmin.isAdmin
+    ? Number.POSITIVE_INFINITY
+    : Math.max(0, MAX_RELEASE_TEAM_INVITES - acceptedCount);
+  const reconciledAt = new Date().toISOString();
+  const newlyAccepted: any[] = [];
+  const nextHistory: any[] = [];
+
+  for (const invite of history) {
+    let nextInvite = invite;
+
+    if (remainingSlots > 0 && invite?.status !== 'accepted') {
+      const inviteEmail = getInviteContactEmail(invite);
+      const matchedUser = inviteEmail ? usersByEmail.get(inviteEmail) : null;
+
+      if (matchedUser?.id && matchedUser.id !== inviterId) {
+        const identityKeys = [
+          matchedUser.id,
+          normalizeEmail(matchedUser.email),
+          inviteEmail,
+        ].filter(Boolean).map((identity) => `${identity}`.toLowerCase());
+        const alreadyAccepted = identityKeys.some((identity) => acceptedIdentities.has(identity));
+
+        if (!alreadyAccepted) {
+          const scratchUnlock = await addScratchCreditForAcceptedInvite(inviterId);
+          const inviteAcceptedAward = await addPointsToUser({
+            userId: inviterId,
+            amount: INVITE_POINTS_PER_RECIPIENT,
+            source: 'invite-accepted',
+            metadata: {
+              inviteType: invite?.type || 'email',
+              inviteeId: matchedUser.id,
+              inviteeEmail: normalizeEmail(matchedUser.email) || inviteEmail,
+              reconciled: true,
+              scratchUnlocked: Boolean(scratchUnlock?.unlocked),
+            },
+          });
+
+          nextInvite = {
+            ...invite,
+            inviterId,
+            inviterEmail: inviterEmail || invite?.inviterEmail,
+            inviterName: inviterName || invite?.inviterName,
+            inviteeId: matchedUser.id,
+            inviteeEmail: normalizeEmail(matchedUser.email) || inviteEmail,
+            contact: invite?.contact || inviteEmail,
+            status: 'accepted',
+            deliveryStatus: invite?.deliveryStatus === 'failed' ? 'fallback-accepted' : (invite?.deliveryStatus || 'sent'),
+            points: INVITE_POINTS_PER_RECIPIENT,
+            scratchUnlocked: Boolean(scratchUnlock?.unlocked),
+            acceptedBy: 'email-match',
+            acceptedAwardTransactionId: inviteAcceptedAward.transaction?.id,
+            updatedAt: reconciledAt,
+          };
+
+          await kv.set(`${INVITEE_ACTIVATION_REFERRER_PREFIX}${matchedUser.id}`, {
+            inviterId,
+            inviteeId: matchedUser.id,
+            promptId: invite?.promptId || 'mini_scratch_v1',
+            inviteUrl: invite?.inviteUrl,
+            createdAt: invite?.sentAt || reconciledAt,
+            reconciledAt,
+          });
+
+          identityKeys.forEach((identity) => acceptedIdentities.add(identity));
+          newlyAccepted.push(nextInvite);
+          remainingSlots -= 1;
+        }
+      }
+    }
+
+    nextHistory.push(nextInvite);
+  }
+
+  if (newlyAccepted.length) {
+    await awardTeamMilestonePoints(inviterId, getUniqueAcceptedInvitees(nextHistory).size);
+  }
+
+  return {
+    history: nextHistory,
+    newlyAccepted,
   };
 };
 
@@ -3542,9 +3678,22 @@ app.get("/make-server-7a79873f/invites/team", async (c) => {
     if ('response' in currentUser) return currentUser.response;
 
     const inviteHistoryKey = `${INVITE_HISTORY_PREFIX}${currentUser.user.id}`;
-    const history = parseStoredJsonArray(await kv.get(inviteHistoryKey));
+    let history = parseStoredJsonArray(await kv.get(inviteHistoryKey));
     const usersResult = await auth.listAllUsers();
     const users = usersResult.success && usersResult.data?.users ? usersResult.data.users : [];
+    const reconciledHistory = await reconcileInviteHistoryWithUsers({
+      inviterId: currentUser.user.id,
+      inviterEmail: currentUser.user.email,
+      inviterName: getUserDisplayName(currentUser.user),
+      history,
+      users,
+    });
+
+    if (reconciledHistory.newlyAccepted.length) {
+      history = reconciledHistory.history;
+      await kv.set(inviteHistoryKey, JSON.stringify(history));
+    }
+
     const usersById = new Map(users.map((user: any) => [user.id, user]));
     const usersByEmail = new Map(users.map((user: any) => [`${user.email || ''}`.toLowerCase(), user]));
     const formatInviteName = (value: string) => (
@@ -3623,6 +3772,73 @@ app.get("/make-server-7a79873f/invites/team", async (c) => {
   }
 });
 
+app.post("/make-server-7a79873f/invites/accept-existing", async (c) => {
+  try {
+    const currentUser = await verifyCurrentUser(c);
+    if ('response' in currentUser) return currentUser.response;
+
+    const body = await c.req.json().catch(() => ({}));
+    const inviteeEmail = normalizeEmail(body?.email || body?.inviteeEmail);
+
+    if (!inviteeEmail || !isValidEmail(inviteeEmail)) {
+      return c.json({ success: false, error: 'A valid invitee email is required' }, 400);
+    }
+
+    const inviteHistoryKey = `${INVITE_HISTORY_PREFIX}${currentUser.user.id}`;
+    let history = parseStoredJsonArray(await kv.get(inviteHistoryKey));
+    const hasMatchingInvite = history.some((invite: any) => getInviteContactEmail(invite) === inviteeEmail);
+
+    if (!hasMatchingInvite) {
+      return c.json({
+        success: false,
+        error: 'This email is not in your invite history yet. Send the invite first, then refresh your team.',
+      }, 404);
+    }
+
+    const usersResult = await auth.listAllUsers();
+    const users = usersResult.success && usersResult.data?.users ? usersResult.data.users : [];
+    const invitee = users.find((user: any) => normalizeEmail(user?.email) === inviteeEmail);
+
+    if (!invitee?.id) {
+      return c.json({
+        success: false,
+        error: 'That invite has not created an account yet.',
+      }, 404);
+    }
+
+    const reconciledHistory = await reconcileInviteHistoryWithUsers({
+      inviterId: currentUser.user.id,
+      inviterEmail: currentUser.user.email,
+      inviterName: getUserDisplayName(currentUser.user),
+      history,
+      users,
+    });
+
+    if (reconciledHistory.newlyAccepted.length) {
+      history = reconciledHistory.history;
+      await kv.set(inviteHistoryKey, JSON.stringify(history));
+    }
+
+    const acceptedInvite = history.find((invite: any) => (
+      invite?.status === 'accepted' &&
+      (invite?.inviteeId === invitee.id || normalizeEmail(invite?.inviteeEmail || invite?.email || invite?.contact) === inviteeEmail)
+    ));
+
+    return c.json({
+      success: true,
+      data: {
+        accepted: Boolean(acceptedInvite),
+        inviteeId: invitee.id,
+        inviteeEmail,
+        newlyAccepted: reconciledHistory.newlyAccepted.length,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Accept existing invite endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to reconcile invite acceptance' }, 500);
+  }
+});
+
 app.post("/make-server-7a79873f/invites/send", async (c) => {
   try {
     const currentUser = await verifyCurrentUser(c);
@@ -3657,7 +3873,11 @@ app.post("/make-server-7a79873f/invites/send", async (c) => {
 
     const inviteUrl = `${body?.inviteLink || body?.inviteUrl || ''}`.trim();
     const rawInviteMessage = `${body?.message || `Hey! I invited you to Moneetize. Start here and scratch to win rewards: ${inviteUrl}`}`.trim();
-    const inviteMessage = `${rawInviteMessage}${/stop to opt out/i.test(rawInviteMessage) ? '' : ' Reply STOP to opt out.'}`.slice(0, 1500);
+    const emailInviteMessage = rawInviteMessage
+      .replace(/\s*Reply\s+STOP\s+to\s+opt\s+out\.?/gi, '')
+      .trim()
+      .slice(0, 1400);
+    const smsInviteMessage = `${emailInviteMessage}${/stop to opt out/i.test(emailInviteMessage) ? '' : ' Reply STOP to opt out.'}`.slice(0, 1500);
     const inviterName = getUserDisplayName(currentUser.user);
     const sentAt = new Date().toISOString();
     const inviteHistoryKey = `${INVITE_HISTORY_PREFIX}${currentUser.user.id}`;
@@ -3667,11 +3887,11 @@ app.post("/make-server-7a79873f/invites/send", async (c) => {
     const emailDeliveries = await Promise.all(emails.map(async (email) => {
       const delivery = await dispatchEmailNotification({
         to: email,
-        subject: `${inviterName} invited you to Moneetize`,
-        text: inviteMessage,
+        subject: `${inviterName} sent you a Moneetize Pre-game invite`,
+        text: emailInviteMessage,
         html: `
-          <p>${escapeHtml(inviterName)} invited you to Moneetize.</p>
-          <p>${escapeHtml(inviteMessage)}</p>
+          <p>${escapeHtml(inviterName)} invited you to Moneetize Pre-game.</p>
+          <p>${escapeHtml(emailInviteMessage)}</p>
           ${inviteUrl ? `<p><a href="${escapeHtml(inviteUrl)}">Start your scratch and win</a></p>` : ''}
         `,
       });
@@ -3686,7 +3906,7 @@ app.post("/make-server-7a79873f/invites/send", async (c) => {
     const smsDeliveries = await Promise.all(phones.map(async (phone) => {
       const delivery = await dispatchSmsNotification({
         to: phone,
-        message: inviteMessage,
+        message: smsInviteMessage,
       });
 
       return {

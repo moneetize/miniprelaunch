@@ -70,6 +70,26 @@ export function ShareInvites() {
   const getInviteMessage = () =>
     `Hey! I invited you to Moneetize. Start here and scratch to win rewards: ${inviteLink} Reply STOP to opt out.`;
 
+  const getEmailInviteMessage = () =>
+    `Hey! I invited you to Moneetize Pre-game. Start here and scratch to win rewards: ${inviteLink}`;
+
+  const openEmailFallback = (recipients: string[]) => {
+    const cleanRecipients = [...new Set(recipients.map((recipient) => recipient.trim()).filter(Boolean))];
+    if (!cleanRecipients.length) return;
+
+    const params = new URLSearchParams({
+      subject: 'Your Moneetize Pre-game invite',
+      body: getEmailInviteMessage(),
+    });
+
+    const to = cleanRecipients.length === 1 ? encodeURIComponent(cleanRecipients[0]) : '';
+    if (cleanRecipients.length > 1) {
+      params.set('bcc', cleanRecipients.join(','));
+    }
+
+    window.location.href = `mailto:${to}?${params.toString()}`;
+  };
+
   const handleEmailChange = (index: number, value: string) => {
     setEmails((current) => current.map((email, emailIndex) => (emailIndex === index ? value : email)));
     setError(null);
@@ -222,26 +242,30 @@ export function ShareInvites() {
       const result = await sendInvitesFromServer({
         emails: validEmails,
         inviteLink,
-        message: getInviteMessage(),
+        message: getEmailInviteMessage(),
       });
       const queuedCount = result.emailDeliveries?.filter((delivery) => delivery.status === 'queued').length || 0;
       const failedDeliveries = result.emailDeliveries?.filter((delivery) => delivery.status === 'failed') || [];
-      const sentCount = Math.max(0, validEmails.length - failedDeliveries.length);
-      const firstFailure = failedDeliveries[0]?.error;
+      const fallbackDeliveries = result.emailDeliveries?.filter((delivery) => delivery.status === 'queued' || delivery.status === 'failed') || [];
+      const fallbackRecipients = fallbackDeliveries.map((delivery) => delivery.to).filter(Boolean);
+      const sentCount = result.emailDeliveries?.filter((delivery) => delivery.status === 'sent').length ?? Math.max(0, validEmails.length - failedDeliveries.length - queuedCount);
+      const firstFallbackReason = fallbackDeliveries.find((delivery) => delivery.error)?.error;
 
       setSentEmails(validEmails);
       setSentPhones([]);
-      if (failedDeliveries.length === validEmails.length) {
-        setError(firstFailure ? `Email delivery failed: ${firstFailure}` : 'Email delivery failed. Check email provider setup and try again.');
+      if (fallbackRecipients.length) {
+        openEmailFallback(fallbackRecipients);
+        setError(
+          firstFallbackReason
+            ? `Resend did not confirm every invite: ${firstFallbackReason}. Opening your email app as fallback.`
+            : 'Resend did not confirm every invite. Opening your email app as fallback.',
+        );
+        if (sentCount > 0) {
+          setSuccessMessage(`${sentCount} email invite${sentCount === 1 ? '' : 's'} sent through Resend.`);
+        }
       } else {
         const rewardNote = `You earn ${INVITE_POINTS_PER_RECIPIENT} pts when each friend signs up.`;
-        setSuccessMessage(
-          failedDeliveries.length
-            ? `${sentCount} email invite${sentCount === 1 ? '' : 's'} sent, ${failedDeliveries.length} failed. ${rewardNote}`
-            : queuedCount
-              ? `${validEmails.length} email invite${validEmails.length > 1 ? 's' : ''} queued. ${rewardNote}`
-              : `${validEmails.length} email invite${validEmails.length > 1 ? 's' : ''} sent. ${rewardNote}`,
-        );
+        setSuccessMessage(`${validEmails.length} email invite${validEmails.length > 1 ? 's' : ''} sent. ${rewardNote}`);
         setEmails(['', '']);
       }
     } catch (err) {
@@ -564,7 +588,7 @@ export function ShareInvites() {
                     transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
                     className="h-[18px] w-[18px] rounded-full border-2 border-black/30 border-t-black"
                   />
-                  Opening Email
+                  Sending Email
                 </>
               ) : (
                 <>
