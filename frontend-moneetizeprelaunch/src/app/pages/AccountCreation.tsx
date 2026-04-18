@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router';
 import { AtSign, Eye, EyeOff, Lock } from 'lucide-react';
 import SembolVariants from '../../imports/SembolVariants';
 import { registerUser } from '../services/authService';
+import { trackStoredInviteAcceptance } from '../services/inviteService';
 import { startScratchTeaser } from '../utils/flowManager';
 import { resolveInvitationContext } from '../utils/invitationLinks';
 import { safeSetItem } from '../utils/storage';
@@ -54,6 +55,9 @@ export function AccountCreation() {
       safeSetItem('userName', derivedName);
       safeSetItem('user_email', formData.email.trim());
       safeSetItem('moneetizeRememberSignup', rememberMe ? 'true' : 'false');
+      await trackStoredInviteAcceptance(typeof window !== 'undefined' ? window.location.href : undefined).catch((trackingError) => {
+        console.warn('Invite acceptance tracking skipped after signup:', trackingError);
+      });
       startScratchTeaser('register');
       navigate('/scratch-and-win');
     } catch (err) {

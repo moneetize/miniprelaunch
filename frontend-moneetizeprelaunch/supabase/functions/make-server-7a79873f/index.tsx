@@ -1427,7 +1427,7 @@ const dispatchEmailNotification = async (email: {
   text: string;
 }) => {
   const resendApiKey = Deno.env.get('RESEND_API_KEY');
-  const fromEmail = Deno.env.get('MONEETIZE_EMAIL_FROM') || 'Moneetize <onboarding@resend.dev>';
+  const fromEmail = Deno.env.get('MONEETIZE_EMAIL_FROM') || 'Moneetize <invites@send.moneetize.com>';
 
   if (!resendApiKey) {
     await queueEmailNotification({ ...email, status: 'queued', reason: 'RESEND_API_KEY is not configured' });

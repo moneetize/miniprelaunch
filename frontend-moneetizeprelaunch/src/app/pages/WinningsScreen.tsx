@@ -42,6 +42,8 @@ type WinningsHistoryEntry =
   | { kind: 'scratch'; id: string; createdAt: string; draw: ScratchDrawResult }
   | { kind: 'redemption'; id: string; createdAt: string; title: string; description: string; points: number };
 
+const TRIPTO_USD_RATE = 0.01;
+
 function getStoredScratchHistory(): ScratchDrawResult[] {
   try {
     const history = safeGetItem('scratchHistory');
@@ -733,7 +735,7 @@ function WinningsScreen() {
                 <p className="text-[33px] font-black leading-none text-white">{formatTokenAmount(triptoBalance)}</p>
                 <span className="pb-1 text-[10px] font-black text-white/44">(Locked)</span>
               </div>
-              <p className="mt-3 text-[12px] font-bold text-white/38">= ${formatMoney(triptoBalance * 13.9552)}</p>
+              <p className="mt-3 text-[12px] font-bold text-white/38">= ${formatMoney(triptoBalance * TRIPTO_USD_RATE)}</p>
             </div>
           </section>
 

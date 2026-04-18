@@ -1,6 +1,7 @@
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { recordSentInvites, type InviteRecord } from '../utils/inviteSync';
 import { setUserPoints } from '../utils/pointsManager';
+import { resolveInvitationContext } from '../utils/invitationLinks';
 import { safeGetItem, safeSetItem } from '../utils/storage';
 
 const INVITES_API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-7a79873f/invites`;
@@ -199,4 +200,23 @@ export async function trackUrlInviteOpen({
   }
 
   return result.data;
+}
+
+export async function trackStoredInviteAcceptance(inviteUrl?: string) {
+  const accessToken = safeGetItem('access_token');
+  const currentUserId = safeGetItem('user_id') || '';
+
+  if (!accessToken || !currentUserId) return null;
+
+  const invitationContext = resolveInvitationContext();
+  const inviterId = invitationContext.inviterId || '';
+
+  if (!inviterId || inviterId === currentUserId) return null;
+
+  return trackUrlInviteOpen({
+    inviterId,
+    inviterName: invitationContext.inviterName,
+    promptId: invitationContext.promptId,
+    inviteUrl,
+  });
 }

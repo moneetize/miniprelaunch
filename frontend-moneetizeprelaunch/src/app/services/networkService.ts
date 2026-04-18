@@ -158,6 +158,7 @@ function normalizeNetworkProfile(profile: Partial<RecommendedFriendProfile> & { 
     followers: Number.isFinite(Number(profile.followers)) ? Number(profile.followers) : 0,
     following: Number.isFinite(Number(profile.following)) ? Number(profile.following) : 0,
     points: Number.isFinite(Number(profile.points)) ? Number(profile.points) : Math.max(0, 10 + (index * 5)),
+    followsMe: profile.followsMe === true,
   };
 }
 

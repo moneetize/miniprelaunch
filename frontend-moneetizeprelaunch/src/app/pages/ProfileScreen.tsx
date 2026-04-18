@@ -15,6 +15,7 @@ import { resizeProfilePhoto } from '../utils/profilePhoto';
 import { hydrateRemoteProfileSettings, saveRemoteProfileSettings } from '../services/profilePersistenceService';
 import { loadChatPreviews } from '../services/chatService';
 import { loadProfileNotifications, type NetworkNotification } from '../services/notificationService';
+import { trackStoredInviteAcceptance } from '../services/inviteService';
 
 interface TeamMember {
   id: string;
@@ -59,17 +60,6 @@ type HistoryRewardIcon = {
 const NETWORK_FOLLOW_STATES_KEY = 'networkFollowStates';
 const NETWORK_FOLLOW_AWARDS_KEY = 'networkFollowPointAwards';
 const NETWORK_VISIBLE_LIMIT = 5;
-
-const defaultNetworkFollowStates: Record<string, boolean> = {
-  'john-black': true,
-  'jim-kerry': false,
-  'maria-chen': false,
-  'taylor-owens': false,
-  'nina-patel': false,
-  'omar-brooks': false,
-  'lena-watts': false,
-  'diego-rivera': false,
-};
 
 function getStoredNetworkFollowStates() {
   try {
@@ -235,10 +225,28 @@ export function ProfileScreen() {
   const [profileNotifications, setProfileNotifications] = useState<NetworkNotification[]>([]);
   const [activeProfileNotificationIndex, setActiveProfileNotificationIndex] = useState(0);
   const [recommendedFriends, setRecommendedFriends] = useState<RecommendedFriendProfile[]>([]);
-  const [networkFollowStates, setNetworkFollowStates] = useState<Record<string, boolean>>(() => ({
-    ...defaultNetworkFollowStates,
-    ...getStoredNetworkFollowStates(),
-  }));
+  const [networkFollowStates, setNetworkFollowStates] = useState<Record<string, boolean>>(() => getStoredNetworkFollowStates());
+
+  const redirectIfAuthExpired = (error: unknown) => {
+    const message = error instanceof Error ? error.message.toLowerCase() : `${error || ''}`.toLowerCase();
+    const shouldRedirect =
+      message.includes('log in again') ||
+      message.includes('unauthorized') ||
+      message.includes('invalid or expired');
+
+    if (!shouldRedirect) return false;
+
+    logoutUser();
+    navigate('/login', { replace: true });
+    return true;
+  };
+
+  useEffect(() => {
+    if (safeGetItem('access_token')) return;
+
+    logoutUser();
+    navigate('/login', { replace: true });
+  }, [navigate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -258,7 +266,9 @@ export function ProfileScreen() {
           }
         })
         .catch((error) => {
-          console.warn('Scratch credit refresh skipped:', error);
+          if (!redirectIfAuthExpired(error)) {
+            console.warn('Scratch credit refresh skipped:', error);
+          }
         });
     };
 
@@ -274,10 +284,16 @@ export function ProfileScreen() {
     let cancelled = false;
 
     // Check if user is admin
+    if (!safeGetItem('access_token')) return;
+
     setIsAdmin(isUserAdmin());
+    void trackStoredInviteAcceptance(typeof window !== 'undefined' ? window.location.href : undefined).catch((error) => {
+      console.warn('Invite acceptance reconciliation skipped:', error);
+    });
+
     const applyProfileSettings = () => {
       const profileSettings = getStoredProfileSettings({
-        fallbackName: 'Jess Wu',
+        fallbackName: safeGetItem('user_email')?.split('@')[0] || 'Moneetize User',
       });
 
       setUserName(profileSettings.name);
@@ -319,7 +335,9 @@ export function ProfileScreen() {
         );
       })
       .catch((error) => {
-        console.warn('Remote profile settings sync skipped:', error);
+        if (!redirectIfAuthExpired(error)) {
+          console.warn('Remote profile settings sync skipped:', error);
+        }
       });
 
     void loadScratchProfile()
@@ -343,7 +361,9 @@ export function ProfileScreen() {
         }
       })
       .catch((error) => {
-        console.warn('Scratch profile sync skipped:', error);
+        if (!redirectIfAuthExpired(error)) {
+          console.warn('Scratch profile sync skipped:', error);
+        }
       });
 
     void loadRecommendedFriends()
@@ -360,7 +380,6 @@ export function ProfileScreen() {
       .then((snapshot) => {
         if (!cancelled) {
           const nextStates = {
-            ...defaultNetworkFollowStates,
             ...getStoredNetworkFollowStates(),
             ...snapshot.states,
           };
@@ -427,7 +446,9 @@ export function ProfileScreen() {
     const syncPointBalance = () => {
       const latestPoints = getUserPoints();
       setUserPoints(latestPoints);
-      setNetworkPoints(getLocalNetworkFollowPoints());
+      if (!safeGetItem('access_token')) {
+        setNetworkPoints(getLocalNetworkFollowPoints());
+      }
       syncCurrentUserNetworkProfile();
       setTeamMembers((members) =>
         members.map((member) =>
@@ -461,10 +482,7 @@ export function ProfileScreen() {
         setScratchHistory(latestHistory);
         setScratchCredits(getStoredScratchCredits());
         setBalance(Math.max(getStoredUsdtBalance(), getScratchHistoryUsdtTotal(latestHistory)));
-        setNetworkFollowStates({
-          ...defaultNetworkFollowStates,
-          ...getStoredNetworkFollowStates(),
-        });
+        setNetworkFollowStates(getStoredNetworkFollowStates());
       }
     };
     const syncNetworkProfiles = () => {
@@ -671,7 +689,7 @@ export function ProfileScreen() {
   const totalUsdtWon = Math.max(balance, getScratchHistoryUsdtTotal(scratchHistory));
   const displayBalance = formatUsdtBalance(totalUsdtWon);
   const availableScratchCredits = scratchCredits?.available || 0;
-  const hasScratchOpportunity = availableScratchCredits > 0;
+  const hasScratchOpportunity = availableScratchCredits > 0 && (scratchCredits?.totalEarned || 0) > 1;
   const userInitials = userName
     .split(/\s+/)
     .filter(Boolean)
@@ -693,7 +711,7 @@ export function ProfileScreen() {
       name: 'John Black',
       initialRank: 2,
       initiallyFollowing: true,
-      followsMe: true,
+      followsMe: false,
       avatar: 'https://images.unsplash.com/photo-1651684215020-f7a5b6610f23?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMG1hbGUlMjBidXNpbmVzc3xlbnwxfHx8fDE3NzQxMjU0OTl8MA&ixlib=rb-4.1.0&q=80&w=1080',
     },
     {
@@ -701,7 +719,7 @@ export function ProfileScreen() {
       name: 'Jim Kerry',
       initialRank: 3,
       initiallyFollowing: false,
-      followsMe: true,
+      followsMe: false,
       avatar: 'https://images.unsplash.com/photo-1769636929132-e4e7b50cfac0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMGZlbWFsZSUyMGJ1c2luZXNzfGVufDF8fHx8MTc3NDEyNTQ5OXww&ixlib=rb-4.1.0&q=80&w=1080',
     },
     {
@@ -717,7 +735,7 @@ export function ProfileScreen() {
       name: 'Taylor Owens',
       initialRank: 5,
       initiallyFollowing: false,
-      followsMe: true,
+      followsMe: false,
       avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=240&q=80',
     },
     {
@@ -749,7 +767,7 @@ export function ProfileScreen() {
       name: 'Diego Rivera',
       initialRank: 9,
       initiallyFollowing: false,
-      followsMe: true,
+      followsMe: false,
       avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=240&q=80',
     },
   ];
@@ -761,7 +779,7 @@ export function ProfileScreen() {
     handle: profile.handle,
     initialRank: fallbackNetworkProfiles.length + index + 2,
     initiallyFollowing: false,
-    followsMe: profile.followsMe ?? index % 2 === 0,
+    followsMe: profile.followsMe === true,
   }));
   const currentUserNetworkProfile: NetworkProfile = {
     id: 'current-user',

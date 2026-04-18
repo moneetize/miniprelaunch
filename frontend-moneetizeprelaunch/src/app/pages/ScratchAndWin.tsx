@@ -81,6 +81,19 @@ const normalizeRewardItemLabel = (item: ScratchRewardItem): ScratchRewardItem =>
   item.type === 'merch' ? { ...item, label: 'Moneetize Merch' } : item
 );
 
+const hasDisplayAvatar = (friend: RecommendedFriendProfile) => Boolean(friend.avatar?.trim());
+
+const getScratchAvatarFriends = (profiles: RecommendedFriendProfile[]) => {
+  const merged = new Map<string, RecommendedFriendProfile>();
+
+  [...profiles, ...getDefaultRecommendedFriends()].forEach((friend) => {
+    if (!hasDisplayAvatar(friend) || merged.has(friend.id)) return;
+    merged.set(friend.id, friend);
+  });
+
+  return [...merged.values()].slice(0, 5);
+};
+
 const formatGoldenRemaining = (remaining?: { hours?: number; minutes?: number; seconds?: number }) => {
   const hours = remaining?.hours ?? 0;
   const minutes = remaining?.minutes ?? 0;
@@ -627,7 +640,7 @@ export function ScratchAndWin() {
 
     void loadRecommendedFriends().then((profiles) => {
       if (!cancelled) {
-        setRecommendedFriends(profiles.slice(0, 5));
+        setRecommendedFriends(getScratchAvatarFriends(profiles));
       }
     });
 
@@ -1147,6 +1160,7 @@ export function ScratchAndWin() {
     { id: 'blue', label: 'Blue Ticket', sublabel: 'Common' },
     { id: 'golden', label: 'Golden Ticket', sublabel: 'Very rare' },
   ];
+  const scratchAvatarFriends = getScratchAvatarFriends(recommendedFriends);
   const renderScratchLogoLockup = (className = 'mb-6') => (
     <div className={`${className} flex items-center justify-center gap-2`}>
       <div className="h-[42px] w-[42px]">
@@ -1421,7 +1435,7 @@ export function ScratchAndWin() {
             <h2 className="text-[20px] font-black leading-tight text-white">Get more cash prizes!</h2>
             <p className="mt-1 text-[13px] font-bold text-white/54">Set up your team before the launch:</p>
             <div className="mt-5 flex items-center justify-center -space-x-3">
-              {recommendedFriends.slice(0, 4).map((friend, index) => (
+              {scratchAvatarFriends.slice(0, 4).map((friend, index) => (
                 <button
                   key={friend.id}
                   type="button"
@@ -1928,7 +1942,7 @@ export function ScratchAndWin() {
               </div>
 
               <div className="relative z-10 mt-7 flex items-center justify-center gap-2">
-                {recommendedFriends.slice(0, 2).map((friend) => (
+                {scratchAvatarFriends.slice(0, 2).map((friend) => (
                   <img key={friend.id} src={friend.avatar} alt="" className="h-12 w-12 rounded-full border border-white/20 object-cover" />
                 ))}
                 {Array.from({ length: Math.max(0, SCRATCH_TEAM_TARGET - teamNetworkMembers) }).map((_, index) => (
@@ -1986,7 +2000,7 @@ export function ScratchAndWin() {
                 </div>
 
                 <div className="-space-x-3 flex items-center">
-                  {recommendedFriends.slice(0, 4).map((friend, index) => (
+                  {scratchAvatarFriends.slice(0, 4).map((friend, index) => (
                     <img
                       key={friend.id}
                       src={friend.avatar}

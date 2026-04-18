@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router';
 import { Eye, EyeOff, AtSign, Lock } from 'lucide-react';
 import SembolVariants from '../../imports/SembolVariants';
 import { loginUser } from '../services/authService';
+import { trackStoredInviteAcceptance } from '../services/inviteService';
 import { completeScratchTeaserFlow, getPostAuthDestination } from '../utils/flowManager';
 
 export function LoginScreen() {
@@ -36,6 +37,10 @@ export function LoginScreen() {
       }
 
       console.log('✅ Login successful, navigating to post-auth destination');
+
+      await trackStoredInviteAcceptance(typeof window !== 'undefined' ? window.location.href : undefined).catch((trackingError) => {
+        console.warn('Invite acceptance tracking skipped after login:', trackingError);
+      });
 
       const destination = getPostAuthDestination();
 
