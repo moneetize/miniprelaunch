@@ -1819,19 +1819,109 @@ const getAcceptedInviteIdentitySet = (history: any[]) => {
   return identities;
 };
 
-const getInviteContactEmail = (invite: any) => {
+const extractEmailsFromInviteValue = (value: unknown) => {
+  const text = `${value || ''}`.toLowerCase();
+  const matches = text.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/g) || [];
+
+  return [...new Set(matches.map(normalizeEmail).filter((email) => email && isValidEmail(email)))];
+};
+
+const getInviteContactEmails = (invite: any) => {
   const candidates = [
     invite?.inviteeEmail,
     invite?.email,
     invite?.contact,
+    invite?.recipient,
+    invite?.to,
   ];
+  const emails = new Set<string>();
 
-  for (const candidate of candidates) {
-    const email = normalizeEmail(candidate);
-    if (email && isValidEmail(email)) return email;
-  }
+  candidates.forEach((candidate) => {
+    extractEmailsFromInviteValue(candidate).forEach((email) => emails.add(email));
+  });
 
-  return '';
+  return [...emails];
+};
+
+const getInviteContactEmail = (invite: any) => {
+  return getInviteContactEmails(invite)[0] || '';
+};
+
+const mergeAcceptedInviteRecords = (history: any[], acceptedRecords: any[]) => {
+  const acceptedIdentities = getAcceptedInviteIdentitySet(history);
+  const nextHistory = [...history];
+  const addedRecords: any[] = [];
+
+  acceptedRecords.forEach((record) => {
+    const identityKeys = [
+      record?.inviteeId,
+      normalizeEmail(record?.inviteeEmail),
+      normalizeEmail(record?.email),
+      normalizeEmail(record?.contact),
+      `${record?.visitorId || ''}`.trim(),
+    ].filter(Boolean).map((identity) => `${identity}`.trim().toLowerCase());
+
+    if (!identityKeys.length || identityKeys.some((identity) => acceptedIdentities.has(identity))) return;
+
+    identityKeys.forEach((identity) => acceptedIdentities.add(identity));
+    nextHistory.unshift(record);
+    addedRecords.push(record);
+  });
+
+  return {
+    history: nextHistory,
+    addedRecords,
+  };
+};
+
+const loadReferrerInviteRecordsForInviter = async ({
+  inviterId,
+  inviterEmail,
+  inviterName,
+  users,
+}: {
+  inviterId: string;
+  inviterEmail?: string;
+  inviterName?: string;
+  users: any[];
+}) => {
+  const referrerRecords = await kv.getByPrefix(INVITEE_ACTIVATION_REFERRER_PREFIX);
+  const usersById = new Map(users.map((user: any) => [user.id, user]));
+  const acceptedAt = new Date().toISOString();
+
+  return referrerRecords
+    .filter((referrer: any) => `${referrer?.inviterId || ''}`.trim() === inviterId)
+    .map((referrer: any) => {
+      const inviteeId = `${referrer?.inviteeId || ''}`.trim();
+      const user = inviteeId ? usersById.get(inviteeId) : null;
+      const inviteeEmail = normalizeEmail(user?.email || referrer?.inviteeEmail);
+
+      if (!inviteeId || inviteeId === inviterId) return null;
+
+      return {
+        id: `referrer-${inviteeId}`,
+        type: 'url',
+        eventKey: `referrer:${referrer?.promptId || 'mini_scratch_v1'}:${inviteeId}`,
+        contact: inviteeEmail || inviteeId,
+        inviteUrl: referrer?.inviteUrl || '',
+        inviterId,
+        inviterEmail,
+        inviterName,
+        inviteeId,
+        inviteeEmail,
+        visitorId: referrer?.visitorId,
+        promptId: referrer?.promptId || 'mini_scratch_v1',
+        status: 'accepted',
+        deliveryStatus: 'opened',
+        deliveryProvider: 'invite-url',
+        points: INVITE_POINTS_PER_RECIPIENT,
+        scratchUnlocked: true,
+        acceptedBy: 'referrer-index',
+        sentAt: referrer?.createdAt || acceptedAt,
+        updatedAt: referrer?.reconciledAt || referrer?.createdAt || acceptedAt,
+      };
+    })
+    .filter(Boolean);
 };
 
 const reconcileInviteHistoryWithUsers = async ({
@@ -1862,8 +1952,12 @@ const reconcileInviteHistoryWithUsers = async ({
     let nextInvite = invite;
 
     if (remainingSlots > 0 && invite?.status !== 'accepted') {
-      const inviteEmail = getInviteContactEmail(invite);
-      const matchedUser = inviteEmail ? usersByEmail.get(inviteEmail) : null;
+      const inviteEmails = getInviteContactEmails(invite);
+      const matchedEntry = inviteEmails
+        .map((email) => ({ email, user: usersByEmail.get(email) }))
+        .find((entry) => entry.user?.id);
+      const inviteEmail = matchedEntry?.email || '';
+      const matchedUser = matchedEntry?.user || null;
 
       if (matchedUser?.id && matchedUser.id !== inviterId) {
         const identityKeys = [
@@ -3694,6 +3788,19 @@ app.get("/make-server-7a79873f/invites/team", async (c) => {
       await kv.set(inviteHistoryKey, JSON.stringify(history));
     }
 
+    const referrerAcceptedRecords = await loadReferrerInviteRecordsForInviter({
+      inviterId: currentUser.user.id,
+      inviterEmail: currentUser.user.email,
+      inviterName: getUserDisplayName(currentUser.user),
+      users,
+    });
+    const referrerMerge = mergeAcceptedInviteRecords(history, referrerAcceptedRecords);
+
+    if (referrerMerge.addedRecords.length) {
+      history = referrerMerge.history;
+      await kv.set(inviteHistoryKey, JSON.stringify(history));
+    }
+
     const usersById = new Map(users.map((user: any) => [user.id, user]));
     const usersByEmail = new Map(users.map((user: any) => [`${user.email || ''}`.toLowerCase(), user]));
     const formatInviteName = (value: string) => (
@@ -3713,6 +3820,37 @@ app.get("/make-server-7a79873f/invites/team", async (c) => {
         return true;
       });
     };
+    const materializedAt = new Date().toISOString();
+    let materializedAcceptedMatches = 0;
+    history = history.map((invite: any) => {
+      if (invite?.status === 'accepted') return invite;
+
+      const matchedEntry = getInviteContactEmails(invite)
+        .map((email) => ({ email, user: usersByEmail.get(email) }))
+        .find((entry) => entry.user?.id && entry.user.id !== currentUser.user.id);
+
+      if (!matchedEntry?.user?.id) return invite;
+
+      materializedAcceptedMatches += 1;
+
+      return {
+        ...invite,
+        inviterId: currentUser.user.id,
+        inviterEmail: currentUser.user.email,
+        inviterName: getUserDisplayName(currentUser.user),
+        inviteeId: matchedEntry.user.id,
+        inviteeEmail: normalizeEmail(matchedEntry.user.email) || matchedEntry.email,
+        contact: invite?.contact || matchedEntry.email,
+        status: 'accepted',
+        deliveryStatus: invite?.deliveryStatus === 'failed' ? 'fallback-accepted' : (invite?.deliveryStatus || 'sent'),
+        acceptedBy: invite?.acceptedBy || 'team-load-email-match',
+        updatedAt: invite?.updatedAt || materializedAt,
+      };
+    });
+
+    if (materializedAcceptedMatches > 0) {
+      await kv.set(inviteHistoryKey, JSON.stringify(history));
+    }
 
     const acceptedRecords = uniqueRecords(history.filter((invite: any) => invite?.status === 'accepted'))
       .slice(0, MAX_RELEASE_TEAM_INVITES);
