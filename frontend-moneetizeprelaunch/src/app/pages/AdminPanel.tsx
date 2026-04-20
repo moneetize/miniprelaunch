@@ -90,6 +90,7 @@ const categories = [
 ];
 
 type AdminTab = 'products' | 'earlyAccess' | 'marketplace' | 'notifications' | 'activeMembers' | 'admins';
+type NotificationAudience = 'network' | 'selected';
 
 interface AdminUserRecord {
   id?: string;
@@ -233,6 +234,9 @@ export function AdminPanel() {
   const [notificationMessage, setNotificationMessage] = useState('');
   const [notificationImageUrl, setNotificationImageUrl] = useState('');
   const [notificationStatus, setNotificationStatus] = useState('');
+  const [notificationAudience, setNotificationAudience] = useState<NotificationAudience>('network');
+  const [selectedNotificationMemberIds, setSelectedNotificationMemberIds] = useState<string[]>([]);
+  const [notificationMemberSearch, setNotificationMemberSearch] = useState('');
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(false);
   const [isSendingNotification, setIsSendingNotification] = useState(false);
   
@@ -388,9 +392,20 @@ export function AdminPanel() {
       return;
     }
 
+    if (notificationAudience === 'selected' && selectedNotificationMembers.length === 0) {
+      setNotificationStatus('Select at least one active member before sending.');
+      return;
+    }
+
     try {
       setIsSendingNotification(true);
-      const result = await sendAdminNetworkNotification({ title, message, imageUrl });
+      const result = await sendAdminNetworkNotification({
+        title,
+        message,
+        imageUrl,
+        audience: notificationAudience,
+        recipientIds: notificationAudience === 'selected' ? selectedNotificationMemberIds : [],
+      });
       setNetworkNotifications(result.notifications);
       setNotificationTitle('');
       setNotificationMessage('');
@@ -400,7 +415,10 @@ export function AdminPanel() {
       const sent = Number(summary?.sent) || 0;
       const queued = Number(summary?.queued) || 0;
       const failed = Number(summary?.failed) || 0;
-      setNotificationStatus(`Notification posted. Email: ${sent} sent, ${queued} queued, ${failed} failed.`);
+      const target = notificationAudience === 'selected'
+        ? `${result.notification?.recipientCount || selectedNotificationMembers.length} selected member${(result.notification?.recipientCount || selectedNotificationMembers.length) === 1 ? '' : 's'}`
+        : 'the entire network';
+      setNotificationStatus(`Message sent to ${target}. Email: ${sent} sent, ${queued} queued, ${failed} failed.`);
     } catch (error) {
       console.error('Failed to send network notification:', error);
       setNotificationStatus(error instanceof Error ? error.message : 'Failed to send notification.');
@@ -570,6 +588,41 @@ export function AdminPanel() {
   const activeMemberTotal = activeMemberCount || activeMembers.length;
   const pendingEarlyAccessCount = earlyAccessRequests.filter((request) => request.status === 'pending').length;
   const featuredProductCount = products.filter((product) => product.recommended).length;
+  const selectedNotificationMemberIdSet = new Set(selectedNotificationMemberIds);
+  const selectedNotificationMembers = activeMembers.filter((member) => selectedNotificationMemberIdSet.has(member.id));
+  const notificationMemberSearchQuery = notificationMemberSearch.trim().toLowerCase();
+  const visibleNotificationMembers = activeMembers.filter((member) => {
+    if (!notificationMemberSearchQuery) return true;
+
+    return [
+      member.name,
+      member.email,
+      member.handle,
+      ...(member.interests || []),
+    ].some((value) => `${value || ''}`.toLowerCase().includes(notificationMemberSearchQuery));
+  });
+  const notificationRecipientCount = notificationAudience === 'network'
+    ? activeMemberTotal
+    : selectedNotificationMembers.length;
+  const notificationSendDisabled = (
+    isSendingNotification ||
+    (!notificationMessage.trim() && !notificationImageUrl.trim()) ||
+    (notificationAudience === 'selected' && selectedNotificationMembers.length === 0)
+  );
+
+  const toggleNotificationMember = (memberId: string) => {
+    setSelectedNotificationMemberIds((current) => (
+      current.includes(memberId)
+        ? current.filter((id) => id !== memberId)
+        : [...current, memberId]
+    ));
+    setNotificationStatus('');
+  };
+
+  const clearSelectedNotificationMembers = () => {
+    setSelectedNotificationMemberIds([]);
+    setNotificationStatus('');
+  };
 
   const dashboardStats = [
     {
@@ -1358,6 +1411,123 @@ export function AdminPanel() {
         </div>
 
         <div className="space-y-3">
+          <div className="rounded-lg border border-white/8 bg-black/18 p-3">
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.12em] text-white/35">Send To</p>
+                <p className="mt-1 text-sm font-black text-white">
+                  {notificationAudience === 'network' ? 'Entire Network' : `${selectedNotificationMembers.length} selected member${selectedNotificationMembers.length === 1 ? '' : 's'}`}
+                </p>
+              </div>
+              <span className="rounded-full border border-white/8 bg-white/[0.06] px-3 py-1.5 text-xs font-black text-white/48">
+                {notificationRecipientCount} recipient{notificationRecipientCount === 1 ? '' : 's'}
+              </span>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              {([
+                { id: 'network', label: 'Entire Network', detail: `${activeMemberTotal} active members` },
+                { id: 'selected', label: 'Selected Members', detail: 'Pick one or a few' },
+              ] as Array<{ id: NotificationAudience; label: string; detail: string }>).map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => {
+                    setNotificationAudience(option.id);
+                    setNotificationStatus('');
+                  }}
+                  className={`rounded-lg border px-3 py-3 text-left transition-colors ${
+                    notificationAudience === option.id
+                      ? 'border-[#8ff0a8]/35 bg-[#8ff0a8]/10 text-white'
+                      : 'border-white/8 bg-white/[0.04] text-white/58 hover:bg-white/[0.07] hover:text-white'
+                  }`}
+                >
+                  <span className="block text-sm font-black">{option.label}</span>
+                  <span className="mt-1 block text-xs font-semibold opacity-70">{option.detail}</span>
+                </button>
+              ))}
+            </div>
+
+            {notificationAudience === 'selected' && (
+              <div className="mt-3 space-y-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input
+                    type="search"
+                    value={notificationMemberSearch}
+                    onChange={(event) => setNotificationMemberSearch(event.target.value)}
+                    placeholder="Search active members"
+                    className="h-11 flex-1 rounded-full border border-white/8 bg-black/20 px-4 text-sm font-bold text-white outline-none placeholder:text-white/30 focus:border-[#8ff0a8]/50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void loadActiveMembers()}
+                    disabled={isLoadingActiveMembers}
+                    className="h-11 rounded-full border border-white/10 bg-white/[0.07] px-4 text-xs font-black text-white transition-colors hover:bg-white/12 disabled:opacity-50"
+                  >
+                    {isLoadingActiveMembers ? 'Refreshing...' : 'Refresh'}
+                  </button>
+                  {selectedNotificationMembers.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={clearSelectedNotificationMembers}
+                      className="h-11 rounded-full border border-white/10 bg-white/[0.07] px-4 text-xs font-black text-white/70 transition-colors hover:bg-white/12 hover:text-white"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                {visibleNotificationMembers.length > 0 ? (
+                  <div className="max-h-56 space-y-2 overflow-y-auto pr-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                    {visibleNotificationMembers.map((member) => {
+                      const isSelected = selectedNotificationMemberIdSet.has(member.id);
+
+                      return (
+                        <label
+                          key={member.id}
+                          className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors ${
+                            isSelected
+                              ? 'border-[#8ff0a8]/30 bg-[#8ff0a8]/10'
+                              : 'border-white/8 bg-white/[0.035] hover:bg-white/[0.06]'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleNotificationMember(member.id)}
+                            className="h-4 w-4 accent-[#8ff0a8]"
+                          />
+                          <span className="flex min-w-0 flex-1 items-center gap-3">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/[0.07]">
+                              {member.avatar ? (
+                                <img src={member.avatar} alt="" className="h-full w-full object-cover" />
+                              ) : (
+                                <span className="text-[10px] font-black text-white/58">
+                                  {(member.name || member.email || 'M').slice(0, 2).toUpperCase()}
+                                </span>
+                              )}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-black text-white">{member.name || member.email}</span>
+                              <span className="block truncate text-xs font-semibold text-white/42">{member.email}</span>
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-white/10 px-4 py-6 text-center">
+                    <Users className="mx-auto h-7 w-7 text-white/30" />
+                    <p className="mt-2 text-sm font-bold text-white/45">
+                      {isLoadingActiveMembers ? 'Loading active members...' : 'No active members match that search.'}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <input
             type="text"
             value={notificationTitle}
@@ -1395,16 +1565,22 @@ export function AdminPanel() {
           )}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs font-semibold text-white/38">
-              Sends to active members by email and profile notification.
+              {notificationAudience === 'network'
+                ? 'Sends to the entire active network by email and profile notification.'
+                : 'Sends only to the selected active members by email and profile notification.'}
             </p>
             <button
               type="button"
               onClick={() => void handleSendNetworkNotification()}
-              disabled={isSendingNotification || (!notificationMessage.trim() && !notificationImageUrl.trim())}
+              disabled={notificationSendDisabled}
               className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-white px-5 text-sm font-black text-black transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
             >
               <Send className="h-4 w-4" />
-              {isSendingNotification ? 'Sending...' : 'Send to Network'}
+              {isSendingNotification
+                ? 'Sending...'
+                : notificationAudience === 'selected'
+                  ? `Send to ${selectedNotificationMembers.length || 'Selected'}`
+                  : 'Send to Network'}
             </button>
           </div>
         </div>
@@ -1425,6 +1601,8 @@ export function AdminPanel() {
           <div className="space-y-3">
             {networkNotifications.map((notification) => {
               const summary = notification.emailSummary || {};
+              const isSelectedAudience = notification.audience === 'selected';
+              const recipientPreview = notification.recipientPreview || [];
 
               return (
                 <div key={notification.id} className="rounded-[1rem] border border-white/8 bg-black/20 p-4">
@@ -1436,12 +1614,17 @@ export function AdminPanel() {
                       </p>
                     </div>
                     <span className="shrink-0 rounded-full bg-white/8 px-2 py-1 text-[10px] font-black text-white/45">
-                      {notification.recipientCount || 0} users
+                      {isSelectedAudience ? 'Selected' : 'Network'} · {notification.recipientCount || 0}
                     </span>
                   </div>
                   <p className="mt-3 line-clamp-3 whitespace-pre-line text-xs font-semibold leading-relaxed text-white/55">
                     {notification.message || 'Image-only notification'}
                   </p>
+                  {isSelectedAudience && recipientPreview.length > 0 && (
+                    <p className="mt-2 truncate text-[11px] font-semibold text-white/38">
+                      To: {recipientPreview.map((recipient) => recipient.name || recipient.email).join(', ')}
+                    </p>
+                  )}
                   {notification.imageUrl && (
                     <img src={notification.imageUrl} alt="" className="mt-3 max-h-28 w-full rounded-[0.7rem] object-cover" />
                   )}

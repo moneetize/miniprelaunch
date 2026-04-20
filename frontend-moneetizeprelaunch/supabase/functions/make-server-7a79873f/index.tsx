@@ -1501,7 +1501,36 @@ const publicBroadcastNotification = (notification: any) => ({
   message: `${notification?.message || ''}`,
   imageUrl: `${notification?.imageUrl || ''}`,
   createdAt: `${notification?.createdAt || ''}`,
+  audience: notification?.audience === 'selected' ? 'selected' : 'network',
 });
+
+const normalizeRecipientIds = (value: unknown) => (
+  Array.isArray(value)
+    ? [...new Set(value.map((item) => `${item || ''}`.trim()).filter(Boolean))]
+      .slice(0, 500)
+    : []
+);
+
+const normalizeRecipientEmails = (value: unknown) => (
+  Array.isArray(value)
+    ? [...new Set(value.map((item) => normalizeEmail(`${item || ''}`)).filter((email) => email && isValidEmail(email)))]
+      .slice(0, 500)
+    : []
+);
+
+const broadcastNotificationVisibleToUser = (notification: any, user: any) => {
+  if (notification?.audience !== 'selected') return true;
+
+  const userId = `${user?.id || ''}`;
+  const userEmail = normalizeEmail(user?.email);
+  const recipientIds = normalizeRecipientIds(notification?.recipientIds);
+  const recipientEmails = normalizeRecipientEmails(notification?.recipientEmails);
+
+  return (
+    Boolean(userId && recipientIds.includes(userId)) ||
+    Boolean(userEmail && recipientEmails.includes(userEmail))
+  );
+};
 
 const queueSmsNotification = async (sms: Record<string, unknown>) => {
   const queuedNotifications = parseStoredJsonArray(await kv.get(SMS_QUEUE_KEY));
@@ -2248,7 +2277,8 @@ app.get("/make-server-7a79873f/profile/notifications", async (c) => {
     const currentUser = await verifyCurrentUser(c);
     if ('response' in currentUser) return currentUser.response;
 
-    const notifications = await loadBroadcastNotifications();
+    const notifications = (await loadBroadcastNotifications())
+      .filter((notification: any) => broadcastNotificationVisibleToUser(notification, currentUser.user));
 
     return c.json({
       success: true,
@@ -3503,9 +3533,16 @@ app.post("/make-server-7a79873f/admin/notifications", async (c) => {
     const title = `${body?.title || 'Moneetize update'}`.trim().slice(0, 120) || 'Moneetize update';
     const message = `${body?.message || ''}`.trim().slice(0, 2500);
     const imageUrl = `${body?.imageUrl || ''}`.trim().slice(0, 2000);
+    const audience = body?.audience === 'selected' ? 'selected' : 'network';
+    const requestedRecipientIds = new Set(normalizeRecipientIds(body?.recipientIds));
+    const requestedRecipientEmails = new Set(normalizeRecipientEmails(body?.recipientEmails));
 
     if (!message && !imageUrl) {
       return c.json({ success: false, error: 'Add a message or image before sending.' }, 400);
+    }
+
+    if (audience === 'selected' && !requestedRecipientIds.size && !requestedRecipientEmails.size) {
+      return c.json({ success: false, error: 'Select at least one active member before sending.' }, 400);
     }
 
     const usersResult = await auth.listAllUsers();
@@ -3513,22 +3550,51 @@ app.post("/make-server-7a79873f/admin/notifications", async (c) => {
       return c.json({ success: false, error: usersResult.error || 'Failed to load users' }, usersResult.status || 500);
     }
 
-    const recipients = [...new Set(
-      usersResult.data.users
-        .filter((user: any) => isNetworkVisibleUser(user))
-        .map((user: any) => normalizeEmail(user?.email))
-        .filter((email: string) => email && isValidEmail(email)),
-    )];
+    const recipientRecordsByEmail = new Map<string, { id: string; email: string; name: string }>();
+    usersResult.data.users
+      .filter((user: any) => isNetworkVisibleUser(user))
+      .forEach((user: any) => {
+        const id = `${user?.id || ''}`;
+        const email = normalizeEmail(user?.email);
+        const isSelectedRecipient = requestedRecipientIds.has(id) || requestedRecipientEmails.has(email);
+
+        if (!email || !isValidEmail(email)) return;
+        if (audience === 'selected' && !isSelectedRecipient) return;
+        if (!recipientRecordsByEmail.has(email)) {
+          recipientRecordsByEmail.set(email, {
+            id,
+            email,
+            name: getUserDisplayName(user),
+          });
+        }
+      });
+
+    const recipientRecords = [...recipientRecordsByEmail.values()];
+    const recipients = recipientRecords.map((recipient) => recipient.email);
+
+    if (!recipients.length) {
+      return c.json({
+        success: false,
+        error: audience === 'selected'
+          ? 'No selected active members could be matched to email addresses.'
+          : 'No active members with email addresses were found.',
+      }, 400);
+    }
+
     const now = new Date().toISOString();
     const notification = {
       id: crypto.randomUUID(),
       title,
       message,
       imageUrl,
+      audience,
       createdAt: now,
       createdBy: admin.user.id,
       createdByEmail: normalizeEmail(admin.user.email),
       recipientCount: recipients.length,
+      recipientIds: audience === 'selected' ? recipientRecords.map((recipient) => recipient.id).filter(Boolean) : [],
+      recipientEmails: audience === 'selected' ? recipients : [],
+      recipientPreview: recipientRecords.slice(0, 12),
       emailSummary: {
         sent: 0,
         queued: 0,
@@ -3545,7 +3611,7 @@ app.post("/make-server-7a79873f/admin/notifications", async (c) => {
         <h1 style="font-size:22px;margin:0 0 12px">${escapeHtml(title)}</h1>
         ${message ? `<p style="font-size:15px;margin:0 0 18px;white-space:pre-line">${escapeHtml(message)}</p>` : ''}
         ${imageUrl ? `<p style="margin:0 0 18px"><img src="${escapeHtml(imageUrl)}" alt="" style="max-width:100%;border-radius:14px"/></p>` : ''}
-        <p style="font-size:12px;color:#6b7280;margin-top:24px">You are receiving this because you joined the Moneetize pre-game network.</p>
+        <p style="font-size:12px;color:#6b7280;margin-top:24px">You are receiving this because ${audience === 'selected' ? 'a Moneetize admin sent this update to you.' : 'you joined the Moneetize pre-game network.'}</p>
       </div>
     `;
     const text = [
@@ -3554,7 +3620,9 @@ app.post("/make-server-7a79873f/admin/notifications", async (c) => {
       message,
       imageUrl ? `Image: ${imageUrl}` : '',
       '',
-      'You are receiving this because you joined the Moneetize pre-game network.',
+      audience === 'selected'
+        ? 'You are receiving this because a Moneetize admin sent this update to you.'
+        : 'You are receiving this because you joined the Moneetize pre-game network.',
     ].filter(Boolean).join('\n');
 
     const deliveries: Array<Record<string, unknown>> = [];

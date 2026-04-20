@@ -10,7 +10,15 @@ export interface NetworkNotification {
   imageUrl?: string;
   createdAt: string;
   createdByEmail?: string;
+  audience?: 'network' | 'selected';
   recipientCount?: number;
+  recipientIds?: string[];
+  recipientEmails?: string[];
+  recipientPreview?: Array<{
+    id?: string;
+    email: string;
+    name?: string;
+  }>;
   emailSummary?: {
     sent?: number;
     queued?: number;
@@ -77,15 +85,21 @@ export async function sendAdminNetworkNotification({
   title,
   message,
   imageUrl,
+  audience = 'network',
+  recipientIds = [],
+  recipientEmails = [],
 }: {
   title: string;
   message: string;
   imageUrl?: string;
+  audience?: 'network' | 'selected';
+  recipientIds?: string[];
+  recipientEmails?: string[];
 }) {
   const response = await fetch(`${BASE_API_URL}/admin/notifications`, {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({ title, message, imageUrl }),
+    body: JSON.stringify({ title, message, imageUrl, audience, recipientIds, recipientEmails }),
   });
   const result = await readJson<NotificationsResponse>(response);
 
