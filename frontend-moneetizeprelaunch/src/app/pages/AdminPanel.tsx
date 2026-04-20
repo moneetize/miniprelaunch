@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
@@ -25,7 +25,8 @@ import {
   CheckCircle,
   AlertCircle,
   Bell,
-  Send
+  Send,
+  ChevronRight
 } from 'lucide-react';
 import { ImageWithFallback } from '../components/figma/ImageWithFallback';
 import { isAuthenticated, isUserAdmin, logoutUser } from '../services/authService';
@@ -88,7 +89,7 @@ const categories = [
   'Fashion', 'Books', 'Pets', 'Art', 'Gaming', 'Grocery'
 ];
 
-type AdminTab = 'products' | 'earlyAccess' | 'marketplace' | 'notifications' | 'admins';
+type AdminTab = 'products' | 'earlyAccess' | 'marketplace' | 'notifications' | 'activeMembers' | 'admins';
 
 interface AdminUserRecord {
   id?: string;
@@ -110,6 +111,30 @@ type AdminUsersResponse = {
       error?: string;
       status?: number;
     };
+  };
+  error?: string;
+};
+
+interface AdminMemberRecord {
+  id: string;
+  email: string;
+  name: string;
+  handle?: string;
+  avatar?: string;
+  interests?: string[];
+  points?: number;
+  followers?: number;
+  following?: number;
+  profileComplete?: boolean;
+  createdAt?: string;
+  status?: 'active';
+}
+
+type AdminMembersResponse = {
+  success?: boolean;
+  data?: {
+    members?: AdminMemberRecord[];
+    activeCount?: number;
   };
   error?: string;
 };
@@ -160,6 +185,7 @@ function isValidAdminEmail(value: string) {
 
 export function AdminPanel() {
   const navigate = useNavigate();
+  const statsSliderRef = useRef<HTMLDivElement>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [activeAdminTab, setActiveAdminTab] = useState<AdminTab>('products');
   const [isAddingProduct, setIsAddingProduct] = useState(false);
@@ -198,6 +224,10 @@ export function AdminPanel() {
   const [adminUsersMessage, setAdminUsersMessage] = useState('');
   const [isLoadingAdminUsers, setIsLoadingAdminUsers] = useState(false);
   const [savingAdminEmail, setSavingAdminEmail] = useState('');
+  const [activeMembers, setActiveMembers] = useState<AdminMemberRecord[]>([]);
+  const [activeMemberCount, setActiveMemberCount] = useState(0);
+  const [activeMembersMessage, setActiveMembersMessage] = useState('');
+  const [isLoadingActiveMembers, setIsLoadingActiveMembers] = useState(false);
   const [networkNotifications, setNetworkNotifications] = useState<NetworkNotification[]>([]);
   const [notificationTitle, setNotificationTitle] = useState('');
   const [notificationMessage, setNotificationMessage] = useState('');
@@ -223,6 +253,7 @@ export function AdminPanel() {
       loadProducts();
       loadEarlyAccessQueue();
       void loadAdminUsers();
+      void loadActiveMembers();
       void loadNetworkNotifications();
       loadMarketplaceCatalog();
       void loadMarketplaceOrdersQueue();
@@ -305,6 +336,31 @@ export function AdminPanel() {
       setAdminUsersMessage(error instanceof Error ? error.message : 'Failed to load admin users.');
     } finally {
       setIsLoadingAdminUsers(false);
+    }
+  };
+
+  const loadActiveMembers = async () => {
+    try {
+      setIsLoadingActiveMembers(true);
+      setActiveMembersMessage('');
+      const response = await fetch(`${ADMIN_API_URL}/members`, {
+        method: 'GET',
+        headers: adminHeaders(),
+      });
+      const result = await readAdminJson<AdminMembersResponse>(response);
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to load active members');
+      }
+
+      const members = result.data?.members || [];
+      setActiveMembers(members);
+      setActiveMemberCount(result.data?.activeCount ?? members.length);
+    } catch (error) {
+      console.error('Failed to load active members:', error);
+      setActiveMembersMessage(error instanceof Error ? error.message : 'Failed to load active members.');
+    } finally {
+      setIsLoadingActiveMembers(false);
     }
   };
 
@@ -509,6 +565,63 @@ export function AdminPanel() {
     logoutUser();
     setIsAdmin(false);
     navigate('/login');
+  };
+
+  const activeMemberTotal = activeMemberCount || activeMembers.length;
+  const pendingEarlyAccessCount = earlyAccessRequests.filter((request) => request.status === 'pending').length;
+  const featuredProductCount = products.filter((product) => product.recommended).length;
+
+  const dashboardStats = [
+    {
+      id: 'active-members',
+      label: 'Active Members',
+      value: activeMemberTotal,
+      detail: 'Network reach',
+      Icon: Users,
+      iconClass: 'border-emerald-300/18 bg-emerald-300/[0.08] text-emerald-100',
+    },
+    {
+      id: 'products',
+      label: 'Products',
+      value: products.length,
+      detail: 'Catalog items',
+      Icon: Package,
+      iconClass: 'border-white/10 bg-black/20 text-white/78',
+    },
+    {
+      id: 'categories',
+      label: 'Categories',
+      value: categories.length,
+      detail: 'Shop groups',
+      Icon: ShoppingBag,
+      iconClass: 'border-emerald-300/18 bg-emerald-300/[0.08] text-emerald-200',
+    },
+    {
+      id: 'featured',
+      label: 'Featured',
+      value: featuredProductCount,
+      detail: 'Recommended products',
+      Icon: TrendingUp,
+      iconClass: 'border-sky-200/16 bg-sky-300/[0.08] text-sky-100',
+    },
+    {
+      id: 'early-access',
+      label: 'Early Access',
+      value: pendingEarlyAccessCount,
+      detail: 'Pending requests',
+      Icon: CheckCircle,
+      iconClass: 'border-amber-200/16 bg-amber-300/[0.08] text-amber-100',
+    },
+  ];
+
+  const scrollDashboardStats = (direction: -1 | 1) => {
+    const slider = statsSliderRef.current;
+    if (!slider) return;
+
+    slider.scrollBy({
+      left: direction * Math.min(slider.clientWidth * 0.85, 420),
+      behavior: 'smooth',
+    });
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -823,7 +936,7 @@ export function AdminPanel() {
 
   const renderMarketplaceAdmin = () => (
     <div className="space-y-5">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+      <div className="space-y-5">
         <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.055] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-5">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
@@ -853,7 +966,7 @@ export function AdminPanel() {
               className="w-full resize-none rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white outline-none placeholder:text-white/28 focus:border-[#8ff0a8]"
             />
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <label className="block">
                 <span className="mb-1 block text-xs font-black text-white/42">Points Price</span>
                 <input
@@ -876,7 +989,7 @@ export function AdminPanel() {
               </label>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <select
                 value={marketplaceDraft.category}
                 onChange={(event) => setMarketplaceDraft({ ...marketplaceDraft, category: event.target.value })}
@@ -969,7 +1082,7 @@ export function AdminPanel() {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="space-y-3">
             {marketplaceProducts.map((product) => {
               const isOutOfStock = product.inventory <= 0;
 
@@ -1085,7 +1198,7 @@ export function AdminPanel() {
         </div>
 
         {marketplaceOrders.length > 0 ? (
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <div className="space-y-3">
             {marketplaceOrders.map((order) => (
               <div key={order.id} className="rounded-lg border border-white/10 bg-white/[0.055] p-3">
                 <div className="flex items-start justify-between gap-3">
@@ -1144,14 +1257,94 @@ export function AdminPanel() {
     </div>
   );
 
+  const renderActiveMembersDirectory = () => (
+    <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.055] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-5">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-base font-black text-white sm:text-lg">Active Members</h2>
+          <p className="mt-1 text-xs font-semibold text-white/42">
+            Registered network members currently included in admin tracking.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full border border-emerald-300/18 bg-emerald-300/[0.08] px-3 py-1.5 text-xs font-black text-emerald-100">
+            {activeMemberCount || activeMembers.length} active
+          </span>
+          <button
+            type="button"
+            onClick={() => void loadActiveMembers()}
+            disabled={isLoadingActiveMembers}
+            className="rounded-full border border-white/10 bg-white/[0.07] px-4 py-2 text-xs font-black text-white transition-colors hover:bg-white/12 disabled:opacity-50"
+          >
+            {isLoadingActiveMembers ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+      </div>
+
+      {activeMembersMessage && (
+        <p className="mb-4 rounded-[1rem] border border-white/8 bg-white/[0.045] px-4 py-3 text-xs font-bold leading-relaxed text-white/66">
+          {activeMembersMessage}
+        </p>
+      )}
+
+      {activeMembers.length > 0 ? (
+        <div className="max-h-[420px] overflow-y-auto pr-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          <div className="space-y-3">
+            {activeMembers.map((member) => (
+              <div key={member.id} className="flex min-h-[72px] items-center gap-3 rounded-[1rem] border border-white/8 bg-black/20 px-4 py-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/[0.07]">
+                  {member.avatar ? (
+                    <img src={member.avatar} alt={member.name} className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="text-xs font-black text-white/58">
+                      {(member.name || member.email || 'M').slice(0, 2).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <p className="truncate text-sm font-black text-white">{member.name || member.email}</p>
+                    <span className="shrink-0 rounded-full bg-emerald-300/10 px-2 py-0.5 text-[10px] font-black text-emerald-100">
+                      Active
+                    </span>
+                  </div>
+                  <p className="truncate text-xs font-semibold text-white/44">{member.email}</p>
+                  <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] font-black text-white/42">
+                    <span>{member.handle || '@moneetize'}</span>
+                    <span>{Number(member.points) || 0} pts</span>
+                    <span>{member.followers || 0} followers</span>
+                    <span>{member.profileComplete ? 'Profile complete' : 'Profile started'}</span>
+                  </div>
+                </div>
+                <div className="hidden shrink-0 text-right sm:block">
+                  <p className="text-[10px] font-black uppercase text-white/32">Joined</p>
+                  <p className="text-xs font-bold text-white/54">
+                    {member.createdAt ? new Date(member.createdAt).toLocaleDateString() : 'Unknown'}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-[1rem] border border-dashed border-white/10 px-4 py-8 text-center">
+          <Users className="mx-auto h-8 w-8 text-white/30" />
+          <p className="mt-3 text-sm font-bold text-white/45">
+            {isLoadingActiveMembers ? 'Loading active members...' : 'No active members loaded yet.'}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+
   const renderNotificationsAdmin = () => (
     <div className="space-y-5">
       <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.055] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-5">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-base font-black text-white sm:text-lg">Network Notifications</h2>
+            <h2 className="text-base font-black text-white sm:text-lg">Network Messaging</h2>
             <p className="mt-1 text-xs font-semibold text-white/42">
-              Send updates to every user by email and publish a profile-screen notification.
+              Send updates by email and profile notification.
             </p>
           </div>
           <button
@@ -1164,43 +1357,46 @@ export function AdminPanel() {
           </button>
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="space-y-3">
-            <input
-              type="text"
-              value={notificationTitle}
-              onChange={(event) => {
-                setNotificationTitle(event.target.value);
-                setNotificationStatus('');
-              }}
-              placeholder="Message title"
-              className="h-12 w-full rounded-full border border-white/8 bg-black/20 px-4 text-sm font-bold text-white outline-none placeholder:text-white/30 focus:border-[#8ff0a8]/50"
-            />
-            <textarea
-              value={notificationMessage}
-              onChange={(event) => {
-                setNotificationMessage(event.target.value);
-                setNotificationStatus('');
-              }}
-              placeholder="Write the update, promotion, or launch note..."
-              rows={6}
-              className="w-full resize-none rounded-[1.1rem] border border-white/8 bg-black/20 px-4 py-3 text-sm font-bold leading-relaxed text-white outline-none placeholder:text-white/30 focus:border-[#8ff0a8]/50"
-            />
-            <input
-              type="url"
-              value={notificationImageUrl}
-              onChange={(event) => {
-                setNotificationImageUrl(event.target.value);
-                setNotificationStatus('');
-              }}
-              placeholder="Optional image URL"
-              className="h-12 w-full rounded-full border border-white/8 bg-black/20 px-4 text-sm font-bold text-white outline-none placeholder:text-white/30 focus:border-[#8ff0a8]/50"
-            />
-            {notificationStatus && (
-              <p className="rounded-[1rem] border border-white/8 bg-white/[0.045] px-4 py-3 text-xs font-bold leading-relaxed text-white/66">
-                {notificationStatus}
-              </p>
-            )}
+        <div className="space-y-3">
+          <input
+            type="text"
+            value={notificationTitle}
+            onChange={(event) => {
+              setNotificationTitle(event.target.value);
+              setNotificationStatus('');
+            }}
+            placeholder="Message title"
+            className="h-12 w-full rounded-full border border-white/8 bg-black/20 px-4 text-sm font-bold text-white outline-none placeholder:text-white/30 focus:border-[#8ff0a8]/50"
+          />
+          <textarea
+            value={notificationMessage}
+            onChange={(event) => {
+              setNotificationMessage(event.target.value);
+              setNotificationStatus('');
+            }}
+            placeholder="Write the update, promotion, or launch note..."
+            rows={6}
+            className="w-full resize-none rounded-[1.1rem] border border-white/8 bg-black/20 px-4 py-3 text-sm font-bold leading-relaxed text-white outline-none placeholder:text-white/30 focus:border-[#8ff0a8]/50"
+          />
+          <input
+            type="url"
+            value={notificationImageUrl}
+            onChange={(event) => {
+              setNotificationImageUrl(event.target.value);
+              setNotificationStatus('');
+            }}
+            placeholder="Optional image URL"
+            className="h-12 w-full rounded-full border border-white/8 bg-black/20 px-4 text-sm font-bold text-white outline-none placeholder:text-white/30 focus:border-[#8ff0a8]/50"
+          />
+          {notificationStatus && (
+            <p className="rounded-[1rem] border border-white/8 bg-white/[0.045] px-4 py-3 text-xs font-bold leading-relaxed text-white/66">
+              {notificationStatus}
+            </p>
+          )}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs font-semibold text-white/38">
+              Sends to active members by email and profile notification.
+            </p>
             <button
               type="button"
               onClick={() => void handleSendNetworkNotification()}
@@ -1211,40 +1407,13 @@ export function AdminPanel() {
               {isSendingNotification ? 'Sending...' : 'Send to Network'}
             </button>
           </div>
-
-          <div className="rounded-[1.2rem] border border-white/8 bg-black/20 p-3">
-            <div className="mb-3 flex items-center gap-2">
-              <Bell className="h-4 w-4 text-[#8ff0a8]" />
-              <p className="text-xs font-black uppercase tracking-[0.12em] text-white/45">Profile Preview</p>
-            </div>
-            <div className="overflow-hidden rounded-[1rem] border border-white/10 bg-white/[0.075] p-4">
-              <div className="flex items-start gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-emerald-300/20 bg-emerald-300/10">
-                  <Bell className="h-4 w-4 text-emerald-100" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-black text-white">{notificationTitle.trim() || 'Moneetize update'}</p>
-                  <p className="mt-1 whitespace-pre-line text-xs font-bold leading-relaxed text-white/55">
-                    {notificationMessage.trim() || 'Your message preview will appear here.'}
-                  </p>
-                  {notificationImageUrl.trim() && (
-                    <img
-                      src={notificationImageUrl.trim()}
-                      alt=""
-                      className="mt-3 max-h-40 w-full rounded-[0.8rem] border border-white/8 object-cover"
-                    />
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
       <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.055] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-5">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-base font-black text-white sm:text-lg">Sent Notifications</h2>
+            <h2 className="text-base font-black text-white sm:text-lg">Sent Messages</h2>
             <p className="mt-1 text-xs font-semibold text-white/42">Recent announcements visible on profile screens.</p>
           </div>
           <span className="rounded-full border border-white/8 bg-black/20 px-3 py-1.5 text-xs font-black text-white/45">
@@ -1253,7 +1422,7 @@ export function AdminPanel() {
         </div>
 
         {networkNotifications.length > 0 ? (
-          <div className="grid gap-3 lg:grid-cols-2">
+          <div className="space-y-3">
             {networkNotifications.map((notification) => {
               const summary = notification.emailSummary || {};
 
@@ -1509,54 +1678,55 @@ export function AdminPanel() {
       {/* Main Content */}
       <div className="relative mx-auto max-w-7xl px-4 pb-10 pt-2 sm:px-5 lg:px-6">
         {/* Stats */}
-        <div className="mb-6 grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4">
-          <div className="rounded-[1.25rem] border border-white/8 bg-white/[0.055] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:bg-white/[0.075] sm:p-4 lg:p-5">
-            <div className="flex flex-col items-center gap-2 sm:gap-3 text-center">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-black/20 sm:h-12 sm:w-12">
-                <Package className="h-5 w-5 text-white/78 sm:h-6 sm:w-6" />
-              </div>
-              <div>
-                <p className="text-xl font-black text-white sm:text-2xl lg:text-3xl">{products.length}</p>
-                <p className="text-[10px] font-bold text-white/40 sm:text-xs">Products</p>
-              </div>
+        <div className="mb-6">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#8ff0a8]/65">Dashboard</p>
+              <h2 className="truncate text-lg font-black text-white">Snapshot</h2>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => scrollDashboardStats(-1)}
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.055] text-white/72 transition-colors hover:bg-white/[0.09] hover:text-white"
+                aria-label="Scroll dashboard stats left"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => scrollDashboardStats(1)}
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.055] text-white/72 transition-colors hover:bg-white/[0.09] hover:text-white"
+                aria-label="Scroll dashboard stats right"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
             </div>
           </div>
-          <div className="rounded-[1.25rem] border border-white/8 bg-white/[0.055] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:bg-white/[0.075] sm:p-4 lg:p-5">
-            <div className="flex flex-col items-center gap-2 sm:gap-3 text-center">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full border border-emerald-300/18 bg-emerald-300/[0.08] sm:h-12 sm:w-12">
-                <ShoppingBag className="h-5 w-5 text-emerald-200 sm:h-6 sm:w-6" />
+
+          <div
+            ref={statsSliderRef}
+            className="flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth pb-1 pr-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+          >
+            {dashboardStats.map(({ id, label, value, detail, Icon, iconClass }) => (
+              <div
+                key={id}
+                className="min-w-[218px] snap-start rounded-lg border border-white/8 bg-white/[0.055] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:bg-white/[0.075] sm:min-w-[244px] lg:min-w-[256px]"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-black uppercase text-white/35">{detail}</p>
+                    <p className="mt-2 text-3xl font-black leading-none text-white">
+                      {Number(value).toLocaleString()}
+                    </p>
+                    <p className="mt-2 truncate text-sm font-bold text-white/55">{label}</p>
+                  </div>
+                  <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border ${iconClass}`}>
+                    <Icon className="h-5 w-5" />
+                  </div>
+                </div>
               </div>
-              <div>
-                <p className="text-xl font-black text-white sm:text-2xl lg:text-3xl">{categories.length}</p>
-                <p className="text-[10px] font-bold text-white/40 sm:text-xs">Categories</p>
-              </div>
-            </div>
-          </div>
-          <div className="rounded-[1.25rem] border border-white/8 bg-white/[0.055] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:bg-white/[0.075] sm:p-4 lg:p-5">
-            <div className="flex flex-col items-center gap-2 sm:gap-3 text-center">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full border border-sky-200/16 bg-sky-300/[0.08] sm:h-12 sm:w-12">
-                <TrendingUp className="h-5 w-5 text-sky-100 sm:h-6 sm:w-6" />
-              </div>
-              <div>
-                <p className="text-xl font-black text-white sm:text-2xl lg:text-3xl">
-                  {products.filter(p => p.recommended).length}
-                </p>
-                <p className="text-[10px] font-bold text-white/40 sm:text-xs">Featured</p>
-              </div>
-            </div>
-          </div>
-          <div className="rounded-[1.25rem] border border-white/8 bg-white/[0.055] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:bg-white/[0.075] sm:p-4 lg:p-5">
-            <div className="flex flex-col items-center gap-2 sm:gap-3 text-center">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full border border-amber-200/16 bg-amber-300/[0.08] sm:h-12 sm:w-12">
-                <CheckCircle className="h-5 w-5 text-amber-100 sm:h-6 sm:w-6" />
-              </div>
-              <div>
-                <p className="text-xl font-black text-white sm:text-2xl lg:text-3xl">
-                  {earlyAccessRequests.filter((request) => request.status === 'pending').length}
-                </p>
-                <p className="text-[10px] font-bold text-white/40 sm:text-xs">Early Access</p>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
 
@@ -1565,7 +1735,8 @@ export function AdminPanel() {
             { id: 'products', label: 'Products' },
             { id: 'earlyAccess', label: 'Early Access' },
             { id: 'marketplace', label: 'Marketplace' },
-            { id: 'notifications', label: 'Notifications' },
+            { id: 'notifications', label: 'Messaging' },
+            { id: 'activeMembers', label: 'Active' },
             { id: 'admins', label: 'Admins' },
           ].map((tab) => (
             <button
@@ -1585,6 +1756,7 @@ export function AdminPanel() {
 
         {activeAdminTab === 'marketplace' && renderMarketplaceAdmin()}
         {activeAdminTab === 'notifications' && renderNotificationsAdmin()}
+        {activeAdminTab === 'activeMembers' && renderActiveMembersDirectory()}
         {activeAdminTab === 'admins' && renderAdminUsers()}
 
         {/* Early Access Requests */}

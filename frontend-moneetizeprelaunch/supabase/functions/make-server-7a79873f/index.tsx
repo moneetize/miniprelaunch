@@ -3515,6 +3515,7 @@ app.post("/make-server-7a79873f/admin/notifications", async (c) => {
 
     const recipients = [...new Set(
       usersResult.data.users
+        .filter((user: any) => isNetworkVisibleUser(user))
         .map((user: any) => normalizeEmail(user?.email))
         .filter((email: string) => email && isValidEmail(email)),
     )];
@@ -3594,6 +3595,57 @@ app.post("/make-server-7a79873f/admin/notifications", async (c) => {
   } catch (error) {
     console.error('Send broadcast notification endpoint error:', error);
     return c.json({ success: false, error: 'Failed to send notification' }, 500);
+  }
+});
+
+app.get("/make-server-7a79873f/admin/members", async (c) => {
+  try {
+    const admin = await requireAdmin(c);
+    if ('response' in admin) return admin.response;
+
+    const usersResult = await auth.listAllUsers();
+    if (!usersResult.success || !usersResult.data?.users) {
+      return c.json({ success: false, error: usersResult.error || 'Failed to load members' }, usersResult.status || 500);
+    }
+
+    const users = usersResult.data.users.filter((user: any) => isNetworkVisibleUser(user));
+    const allFollowRecords = await kv.getByPrefix(NETWORK_FOLLOWS_PREFIX);
+    const members = await Promise.all(users.map(async (user: any, index: number) => {
+      const [storedPoints, storedSettings, storedFollowRecord] = await Promise.all([
+        kv.get(`user_points:${user.id}`),
+        kv.get(`${PROFILE_SETTINGS_PREFIX}${user.id}`),
+        kv.get(`${NETWORK_FOLLOWS_PREFIX}${user.id}`),
+      ]);
+      const settings = normalizeProfileSettings(storedSettings || {}, user);
+      const userFollowStates = normalizeFollowStates(storedFollowRecord);
+      const followers = allFollowRecords.filter((record) => normalizeFollowStates(record)[user.id]).length;
+
+      return {
+        id: user.id,
+        email: normalizeEmail(user.email),
+        name: settings.name,
+        handle: settings.handle || formatUserHandle(settings.name || `member${index + 1}`),
+        avatar: settings.photo || '',
+        interests: settings.interests || [],
+        points: parseStoredNumber(storedPoints, DEFAULT_USER_POINTS),
+        followers,
+        following: Object.values(userFollowStates).filter(Boolean).length,
+        profileComplete: settings.profileComplete === true,
+        createdAt: user.created_at || '',
+        status: 'active',
+      };
+    }));
+
+    return c.json({
+      success: true,
+      data: {
+        members: members.sort((left, right) => `${right.createdAt}`.localeCompare(`${left.createdAt}`)),
+        activeCount: members.length,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('List active members endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to load active members' }, 500);
   }
 });
 
