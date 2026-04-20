@@ -71,6 +71,14 @@ interface InviteTeamResponse {
   error?: string;
 }
 
+interface DeletePendingInviteResponse {
+  success?: boolean;
+  data?: {
+    deleted: number;
+  };
+  error?: string;
+}
+
 const INVITE_VISITOR_STORAGE_KEY = 'moneetizeInviteVisitorId';
 
 function getOrCreateInviteVisitorId() {
@@ -166,6 +174,31 @@ export async function loadInviteTeam() {
   }
 
   return result.data || null;
+}
+
+export async function deletePendingInviteFromServer(invite: {
+  id?: string;
+  type?: 'email' | 'sms';
+  email?: string;
+  phone?: string;
+  contact?: string;
+}) {
+  if (!getAccessToken()) {
+    return null;
+  }
+
+  const response = await fetch(`${INVITES_API_URL}/pending`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+    body: JSON.stringify(invite),
+  });
+  const result = await readJson<DeletePendingInviteResponse>(response);
+
+  if (!response.ok || !result.success) {
+    throw new Error(result.error || 'Failed to delete pending invite.');
+  }
+
+  return result.data || { deleted: 0 };
 }
 
 export async function trackUrlInviteOpen({

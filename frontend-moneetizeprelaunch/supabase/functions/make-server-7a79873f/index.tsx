@@ -1847,6 +1847,50 @@ const getInviteContactEmail = (invite: any) => {
   return getInviteContactEmails(invite)[0] || '';
 };
 
+const getInviteContactPhones = (invite: any) => {
+  const candidates = [
+    invite?.phone,
+    invite?.contact,
+    invite?.recipient,
+    invite?.to,
+  ];
+  const phones = new Set<string>();
+
+  candidates.forEach((candidate) => {
+    const phone = normalizePhoneNumber(`${candidate || ''}`);
+    if (phone) phones.add(phone);
+  });
+
+  return [...phones];
+};
+
+const getInviteMatchKeys = (invite: any, { includeRecordIds = true } = {}) => {
+  const keys = new Set<string>();
+
+  getInviteContactEmails(invite).forEach((email) => keys.add(`email:${email}`));
+  getInviteContactPhones(invite).forEach((phone) => keys.add(`phone:${phone}`));
+
+  const rawContact = `${invite?.contact || ''}`.trim().toLowerCase();
+  const normalizedContactPhone = normalizePhoneNumber(rawContact);
+
+  if (rawContact && !rawContact.includes('@') && !normalizedContactPhone) {
+    keys.add(`contact:${rawContact}`);
+  }
+
+  if (includeRecordIds) {
+    const id = `${invite?.id || ''}`.trim().toLowerCase();
+    if (id) keys.add(`id:${id}`);
+  }
+
+  const inviteeId = `${invite?.inviteeId || ''}`.trim().toLowerCase();
+  const visitorId = `${invite?.visitorId || ''}`.trim().toLowerCase();
+
+  if (inviteeId) keys.add(`user:${inviteeId}`);
+  if (visitorId) keys.add(`visitor:${visitorId}`);
+
+  return [...keys];
+};
+
 const mergeAcceptedInviteRecords = (history: any[], acceptedRecords: any[]) => {
   const acceptedIdentities = getAcceptedInviteIdentitySet(history);
   const nextHistory = [...history];
@@ -3814,7 +3858,7 @@ app.get("/make-server-7a79873f/invites/team", async (c) => {
     const uniqueRecords = (records: any[]) => {
       const seen = new Set<string>();
       return records.filter((record) => {
-        const key = `${record?.inviteeId || record?.inviteeEmail || record?.email || record?.phone || record?.contact || record?.visitorId || record?.id || ''}`.trim().toLowerCase();
+        const key = getInviteMatchKeys(record)[0] || '';
         if (!key || seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -3854,12 +3898,19 @@ app.get("/make-server-7a79873f/invites/team", async (c) => {
 
     const acceptedRecords = uniqueRecords(history.filter((invite: any) => invite?.status === 'accepted'))
       .slice(0, MAX_RELEASE_TEAM_INVITES);
+    const acceptedInviteKeys = new Set(
+      acceptedRecords.flatMap((invite: any) => getInviteMatchKeys(invite, { includeRecordIds: false })),
+    );
     const pendingRecords = uniqueRecords(history.filter((invite: any) => (
       invite?.status === 'pending' ||
       invite?.deliveryStatus === 'queued' ||
       invite?.deliveryStatus === 'sent' ||
       invite?.deliveryStatus === 'opened'
-    ))).slice(0, 50);
+    )))
+      .filter((invite: any) => (
+        !getInviteMatchKeys(invite, { includeRecordIds: false }).some((key) => acceptedInviteKeys.has(key))
+      ))
+      .slice(0, 50);
 
     const members = await Promise.all(acceptedRecords.map(async (invite: any, index: number) => {
       const inviteeId = `${invite?.inviteeId || ''}`.trim();
@@ -3907,6 +3958,44 @@ app.get("/make-server-7a79873f/invites/team", async (c) => {
   } catch (error) {
     console.error('Invite team endpoint error:', error);
     return c.json({ success: false, error: 'Failed to load invite team' }, 500);
+  }
+});
+
+app.delete("/make-server-7a79873f/invites/pending", async (c) => {
+  try {
+    const currentUser = await verifyCurrentUser(c);
+    if ('response' in currentUser) return currentUser.response;
+
+    const body = await c.req.json().catch(() => ({}));
+    const matchKeys = new Set(getInviteMatchKeys(body));
+
+    if (!matchKeys.size) {
+      return c.json({ success: false, error: 'Pending invite identifier required' }, 400);
+    }
+
+    const inviteHistoryKey = `${INVITE_HISTORY_PREFIX}${currentUser.user.id}`;
+    const history = parseStoredJsonArray(await kv.get(inviteHistoryKey));
+    const nextHistory = history.filter((invite: any) => {
+      if (invite?.status === 'accepted') return true;
+
+      const inviteKeys = getInviteMatchKeys(invite);
+      return !inviteKeys.some((key) => matchKeys.has(key));
+    });
+    const deleted = history.length - nextHistory.length;
+
+    if (deleted > 0) {
+      await kv.set(inviteHistoryKey, JSON.stringify(nextHistory));
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        deleted,
+      },
+    }, 200);
+  } catch (error) {
+    console.error('Delete pending invite endpoint error:', error);
+    return c.json({ success: false, error: 'Failed to delete pending invite' }, 500);
   }
 });
 

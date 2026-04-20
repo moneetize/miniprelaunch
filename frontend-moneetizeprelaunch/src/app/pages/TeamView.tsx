@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import { ChevronLeft, MessageCircle, RefreshCw, Trash2 } from 'lucide-react';
@@ -8,7 +8,7 @@ import { getStoredProfileSettings, PROFILE_SETTINGS_STORAGE_KEYS, PROFILE_SETTIN
 import { buildInviteLink } from '../utils/invitationLinks';
 import { getAgentAvatarTone, getSelectedAvatarImage } from '../utils/avatarUtils';
 import { hydrateRemoteProfileSettings } from '../services/profilePersistenceService';
-import { loadInviteTeam } from '../services/inviteService';
+import { deletePendingInviteFromServer, loadInviteTeam } from '../services/inviteService';
 import {
   deletePendingInvite,
   getPendingTeamInviteMembers,
@@ -45,6 +45,78 @@ const getStoredTeamName = (name: string) => {
   return storedTeamName && storedTeamName !== "John's Team" ? storedTeamName : getUserTeamName(name);
 };
 
+const normalizeEmailKey = (value?: string) => `${value || ''}`.trim().toLowerCase();
+const normalizePhoneKey = (value?: string) => `${value || ''}`.replace(/\D/g, '');
+
+const getTeamMemberContactKeys = (
+  member: Pick<TeamMember, 'id' | 'email' | 'phone' | 'contact' | 'name'>,
+  includeFallback = true,
+) => {
+  const keys: string[] = [];
+  const email = normalizeEmailKey(member.email || (member.contact?.includes('@') ? member.contact : ''));
+  const phone = normalizePhoneKey(member.phone || (!member.contact?.includes('@') ? member.contact : ''));
+  const contact = normalizeEmailKey(member.contact);
+
+  if (email) keys.push(`email:${email}`);
+  if (phone) keys.push(`phone:${phone}`);
+  if (!email && !phone && contact) keys.push(`contact:${contact}`);
+  if (includeFallback && !keys.length && member.id !== undefined && member.id !== null) keys.push(`id:${String(member.id)}`);
+  if (includeFallback && !keys.length && member.name) keys.push(`name:${normalizeEmailKey(member.name)}`);
+
+  return [...new Set(keys)];
+};
+
+const mapPendingInviteMember = (invite: {
+  id: string | number;
+  name: string;
+  email?: string;
+  phone?: string;
+  contact?: string;
+  type?: InviteDeliveryType;
+  inviteUrl?: string;
+  sentAt?: string;
+}): TeamMember => ({
+  id: invite.id,
+  name: invite.name,
+  email: invite.email,
+  phone: invite.phone,
+  contact: invite.contact,
+  handle: '',
+  points: 0,
+  avatar: '',
+  inviteType: invite.type,
+  inviteUrl: invite.inviteUrl,
+  sentAt: invite.sentAt,
+  status: 'pending',
+});
+
+const mergeVisiblePendingInvites = (
+  pendingMembers: TeamMember[],
+  activeMembers: TeamMember[],
+  hiddenKeys: Set<string>,
+) => {
+  const activeKeys = new Set(activeMembers.flatMap((member) => getTeamMemberContactKeys(member, false)));
+  const merged = new Map<string, TeamMember>();
+
+  pendingMembers.forEach((member) => {
+    const keys = getTeamMemberContactKeys(member);
+
+    if (keys.some((key) => activeKeys.has(key) || hiddenKeys.has(key))) return;
+
+    const key = keys[0];
+    const current = merged.get(key);
+
+    merged.set(key, current ? {
+      ...current,
+      ...member,
+      inviteUrl: member.inviteUrl || current.inviteUrl,
+      sentAt: member.sentAt || current.sentAt,
+    } : member);
+  });
+
+  return [...merged.values()];
+};
+
 export function TeamView() {
   const navigate = useNavigate();
   const [teamName, setTeamName] = useState("Jess's Team");
@@ -58,6 +130,8 @@ export function TeamView() {
   const [pendingInviteMembers, setPendingInviteMembers] = useState<TeamMember[]>([]);
   const [teamLimit, setTeamLimit] = useState(5);
   const [inviteActionMessage, setInviteActionMessage] = useState('');
+  const acceptedInviteMembersRef = useRef<TeamMember[]>([]);
+  const hiddenPendingInviteKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const points = getUserPoints();
@@ -75,20 +149,11 @@ export function TeamView() {
     };
     const refreshPendingInviteMembers = () => {
       setPendingInviteMembers(
-        getPendingTeamInviteMembers().map((invite) => ({
-          id: invite.id,
-          name: invite.name,
-          email: invite.email,
-          phone: invite.phone,
-          contact: invite.contact,
-          handle: '',
-          points: 0,
-          avatar: '',
-          inviteType: invite.type,
-          inviteUrl: invite.inviteUrl,
-          sentAt: invite.sentAt,
-          status: 'pending' as const,
-        }))
+        mergeVisiblePendingInvites(
+          getPendingTeamInviteMembers().map(mapPendingInviteMember),
+          acceptedInviteMembersRef.current,
+          hiddenPendingInviteKeysRef.current,
+        )
       );
     };
     const refreshInviteTeam = () => {
@@ -97,7 +162,7 @@ export function TeamView() {
           if (!team) return;
 
           setTeamLimit(team.maxAccepted || 5);
-          setAcceptedInviteMembers((team.members || []).map((member) => ({
+          const activeMembers = (team.members || []).map((member) => ({
             id: member.id,
             name: member.name,
             email: member.email,
@@ -109,31 +174,21 @@ export function TeamView() {
             inviteUrl: member.inviteUrl,
             sentAt: member.sentAt,
             status: 'active' as const,
-          })));
+          }));
 
-          if (team.pending?.length) {
-            setPendingInviteMembers((currentPending) => {
-              const localIds = new Set(currentPending.map((invite) => String(invite.id)));
-              const remotePending = (team.pending || [])
-                .filter((invite) => !localIds.has(String(invite.id)))
-                .map((invite) => ({
-                  id: invite.id,
-                  name: invite.name,
-                  email: invite.email,
-                  phone: invite.phone,
-                  contact: invite.contact,
-                  handle: invite.handle || '',
-                  points: 0,
-                  avatar: '',
-                  inviteType: invite.type,
-                  inviteUrl: invite.inviteUrl,
-                  sentAt: invite.sentAt,
-                  status: 'pending' as const,
-                }));
+          acceptedInviteMembersRef.current = activeMembers;
+          setAcceptedInviteMembers(activeMembers);
 
-              return [...currentPending, ...remotePending];
-            });
-          }
+          setPendingInviteMembers((currentPending) => (
+            mergeVisiblePendingInvites(
+              [
+                ...currentPending,
+                ...(team.pending || []).map(mapPendingInviteMember),
+              ],
+              activeMembers,
+              hiddenPendingInviteKeysRef.current,
+            )
+          ));
         })
         .catch((error) => {
           console.warn('Invite team sync skipped:', error);
@@ -236,15 +291,55 @@ export function TeamView() {
   const handleDeletePendingInvite = (member: TeamMember) => {
     if (member.status !== 'pending') return;
 
-    deletePendingInvite({
+    const invitePayload = {
       id: String(member.id),
       type: member.inviteType || (member.phone ? 'sms' : 'email'),
       email: member.email,
       phone: member.phone,
       contact: member.contact,
-    });
+    };
+
+    getTeamMemberContactKeys(member).forEach((key) => hiddenPendingInviteKeysRef.current.add(key));
+    deletePendingInvite(invitePayload);
     setPendingInviteMembers((members) => members.filter((pendingMember) => pendingMember.id !== member.id));
     setInviteActionMessage(`Removed pending invite for ${getPendingInviteLabel(member)}.`);
+
+    void deletePendingInviteFromServer(invitePayload)
+      .then(() => {
+        void loadInviteTeam()
+          .then((team) => {
+            if (!team) return;
+
+            const activeMembers = (team.members || []).map((remoteMember) => ({
+              id: remoteMember.id,
+              name: remoteMember.name,
+              email: remoteMember.email,
+              phone: remoteMember.phone,
+              contact: remoteMember.contact,
+              handle: remoteMember.handle || '',
+              points: remoteMember.points || 0,
+              avatar: remoteMember.avatar || '',
+              inviteUrl: remoteMember.inviteUrl,
+              sentAt: remoteMember.sentAt,
+              status: 'active' as const,
+            }));
+
+            acceptedInviteMembersRef.current = activeMembers;
+            setAcceptedInviteMembers(activeMembers);
+            setPendingInviteMembers(mergeVisiblePendingInvites(
+              (team.pending || []).map(mapPendingInviteMember),
+              activeMembers,
+              hiddenPendingInviteKeysRef.current,
+            ));
+          })
+          .catch((error) => {
+            console.warn('Invite team refresh after delete skipped:', error);
+          });
+      })
+      .catch((error) => {
+        console.warn('Remote pending invite delete skipped:', error);
+        setInviteActionMessage(`Removed ${getPendingInviteLabel(member)} locally. Refresh may show it again until server cleanup succeeds.`);
+      });
   };
 
   const renderAnimatedAiAvatar = () => {
