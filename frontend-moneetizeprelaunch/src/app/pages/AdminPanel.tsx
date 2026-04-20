@@ -1766,7 +1766,6 @@ export function AdminPanel() {
   if (isCheckingAdmin) {
     return (
       <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[#060708] px-4 text-white">
-        <div className="pointer-events-none fixed inset-x-0 top-0 h-48 bg-[radial-gradient(circle_at_50%_0%,rgba(143,240,168,0.12),transparent_72%)]" />
         <motion.div
           initial={{ scale: 0.94, opacity: 0, y: 14 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -1785,7 +1784,6 @@ export function AdminPanel() {
   if (!isAdmin) {
     return (
       <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[#060708] px-4 text-white">
-        <div className="pointer-events-none fixed inset-x-0 top-0 h-48 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.08),transparent_72%)]" />
         <motion.div
           initial={{ scale: 0.94, opacity: 0, y: 14 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -1822,8 +1820,6 @@ export function AdminPanel() {
 
   return (
     <div className="absolute inset-0 h-full w-full overflow-y-auto bg-[#060708] text-white [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-      <div className="pointer-events-none fixed inset-x-0 top-0 h-48 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.08),transparent_72%)]" />
-
       <div className="sticky top-0 z-40 bg-[#060708]/88 px-4 pb-3 pt-[calc(0.9rem+env(safe-area-inset-top))] backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
           <button
