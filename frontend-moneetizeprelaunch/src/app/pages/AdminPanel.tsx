@@ -790,6 +790,44 @@ export function AdminPanel() {
     XLSX.writeFile(workbook, 'products.xlsx');
   };
 
+  const handleExportActiveMembers = () => {
+    if (!activeMembers.length) {
+      setActiveMembersMessage('Load active members before exporting.');
+      return;
+    }
+
+    const rows = activeMembers.map((member) => ({
+      Name: member.name || '',
+      'Email Address': member.email || '',
+      Handle: member.handle || '',
+      Status: member.status || 'active',
+      Points: Number(member.points) || 0,
+      Followers: Number(member.followers) || 0,
+      Following: Number(member.following) || 0,
+      'Profile Complete': member.profileComplete ? 'Yes' : 'No',
+      Interests: (member.interests || []).join(', '),
+      Joined: member.createdAt ? new Date(member.createdAt).toLocaleDateString() : '',
+      'User ID': member.id,
+    }));
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    worksheet['!cols'] = [
+      { wch: 24 },
+      { wch: 32 },
+      { wch: 22 },
+      { wch: 12 },
+      { wch: 10 },
+      { wch: 10 },
+      { wch: 10 },
+      { wch: 18 },
+      { wch: 34 },
+      { wch: 14 },
+      { wch: 38 },
+    ];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Active Members');
+    XLSX.writeFile(workbook, `moneetize-active-members-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   const handleImportProducts = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -1323,6 +1361,16 @@ export function AdminPanel() {
           <span className="rounded-full border border-emerald-300/18 bg-emerald-300/[0.08] px-3 py-1.5 text-xs font-black text-emerald-100">
             {activeMemberCount || activeMembers.length} active
           </span>
+          <button
+            type="button"
+            onClick={handleExportActiveMembers}
+            disabled={!activeMembers.length}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.07] text-white transition-colors hover:bg-white/12 disabled:cursor-not-allowed disabled:opacity-35"
+            aria-label="Export active members XLSX"
+            title="Export active members XLSX"
+          >
+            <FileSpreadsheet className="h-4 w-4" />
+          </button>
           <button
             type="button"
             onClick={() => void loadActiveMembers()}
